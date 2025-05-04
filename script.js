@@ -83,11 +83,22 @@ document.addEventListener('DOMContentLoaded', function() {
               const text = item.textContent.toLowerCase();
               item.style.display = text.includes(searchTerm) ? 'block' : 'none';
           });
+          // In script.js - Enhance existing search
+function filterPYQs() {
+    const searchTerm = searchInput.value.toLowerCase();
+    document.querySelectorAll('.pyq-title').forEach(title => {
+      const text = title.textContent;
+      const html = text.replace(new RegExp(searchTerm, 'gi'), 
+        match => `<mark>${match}</mark>`);
+      title.innerHTML = html;
+    });
+  }
       }
       
       searchButton.addEventListener('click', filterPYQs);
       searchInput.addEventListener('input', filterPYQs);
   }
+  
   
   // Copy link button
   copyLinkBtn.addEventListener('click', function() {
@@ -100,3 +111,5 @@ document.addEventListener('DOMContentLoaded', function() {
       }, 2000);
   });
 });
+
+
