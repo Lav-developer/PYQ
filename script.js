@@ -12,8 +12,9 @@ document.addEventListener('DOMContentLoaded', function() {
   fetch('data.json')
       .then(response => response.json())
       .then(data => {
-          renderPYQs(data.pyqs);
-          setupEventListeners();
+        const decompressed = PYQStorageOptimizer.decompressData(data);
+        renderPYQs(decompressed.pyqs);
+        setupEventListeners();
       })
       .catch(error => console.error('Error loading PYQs:', error));
 
