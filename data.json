@@ -1,80 +1,80 @@
 {
-    "pyqs": [
-      {
-        "title": "B.Tech 2nd Year COA {2024-25}",
-        "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_COA_2024-25.pdf"
-      },
-      {
-        "title": "B.Tech 2nd Year DAA {2024-25}",
-        "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_DAA_2024-25.pdf"
-      },
-      {
-        "title": "B.Tech 2nd Year DBMS {2024-25}",
-        "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_DBMS_2024-25.pdf"
-      },
-      {
-        "title": "B.Tech 1st Year OS {2024-25}",
-        "file": "/files/B.Tech/BTECH_CSE_(2nd_Yr)_OS_2024-25.pdf"
-      },
-      {
-        "title": "B.Tech 1st Year Chemistry {2023-24}",
-        "file": "/files/B.Tech/BTECH_Engg_Chemistry_2023-24.pdf"
-      },
-      {
-        "title": "B.Tech 1st Year Mid(1st sem + 2nd sem) {2023-24}",
-        "file": "/files/B.Tech/Sessional_Paper_2023-24.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem all papers {2024-25}",
-        "file": "/files/B.Tech/B.Tech_CSE(AIFM)_1st_Year_1st_Sem_all_questions_paper.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem Eng. Physics paper {2024-25}",
-        "file": "/files/B.Tech/first_year_first_sem_eng_physics_paper.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem Manufacturing Practices paper {2024-25}",
-        "file": "/files/B.Tech/first_year_first_sem_manufacturing_practices_paper.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem Programming C paper {2024-25}",
-        "file": "/files/B.Tech/first_year_first_sem_programming_c_paper.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem Web Technology paper {2024-25}",
-        "file": "/files/B.Tech/first_year_first_sem_web_technology_paper.pdf"
-      },
-      {
-        "title": "B.Tech 1st semester Eng. Mathematics paper {2024-25}",
-        "file": "/files/B.Tech/first_year_first_semester_engineering_mathematics.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem all papers (Mid + End sem) {2023-24}",
-        "file": "/files/B.Tech/Mid_Sem_End_Sem.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem all papers (End sem) {2023-24}",
-        "file": "/files/B.Tech/sem_1_2023-24.pdf"
-      },
-      {
-        "title": "B.Tech 1st year End sem(1st + 2nd sem) {2023-24}",
-        "file": "/files/B.Tech/Semester_Paper_2023-24.pdf"
-      },
-      {
-        "title": "B.Tech 1st sem {2019-20}",
-        "file": "/files/B.Tech/1st_sem_2019-20.pdf"
-      },
-      {
-        "title": "B.Tech 2nd sem {2021-22}",
-        "file": "/files/B.Tech/2nd_sem_2021-22.pdf"
-      },
-      {
-        "title": "B.Tech End sem {2022-23}",
-        "file": "/files/B.Tech/Semester_Paper_2022-23.pdf"
-      },
-      {
-        "title": "B.Tech 3rd sem BEE {2019-20}",
-        "file": "/files/B.Tech/3rd_sem_BEE_2019-20.pdf"
-      }
-    ]
-  }
+  "pyqs": [
+    {
+      "title": "B.Tech 2nd Year COA {2024-25}",
+      "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_COA_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Year DAA {2024-25}",
+      "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_DAA_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Year DBMS {2024-25}",
+      "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_DBMS_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Year OS {2024-25}",
+      "file": "/files/B.Tech/BTECH_CSE_(2nd_Yr)_OS_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 1st Year Chemistry {2023-24}",
+      "file": "/files/B.Tech/BTECH_Engg_Chemistry_2023-24.pdf"
+    },
+    {
+      "title": "B.Tech 1st Year Mid(1st sem + 2nd sem) {2023-24}",
+      "file": "/files/B.Tech/Sessional_Paper_2023-24.pdf"
+    },
+    {
+      "title": "B.Tech AIFM 1st sem all papers {2024-25}",
+      "file": "/files/B.Tech/B.Tech_CSE(AIFM)_1st_Year_1st_Sem_all_questions_paper.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem Eng. Physics paper {2024-25}",
+      "file": "/files/B.Tech/first_year_first_sem_eng_physics_paper.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem Manufacturing Practices paper {2024-25}",
+      "file": "/files/B.Tech/first_year_first_sem_manufacturing_practices_paper.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem Programming C paper {2024-25}",
+      "file": "/files/B.Tech/first_year_first_sem_programming_c_paper.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem Web Technology paper {2024-25}",
+      "file": "/files/B.Tech/first_year_first_sem_web_technology_paper.pdf"
+    },
+    {
+      "title": "B.Tech 1st semester Eng. Mathematics paper {2024-25}",
+      "file": "/files/B.Tech/first_year_first_semester_engineering_mathematics.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem all papers (Mid + End sem) {2023-24}",
+      "file": "/files/B.Tech/Mid_Sem_End_Sem.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem all papers (End sem) {2023-24}",
+      "file": "/files/B.Tech/sem_1_2023-24.pdf"
+    },
+    {
+      "title": "B.Tech 1st year End sem(1st + 2nd sem) {2023-24}",
+      "file": "/files/B.Tech/Semester_Paper_2023-24.pdf"
+    },
+    {
+      "title": "B.Tech 1st sem {2019-20}",
+      "file": "/files/B.Tech/1st_sem_2019-20.pdf"
+    },
+    {
+      "title": "B.Tech 2nd sem {2021-22}",
+      "file": "/files/B.Tech/2nd_sem_2021-22.pdf"
+    },
+    {
+      "title": "B.Tech End sem {2022-23}",
+      "file": "/files/B.Tech/Semester_Paper_2022-23.pdf"
+    },
+    {
+      "title": "B.Tech 3rd sem BEE {2019-20}",
+      "file": "/files/B.Tech/3rd_sem_BEE_2019-20.pdf"
+    }
+  ]
+}
