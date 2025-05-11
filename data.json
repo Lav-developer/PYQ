@@ -1,20 +1,56 @@
 {
   "pyqs": [
     {
-      "title": "B.Tech 2nd Year COA {2024-25}",
-      "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_COA_2024-25.pdf"
+      "title": "B.Tech 2nd Sem EEE {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/EEE_2nd_sem_2024-25.pdf"
     },
     {
-      "title": "B.Tech 2nd Year DAA {2024-25}",
-      "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_DAA_2024-25.pdf"
+      "title": "B.Tech 2nd Sem C-Programming {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/C-programming_2nd_sem_2024-25.pdf"
     },
     {
-      "title": "B.Tech 2nd Year DBMS {2024-25}",
-      "file": "/files/B.Tech/BTECH_CSE_(2nd Yr)_DBMS_2024-25.pdf"
+      "title": "B.Tech 2nd Sem Eng. Math 2nd {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/Eng_math_2nd_sem_2024-25.pdf"
     },
     {
-      "title": "B.Tech 2nd Year OS {2024-25}",
-      "file": "/files/B.Tech/BTECH_CSE_(2nd_Yr)_OS_2024-25.pdf"
+      "title": "B.Tech 2nd Sem Eng. Physics {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/Eng_phy_2nd_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Sem Environmental science {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/Environment_2nd_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Sem Fashion Technology {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/Fashion_tech_2nd_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Sem Manufacturing Process {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/Manufacturing_process_2nd _sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Sem Repairing {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/Repairing_2nd_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 2nd Sem Web Tech. {2024-25}",
+      "file": "/files/B.Tech/2nd Sem_2024-25/web_tech_2nd_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 4th Sem COA {2024-25}",
+      "file": "/files/B.Tech/4th Sem_2024-25/COA_4th_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 4th Sem DAA {2024-25}",
+      "file": "/files/B.Tech/4th Sem_2024-25/DAA_4th_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 4th Sem DBMS {2024-25}",
+      "file": "/files/B.Tech/4th Sem_2024-25/DBMS_4th_sem_2024-25.pdf"
+    },
+    {
+      "title": "B.Tech 4th Sem OS {2024-25}",
+      "file": "/files/B.Tech/4th Sem_2024-25/OS_4th_sem_2024-25.pdf"
     },
     {
       "title": "B.Tech 1st Year Chemistry {2023-24}",
