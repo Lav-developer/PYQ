@@ -199,6 +199,15 @@
     </div>
   </div>
 </section>
+<form id="pyqUploadForm" enctype="multipart/form-data" method="POST" action="/upload">
+  <input type="text" name="subject_name" placeholder="Subject Name" required>
+  <input type="text" name="course_name" placeholder="Course Name" required>
+  <input type="number" name="year" placeholder="Year" required>
+  <input type="file" name="pdf_file" accept="application/pdf" required>
+  <button type="submit">Upload PDF</button>
+</form>
+<div id="uploadStatus"></div>
+
 
   <!-- Add to footer in index.html -->
 <!-- Modern Newsletter Section -->
