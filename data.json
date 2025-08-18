@@ -115,7 +115,7 @@
   ],
   "syllabus": [
     {
-      "title": "B.Tech CSE 3rd Semester Syllabus {2025-26}",
+      "title": "Syllabus {2025-26}",
       "file": "/files/Syllabus/B.Tech/CSE_3rd_Sem.pdf",
       "course": "B.Tech CSE",
       "semester": "3rd Semester",
@@ -150,7 +150,7 @@
       "year": "1st Year"
     },
     {
-      "title": "Python {2024-25}",
+      "title": "Intro to Python Prog. {2024-25}",
       "file": "/files/Syllabus/B.Tech/Python_1st_Year.pdf",
       "course": "B.Tech",
       "semester": "1/2 Semesters",
@@ -178,7 +178,7 @@
       "year": "1st Year"
     },
     {
-      "title": "C Language {2024-25}",
+      "title": " PPS using C Language {2024-25}",
       "file": "/files/Syllabus/B.Tech/C_1st_Year.pdf",
       "course": "B.Tech",
       "semester": "1/2 Semesters",
@@ -211,7 +211,22 @@
       "course": "B.Tech",
       "semester": "1/2 Semesters",
       "year": "1st Year"
+    },
+    {
+      "title": "Intro to Fashion Technology {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Fashion_Tech_AIFM_2nd_sem.pdf",
+      "course": "B.Tech(hons.) CSE(AIFM)",
+      "semester": "2nd Semester",
+      "year": "1st Year"
+    },
+    {
+      "title": "Micro and Macro Economics Analysis {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Economic_AIFM_1st_sem.pdf",
+      "course": "B.Tech(hons.) CSE(AIFM)",
+      "semester": "1st Semester",
+      "year": "1st Year"
     }
+
     
     
   ]

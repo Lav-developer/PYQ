@@ -371,4 +371,134 @@ document.addEventListener('DOMContentLoaded', function() {
             trackEvent('Preview', 'PDF', event.target.closest('.pyq-item, .syllabus-item').querySelector('h5').textContent);
         }
     });
+
+    // Tool Information Modal Handler
+function showToolInfo(toolId) {
+    const toolInfo = {
+        'cgpa': {
+            title: 'CGPA Calculator',
+            description: 'A comprehensive tool to calculate your Cumulative Grade Point Average (CGPA) and Semester Grade Point Average (SGPA).',
+            features: [
+                'Calculate CGPA for multiple semesters',
+                'Track individual semester performance',
+                'Support for different grading systems',
+                'Export results and maintain history',
+                'Mobile-responsive design',
+                'Secure and privacy-focused'
+            ],
+            benefits: [
+                'Monitor your academic progress',
+                'Plan future semester targets',
+                'Prepare for scholarship applications',
+                'Track improvement over time'
+            ]
+        }
+    };
+
+    const info = toolInfo[toolId];
+    if (!info) return;
+
+    // Create modal HTML
+    const modalHTML = `
+        <div class="modal fade tool-info-modal" id="toolInfoModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="fas fa-calculator me-2"></i>${info.title}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <p class="mb-4">${info.description}</p>
+                        
+                        <div class="row">
+                            <div class="col-md-6">
+                                <h6><i class="fas fa-star text-warning me-2"></i>Key Features</h6>
+                                <ul class="list-unstyled">
+                                    ${info.features.map(feature => `<li><i class="fas fa-check text-success me-2"></i>${feature}</li>`).join('')}
+                                </ul>
+                            </div>
+                            <div class="col-md-6">
+                                <h6><i class="fas fa-lightbulb text-info me-2"></i>Benefits</h6>
+                                <ul class="list-unstyled">
+                                    ${info.benefits.map(benefit => `<li><i class="fas fa-arrow-right text-primary me-2"></i>${benefit}</li>`).join('')}
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div class="alert alert-info mt-3">
+                            <i class="fas fa-info-circle me-2"></i>
+                            <strong>Pro Tip:</strong> Use this calculator regularly to stay on top of your academic performance and set realistic goals for upcoming semesters.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                        <a href="https://cgpa-calc.streamlit.app/" target="_blank" class="btn btn-primary">
+                            <i class="fas fa-external-link-alt me-2"></i>Use Calculator
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // Remove existing modal if any
+    const existingModal = document.getElementById('toolInfoModal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+
+    // Add new modal to body
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    // Show modal
+    const modal = new bootstrap.Modal(document.getElementById('toolInfoModal'));
+    modal.show();
+}
+
+// Enhanced analytics for tool usage
+function trackToolUsage(toolName, action) {
+    // Track tool usage for analytics
+    if (typeof gtag !== 'undefined') {
+        gtag('event', 'tool_interaction', {
+            'tool_name': toolName,
+            'action': action,
+            'page_location': window.location.href
+        });
+    }
+    
+    console.log(`Tool Usage: ${toolName} - ${action}`);
+}
+
+// Add event listeners for tool tracking when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Track CGPA calculator clicks
+    const cgpaButtons = document.querySelectorAll('a[href*="cgpa-calc.streamlit.app"]');
+    cgpaButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            trackToolUsage('CGPA Calculator', 'external_link_click');
+        });
+    });
+
+    // Track tool info button clicks
+    const infoButtons = document.querySelectorAll('.btn-tool-info');
+    infoButtons.forEach(button => {
+        button.addEventListener('click', (e) => {
+            const toolName = e.target.closest('.tool-card').querySelector('.tool-title').textContent;
+            trackToolUsage(toolName, 'info_modal_open');
+        });
+    });
+
+    // Track suggestion clicks
+    const suggestionButtons = document.querySelectorAll('a[href*="t.me/dsmnru_updates"]');
+    suggestionButtons.forEach(button => {
+        if (button.textContent.includes('Suggest Tool')) {
+            button.addEventListener('click', () => {
+                trackToolUsage('Tool Suggestion', 'telegram_click');
+            });
+        }
+    });
+});
+
 });
