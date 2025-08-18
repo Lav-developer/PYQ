@@ -81,6 +81,7 @@ The new `data.json` supports both question papers and syllabus:
 }
 ```
 
+---
 
 ## 🛠️ Getting Started
 
