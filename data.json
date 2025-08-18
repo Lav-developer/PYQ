@@ -115,11 +115,104 @@
   ],
   "syllabus": [
     {
-      "title": "B.Tech CSE 1st Semester Syllabus {2024-25}",
-      "file": "/files/Syllabus/B.Tech/CSE_1st_sem_syllabus_2024-25.pdf",
+      "title": "B.Tech CSE 3rd Semester Syllabus {2025-26}",
+      "file": "/files/Syllabus/B.Tech/CSE_3rd_Sem.pdf",
       "course": "B.Tech CSE",
-      "semester": "1st Semester",
-      "year": "2024-25"
+      "semester": "3rd Semester",
+      "year": "2nd Year"
+    },
+    {
+      "title": "Eng. Chemistry {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Eng_Chem_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Eng. Mathematics {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Eng_Math_II_2nd_sem.pdf",
+      "course": "B.Tech",
+      "semester": "2 Semester",
+      "year": "1st Year"
+    },
+    {
+      "title": "Eng. Mechanics {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Eng_Mechanics_CSE_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Professional Communication {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Prof_Comm_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Python {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Python_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Sign Language {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Sign_lang_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Universal Human Values {2024-25}",
+      "file": "/files/Syllabus/B.Tech/UHV_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "EEE {2024-25}",
+      "file": "/files/Syllabus/B.Tech/EEE_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "C Language {2024-25}",
+      "file": "/files/Syllabus/B.Tech/C_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Eng. Mathematics I {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Eng_Math_1st_sem.pdf",
+      "course": "B.Tech",
+      "semester": "1 Semester",
+      "year": "1st Year"
+    },
+    {
+      "title": "Eng. Physics {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Eng_phy_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Environmental Science {2024-25}",
+      "file": "/files/Syllabus/B.Tech/EVS_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
+    },
+    {
+      "title": "Web Technology {2024-25}",
+      "file": "/files/Syllabus/B.Tech/Web_tech_1st_Year.pdf",
+      "course": "B.Tech",
+      "semester": "1/2 Semesters",
+      "year": "1st Year"
     }
+    
+    
   ]
 }
