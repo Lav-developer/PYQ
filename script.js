@@ -255,7 +255,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Share function
     window.shareDocument = function(filePath, title) {
         const currentUrl = window.location.origin + window.location.pathname;
-        const shareUrl = `${currentUrl}#${encodeURIComponent(filePath)}`;
+        const shareUrl = `${(filePath)}`;
         
         shareLink.value = shareUrl;
         
