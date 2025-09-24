@@ -13,6 +13,7 @@ document.addEventListener('DOMContentLoaded', function() {
     let allData = { pyqs: [], syllabus: [] };
     let filteredPyqs = [];
     let filteredSyllabus = [];
+    let bookmarks = { pyqs: [], syllabus: [] };
 
     // Pagination variables for PYQs
     let currentPage = 1;
@@ -21,6 +22,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // Pagination variables for Syllabus
     let currentPageSyllabus = 1;
     const itemsPerPageSyllabus = 10;
+
+    // Pagination variables for Bookmarks
+    let currentPageBookmarks = 1;
+    const itemsPerPageBookmarks = 10;
 
     // Function to extract year from title
     function extractYearFromTitle(title) {
@@ -53,7 +58,8 @@ document.addEventListener('DOMContentLoaded', function() {
             
             filteredPyqs = [...processedPYQs];
             filteredSyllabus = [...processedSyllabus];
-            
+
+            loadBookmarks();
             renderPYQs(filteredPyqs);
             renderSyllabus(filteredSyllabus);
             setupEventListeners();
@@ -95,6 +101,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             </button>
                             <button class="btn btn-action btn-share" onclick="shareDocument('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
                                 <i class="fas fa-share-alt"></i> Share
+                            </button>
+                            <button class="btn btn-action btn-bookmark ${isBookmarked('pyqs', pyq.file) ? 'bookmarked' : ''}" onclick="toggleBookmark('pyqs', '${pyq.file}')">
+                                <i class="fas fa-bookmark"></i> ${isBookmarked('pyqs', pyq.file) ? 'Bookmarked' : 'Bookmark'}
                             </button>
                         </div>
                     </div>
@@ -148,6 +157,9 @@ document.addEventListener('DOMContentLoaded', function() {
                             <button class="btn btn-action btn-share" onclick="shareDocument('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
                                 <i class="fas fa-share-alt"></i> Share
                             </button>
+                            <button class="btn btn-action btn-bookmark ${isBookmarked('syllabus', syllabus.file) ? 'bookmarked' : ''}" onclick="toggleBookmark('syllabus', '${syllabus.file}')">
+                                <i class="fas fa-bookmark"></i> ${isBookmarked('syllabus', syllabus.file) ? 'Bookmarked' : 'Bookmark'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -163,6 +175,117 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function renderBookmarks(searchTerm = '') {
+        const startIndex = (currentPageBookmarks - 1) * itemsPerPageBookmarks;
+        const endIndex = startIndex + itemsPerPageBookmarks;
+
+        // Collect all bookmarked items
+        let bookmarkedItems = [];
+        bookmarks.pyqs.forEach(filePath => {
+            const item = allData.pyqs.find(pyq => pyq.file === filePath);
+            if (item) {
+                bookmarkedItems.push({ ...item, type: 'pyq' });
+            }
+        });
+        bookmarks.syllabus.forEach(filePath => {
+            const item = allData.syllabus.find(syllabus => syllabus.file === filePath);
+            if (item) {
+                bookmarkedItems.push({ ...item, type: 'syllabus' });
+            }
+        });
+
+        // Filter by search term if provided
+        if (searchTerm) {
+            bookmarkedItems = bookmarkedItems.filter(item =>
+                item.title.toLowerCase().includes(searchTerm) ||
+                (item.course && item.course.toLowerCase().includes(searchTerm)) ||
+                (item.semester && item.semester.toLowerCase().includes(searchTerm))
+            );
+        }
+
+        // Sort by year descending
+        bookmarkedItems.sort((a, b) => b.year - a.year);
+
+        const bookmarksToRender = bookmarkedItems.slice(startIndex, endIndex);
+
+        if (!bookmarksToRender.length) {
+            if (currentPageBookmarks === 1) {
+                showEmptyState('bookmarksList', 'No bookmarked items yet. Bookmark items from PYQs or Syllabus tabs to see them here.');
+            }
+            document.getElementById('loadMoreBookmarksBtn').style.display = 'none';
+            return;
+        }
+
+        if (currentPageBookmarks === 1) {
+            document.getElementById('bookmarksList').innerHTML = '';
+        }
+
+        document.getElementById('bookmarksList').insertAdjacentHTML('beforeend', bookmarksToRender.map((item, index) => {
+            if (item.type === 'pyq') {
+                return `
+                    <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
+                        <div class="pyq-info">
+                            <div class="pdf-icon">
+                                <i class="fas fa-file-pdf"></i>
+                            </div>
+                            <div class="pyq-details">
+                                <h5 class="pyq-title">${item.title}</h5>
+                                <div class="pyq-actions">
+                                    <button class="btn btn-action btn-preview" onclick="previewPDF('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-eye"></i> View
+                                    </button>
+                                    <button class="btn btn-action btn-share" onclick="shareDocument('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-share-alt"></i> Share
+                                    </button>
+                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${item.file}')">
+                                        <i class="fas fa-bookmark"></i> Bookmarked
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                `;
+            } else {
+                return `
+                    <li class="syllabus-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
+                        <div class="syllabus-info">
+                            <div class="syllabus-icon">
+                                <i class="fas fa-book"></i>
+                            </div>
+                            <div class="syllabus-details">
+                                <h5 class="syllabus-title">${item.title}</h5>
+                                <div class="syllabus-meta">
+                                    <span class="meta-tag course">${item.course || 'General'}</span>
+                                    <span class="meta-tag semester">${item.semester || 'All Semesters'}</span>
+                                    <span class="meta-tag">${item.year || 'Latest'}</span>
+                                </div>
+                                <div class="syllabus-actions">
+                                    <button class="btn btn-action btn-preview" onclick="previewPDF('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-eye"></i> View
+                                    </button>
+                                    <button class="btn btn-action btn-share" onclick="shareDocument('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
+                                        <i class="fas fa-share-alt"></i> Share
+                                    </button>
+                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('syllabus', '${item.file}')">
+                                        <i class="fas fa-bookmark"></i> Bookmarked
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </li>
+                `;
+            }
+        }).join(''));
+
+        // Show or hide Load More button
+        const loadMoreBookmarksBtn = document.getElementById('loadMoreBookmarksBtn');
+        if (endIndex < bookmarkedItems.length) {
+            loadMoreBookmarksBtn.style.display = 'inline-block';
+        } else {
+            loadMoreBookmarksBtn.style.display = 'none';
+        }
+    }
+
     function showEmptyState(containerId, message) {
         document.getElementById(containerId).innerHTML = `
             <div class="empty-state">
@@ -170,6 +293,53 @@ document.addEventListener('DOMContentLoaded', function() {
                 <p>${message}</p>
             </div>
         `;
+    }
+
+    // Bookmark functions
+    function loadBookmarks() {
+        const savedBookmarks = localStorage.getItem('dsmnruBookmarks');
+        if (savedBookmarks) {
+            bookmarks = JSON.parse(savedBookmarks);
+        }
+    }
+
+    function saveBookmarks() {
+        localStorage.setItem('dsmnruBookmarks', JSON.stringify(bookmarks));
+    }
+
+    function toggleBookmark(type, filePath) {
+        const index = bookmarks[type].indexOf(filePath);
+        if (index > -1) {
+            bookmarks[type].splice(index, 1);
+        } else {
+            bookmarks[type].push(filePath);
+        }
+        saveBookmarks();
+        // Update all bookmark buttons in the DOM without re-rendering
+        document.querySelectorAll('.btn-bookmark').forEach(button => {
+            const onclick = button.getAttribute('onclick');
+            const match = onclick.match(/toggleBookmark\('([^']+)', '([^']+)'\)/);
+            if (match) {
+                const btnType = match[1];
+                const btnFilePath = match[2];
+                const isBookmarkedNow = isBookmarked(btnType, btnFilePath);
+                button.classList.toggle('bookmarked', isBookmarkedNow);
+                button.innerHTML = `<i class="fas fa-bookmark"></i> ${isBookmarkedNow ? 'Bookmarked' : 'Bookmark'}`;
+            }
+        });
+        // Refresh bookmarks tab if it's currently active
+        const activeTab = document.querySelector('.nav-link.active');
+        if (activeTab && activeTab.getAttribute('data-bs-target') === '#nav-bookmarks') {
+            currentPageBookmarks = 1;
+            renderBookmarks();
+        }
+    }
+
+    // Make toggleBookmark globally accessible for onclick handlers
+    window.toggleBookmark = toggleBookmark;
+
+    function isBookmarked(type, filePath) {
+        return bookmarks[type].includes(filePath);
     }
 
     function setupEventListeners() {
@@ -191,6 +361,12 @@ document.addEventListener('DOMContentLoaded', function() {
             renderSyllabus();
         });
 
+        // Load More button for Bookmarks
+        document.getElementById('loadMoreBookmarksBtn').addEventListener('click', function() {
+            currentPageBookmarks++;
+            renderBookmarks();
+        });
+
         // Copy link button
         copyLinkBtn.addEventListener('click', function() {
             shareLink.select();
@@ -206,9 +382,15 @@ document.addEventListener('DOMContentLoaded', function() {
         // Tab switching
         document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
             tab.addEventListener('shown.bs.tab', function(event) {
+                const targetTab = event.target.getAttribute('data-bs-target');
                 // Clear search when switching tabs
                 document.getElementById('searchInput').value = '';
                 performSearch();
+                // Render bookmarks when bookmarks tab is shown
+                if (targetTab === '#nav-bookmarks') {
+                    currentPageBookmarks = 1;
+                    renderBookmarks();
+                }
             });
         });
     }
@@ -234,6 +416,11 @@ document.addEventListener('DOMContentLoaded', function() {
             filteredSyllabus = filtered;
             currentPageSyllabus = 1;
             renderSyllabus();
+        } else if (activeTab === '#nav-bookmarks') {
+            // For bookmarks, we need to filter the bookmarked items
+            // Since bookmarks are stored as file paths, we need to filter the actual items
+            currentPageBookmarks = 1;
+            renderBookmarks(searchTerm);
         }
     };
 
@@ -463,8 +650,144 @@ function trackToolUsage(toolName, action) {
     console.log(`Tool Usage: ${toolName} - ${action}`);
 }
 
-// Add event listeners for tool tracking when DOM is loaded
-document.addEventListener('DOMContentLoaded', function() {
+    // Floating Dashboard Button Functionality
+    const dashboardBtn = document.getElementById('dashboardBtn');
+    const dashboardModal = new bootstrap.Modal(document.getElementById('dashboardModal'));
+
+    if (dashboardBtn) {
+        dashboardBtn.addEventListener('click', function() {
+            loadDashboardSettings();
+            dashboardModal.show();
+        });
+    }
+
+    // Dashboard Settings Functionality
+    function loadDashboardSettings() {
+        // Load theme setting
+        const savedTheme = localStorage.getItem('dashboardTheme') || 'auto';
+        document.querySelector(`input[name="theme"][value="${savedTheme}"]`).checked = true;
+
+        // Load layout setting
+        const savedLayout = localStorage.getItem('dashboardLayout') || 'expanded';
+        document.querySelector(`input[name="layout"][value="${savedLayout}"]`).checked = true;
+
+        // Load quick access settings
+        const quickPyq = localStorage.getItem('quickPyq') === 'true';
+        const quickSyllabus = localStorage.getItem('quickSyllabus') === 'true';
+        const quickSearch = localStorage.getItem('quickSearch') === 'true';
+        const quickUpload = localStorage.getItem('quickUpload') === 'true';
+
+        document.getElementById('quickPyq').checked = quickPyq;
+        document.getElementById('quickSyllabus').checked = quickSyllabus;
+        document.getElementById('quickSearch').checked = quickSearch;
+        document.getElementById('quickUpload').checked = quickUpload;
+    }
+
+    function saveDashboardSettings() {
+        // Save theme setting
+        const selectedTheme = document.querySelector('input[name="theme"]:checked').value;
+        localStorage.setItem('dashboardTheme', selectedTheme);
+        applyTheme(selectedTheme);
+
+        // Save layout setting
+        const selectedLayout = document.querySelector('input[name="layout"]:checked').value;
+        localStorage.setItem('dashboardLayout', selectedLayout);
+        applyLayout(selectedLayout);
+
+        // Save quick access settings
+        const quickPyq = document.getElementById('quickPyq').checked;
+        const quickSyllabus = document.getElementById('quickSyllabus').checked;
+        const quickSearch = document.getElementById('quickSearch').checked;
+        const quickUpload = document.getElementById('quickUpload').checked;
+
+        localStorage.setItem('quickPyq', quickPyq);
+        localStorage.setItem('quickSyllabus', quickSyllabus);
+        localStorage.setItem('quickSearch', quickSearch);
+        localStorage.setItem('quickUpload', quickUpload);
+
+        applyQuickAccess({ quickPyq, quickSyllabus, quickSearch, quickUpload });
+
+        // Show success message
+        showSettingsSavedMessage();
+    }
+
+    function applyTheme(theme) {
+        const body = document.body;
+        body.classList.remove('theme-light', 'theme-dark', 'theme-auto');
+
+        if (theme === 'light') {
+            body.classList.add('theme-light');
+        } else if (theme === 'dark') {
+            body.classList.add('theme-dark');
+        } else {
+            body.classList.add('theme-auto');
+            // Apply system preference
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                body.classList.add('theme-dark');
+            } else {
+                body.classList.add('theme-light');
+            }
+        }
+    }
+
+    function applyLayout(layout) {
+        const body = document.body;
+        body.classList.remove('layout-compact', 'layout-expanded');
+        body.classList.add(`layout-${layout}`);
+    }
+
+    function applyQuickAccess(settings) {
+        // This could be extended to show/hide quick access elements
+        // For now, we'll just store the preferences
+        console.log('Quick access settings applied:', settings);
+    }
+
+    function showSettingsSavedMessage() {
+        // Create and show a temporary success message
+        const toast = document.createElement('div');
+        toast.className = 'toast align-items-center text-white bg-success border-0 position-fixed';
+        toast.style.cssText = 'top: 20px; right: 20px; z-index: 9999;';
+        toast.innerHTML = `
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="fas fa-check-circle me-2"></i> Settings saved successfully!
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        `;
+
+        document.body.appendChild(toast);
+        const bsToast = new bootstrap.Toast(toast);
+        bsToast.show();
+
+        // Remove toast after it's hidden
+        toast.addEventListener('hidden.bs.toast', () => {
+            document.body.removeChild(toast);
+        });
+    }
+
+    // Save Settings Button Event Listener
+    const saveSettingsBtn = document.getElementById('saveDashboardSettings');
+    if (saveSettingsBtn) {
+        saveSettingsBtn.addEventListener('click', function() {
+            saveDashboardSettings();
+            dashboardModal.hide();
+        });
+    }
+
+    // Apply saved settings on page load
+    function applySavedSettings() {
+        const savedTheme = localStorage.getItem('dashboardTheme') || 'auto';
+        const savedLayout = localStorage.getItem('dashboardLayout') || 'expanded';
+
+        applyTheme(savedTheme);
+        applyLayout(savedLayout);
+    }
+
+    // Apply settings when DOM is loaded
+    applySavedSettings();
+
+    // Add event listeners for tool tracking
     // Track CGPA calculator clicks
     const cgpaButtons = document.querySelectorAll('a[href*="cgpa-calc.streamlit.app"]');
     cgpaButtons.forEach(button => {
@@ -491,6 +814,5 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         }
     });
-});
 
 });

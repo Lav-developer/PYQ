@@ -1,4 +1,5 @@
 User-agent: *
-Disallow: 
+Disallow:
 Disallow: /cgi-bin/
-Sitemap: https://dsmnru-pyq.netlify.app/sitemap.xml
+Sitemap: https://dsmnru-pyq.email/sitemap.xml
+site

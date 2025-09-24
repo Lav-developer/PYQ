@@ -928,7 +928,7 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
-.pyq-list, .syllabus-list {
+.pyq-list, .syllabus-list, .bookmarks-list {
   list-style-type: none;
   padding: 0;
   margin: 0;
@@ -1013,6 +1013,44 @@ body {
   background-color: rgba(var(--color-success-rgb), 0.2);
   color: var(--success-color);
   border-color: var(--success-color);
+}
+
+/* Bookmark Button Styles */
+.btn-bookmark {
+    background-color: rgba(var(--color-red-500-rgb), 0.2);
+    color: var(--color-red-500);
+    border: 1px solid rgba(var(--color-red-500-rgb), 0.5);
+    transition: all var(--duration-normal) var(--ease-standard);
+}
+
+.btn-bookmark:hover {
+    background-color: rgba(var(--color-red-500-rgb), 0.3);
+    transform: translateY(-2px);
+}
+
+.btn-bookmark.bookmarked {
+    background-color: var(--color-red-500);
+    color: var(--color-white);
+    border-color: var(--color-red-500);
+}
+
+.btn-bookmark.bookmarked:hover {
+    background-color: var(--color-red-400);
+    border-color: var(--color-red-400);
+}
+
+/* Favorites Container */
+.favorites-container {
+    background-color: rgba(var(--color-slate-900-rgb), 0.7);
+    border-radius: var(--radius-base);
+    padding: var(--space-32);
+    box-shadow: var(--shadow-lg);
+}
+
+.favorites-list {
+    list-style-type: none;
+    padding: 0;
+    margin: 0;
 }
 
 /* Action Buttons */
@@ -1826,22 +1864,441 @@ body {
     .tool-card {
         padding: var(--space-16);
     }
-    
+
     .tool-icon {
         width: 50px;
         height: 50px;
     }
-    
+
     .tool-icon i {
         font-size: var(--font-size-xl);
     }
-    
+
     .tool-title {
         font-size: var(--font-size-lg);
     }
-    
+
     .feature-tag {
         font-size: var(--font-size-xs);
         padding: var(--space-2) var(--space-8);
+    }
+}
+
+/* ===== UI/UX POLISH ENHANCEMENTS ===== */
+
+/* Skeleton Loading Animations */
+@keyframes shimmer {
+    0% {
+        background-position: -200px 0;
+    }
+    100% {
+        background-position: calc(200px + 100%) 0;
+    }
+}
+
+.skeleton {
+    background: linear-gradient(90deg, rgba(var(--color-slate-900-rgb), 0.8) 25%, rgba(var(--color-slate-500-rgb), 0.6) 50%, rgba(var(--color-slate-900-rgb), 0.8) 75%);
+    background-size: 200px 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+}
+
+.skeleton-text {
+    height: 1.2em;
+    margin-bottom: 0.5em;
+}
+
+.skeleton-text:last-child {
+    width: 60%;
+}
+
+.skeleton-card {
+    padding: 1.5rem;
+    border: 1px solid rgba(var(--color-teal-300-rgb), 0.3);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+}
+
+.skeleton-card .skeleton-text {
+    height: 1em;
+    margin-bottom: 0.8em;
+}
+
+.skeleton-card .skeleton-text:nth-child(1) {
+    width: 80%;
+}
+
+.skeleton-card .skeleton-text:nth-child(2) {
+    width: 60%;
+}
+
+.skeleton-card .skeleton-text:nth-child(3) {
+    width: 40%;
+}
+
+/* Enhanced Micro-interactions */
+.btn {
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.btn:active {
+    transform: translateY(0);
+    transition-duration: 0.1s;
+}
+
+.btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.3);
+    transition: width 0.3s, height 0.3s;
+    transform: translate(-50%, -50%);
+}
+
+.btn:active::before {
+    width: 300px;
+    height: 300px;
+}
+
+/* Card Hover Effects */
+.pyq-item, .syllabus-item {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer;
+}
+
+.pyq-item:hover, .syllabus-item:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    border-color: var(--secondary-color);
+}
+
+.pyq-item:active, .syllabus-item:active {
+    transform: translateY(0);
+    transition-duration: 0.1s;
+}
+
+/* Enhanced Button Animations */
+.btn-primary, .btn-success, .btn-info, .btn-secondary {
+    position: relative;
+    overflow: hidden;
+}
+
+.btn-primary::after, .btn-success::after, .btn-info::after, .btn-secondary::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 5px;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.5);
+    opacity: 0;
+    border-radius: 100%;
+    transform: scale(1, 1) translate(-50%);
+    transform-origin: 50% 50%;
+}
+
+.btn-primary:focus::after, .btn-success:focus::after, .btn-info:focus::after, .btn-secondary:focus::after {
+    animation: ripple 1s ease-out;
+}
+
+@keyframes ripple {
+    0% {
+        transform: scale(0, 0);
+        opacity: 1;
+    }
+    100% {
+        transform: scale(4, 4);
+        opacity: 0;
+    }
+}
+
+/* Smooth Transitions for All Interactive Elements */
+input, textarea, select {
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+input:focus, textarea:focus, select:focus {
+    border-color: var(--secondary-color);
+    box-shadow: 0 0 0 0.2rem rgba(var(--color-teal-300-rgb), 0.25);
+}
+
+/* Tab Animations */
+.nav-tabs .nav-link {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+}
+
+.nav-tabs .nav-link::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--secondary-color);
+    transition: all 0.3s ease;
+    transform: translateX(-50%);
+}
+
+.nav-tabs .nav-link.active::after {
+    width: 100%;
+}
+
+/* Loading States */
+.loading-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    opacity: 0;
+    visibility: hidden;
+    transition: all 0.3s ease;
+}
+
+.loading-overlay.show {
+    opacity: 1;
+    visibility: visible;
+}
+
+.loading-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(var(--color-slate-900-rgb), 0.8);
+    border-top: 3px solid var(--secondary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Dashboard Modal Styles */
+.dashboard-settings {
+    max-height: 60vh;
+    overflow-y: auto;
+}
+
+.setting-group {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(var(--color-teal-300-rgb), 0.3);
+}
+
+.setting-group:last-child {
+    border-bottom: none;
+}
+
+.setting-group h6 {
+    color: var(--color-text);
+    margin-bottom: 1rem;
+    font-weight: 600;
+}
+
+.theme-options, .layout-options {
+    display: flex;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.theme-option, .layout-option {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0.5rem 1rem;
+    border: 2px solid rgba(var(--color-teal-300-rgb), 0.3);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    background: rgba(var(--color-slate-900-rgb), 0.8);
+}
+
+.theme-option:hover, .layout-option:hover {
+    border-color: var(--secondary-color);
+    background: rgba(var(--color-slate-900-rgb), 0.9);
+}
+
+.theme-option input[type="radio"]:checked + .theme-label,
+.layout-option input[type="radio"]:checked + .layout-label {
+    color: var(--secondary-color);
+    font-weight: 600;
+}
+
+.theme-label, .layout-label {
+    margin-left: 0.5rem;
+    cursor: pointer;
+}
+
+.quick-access-options {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+}
+
+.quick-option {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    padding: 0.5rem;
+    border-radius: 6px;
+    transition: background-color 0.3s ease;
+}
+
+.quick-option:hover {
+    background: rgba(var(--color-slate-900-rgb), 0.9);
+}
+
+.quick-option input[type="checkbox"] {
+    margin-right: 0.75rem;
+}
+
+.quick-label {
+    cursor: pointer;
+    user-select: none;
+}
+
+/* PWA Install Prompt */
+.pwa-install-prompt {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: rgba(var(--color-slate-900-rgb), 0.9);
+    border: 1px solid rgba(var(--color-teal-300-rgb), 0.3);
+    border-radius: 12px;
+    padding: 1rem;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    z-index: 1000;
+    max-width: 300px;
+    transform: translateY(100px);
+    opacity: 0;
+    transition: all 0.3s ease;
+}
+
+.pwa-install-prompt.show {
+    transform: translateY(0);
+    opacity: 1;
+}
+
+.pwa-install-prompt h6 {
+    margin-bottom: 0.5rem;
+    color: var(--color-text);
+}
+
+.pwa-install-prompt p {
+    margin-bottom: 1rem;
+    font-size: 0.9rem;
+    color: var(--color-text-secondary);
+}
+
+.pwa-install-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.pwa-install-buttons .btn {
+    flex: 1;
+    font-size: 0.9rem;
+}
+
+/* Compact Layout */
+body.compact-layout .pyq-container,
+body.compact-layout .syllabus-container {
+    max-width: 1200px;
+    margin: 0 auto;
+}
+
+body.compact-layout .pyq-item,
+body.compact-layout .syllabus-item {
+    padding: 1rem;
+}
+
+body.compact-layout .section-header h2 {
+    font-size: 1.5rem;
+}
+
+/* Enhanced Focus States for Accessibility */
+.btn:focus,
+input:focus,
+textarea:focus,
+select:focus {
+    outline: 2px solid var(--secondary-color);
+    outline-offset: 2px;
+}
+
+/* Reduced Motion Support */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+}
+
+/* Floating Dashboard Button */
+.floating-dashboard-btn {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    width: 50px;
+    height: 50px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #32a8a0, #2c8e8a);
+    color: white;
+    border: none;
+    box-shadow: 0 4px 12px rgba(50, 168, 160, 0.3);
+    z-index: 1050;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.floating-dashboard-btn:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 16px rgba(50, 168, 160, 0.4);
+    background: linear-gradient(135deg, #2c8e8a, #26807c);
+}
+
+.floating-dashboard-btn:active {
+    transform: scale(0.95);
+}
+
+.floating-dashboard-btn i {
+    transition: transform 0.3s ease;
+}
+
+.floating-dashboard-btn:hover i {
+    transform: rotate(45deg);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+    .floating-dashboard-btn {
+        top: 15px;
+        right: 15px;
+        width: 45px;
+        height: 45px;
+        font-size: 16px;
     }
 }
