@@ -14,6 +14,14 @@ document.addEventListener('DOMContentLoaded', function() {
     let filteredPyqs = [];
     let filteredSyllabus = [];
 
+    // Pagination variables for PYQs
+    let currentPage = 1;
+    const itemsPerPage = 10;
+
+    // Pagination variables for Syllabus
+    let currentPageSyllabus = 1;
+    const itemsPerPageSyllabus = 10;
+
     // Function to extract year from title
     function extractYearFromTitle(title) {
         const yearMatch = title.match(/\{(\d{4})/);
@@ -57,13 +65,24 @@ document.addEventListener('DOMContentLoaded', function() {
         });
 
     function renderPYQs(pyqs) {
-        if (!pyqs.length) {
-            showEmptyState('pyqList', 'No question papers found matching your criteria');
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        const pyqsToRender = filteredPyqs.slice(startIndex, endIndex);
+
+        if (!pyqsToRender.length) {
+            if (currentPage === 1) {
+                showEmptyState('pyqList', 'No question papers found matching your criteria');
+            }
+            document.getElementById('loadMoreBtn').style.display = 'none';
             return;
         }
 
-        pyqList.innerHTML = pyqs.map((pyq, index) => `
-            <li class="pyq-item" style="animation-delay: ${0.1 + index * 0.05}s">
+        if (currentPage === 1) {
+            pyqList.innerHTML = '';
+        }
+
+        pyqList.insertAdjacentHTML('beforeend', pyqsToRender.map((pyq, index) => `
+            <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
                 <div class="pyq-info">
                     <div class="pdf-icon">
                         <i class="fas fa-file-pdf"></i>
@@ -72,11 +91,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h5 class="pyq-title">${pyq.title}</h5>
                         <div class="pyq-actions">
                             <button class="btn btn-action btn-preview" onclick="previewPDF('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
-                                <i class="fas fa-eye"></i> Preview
+                                <i class="fas fa-eye"></i> View
                             </button>
-                            <a href="${pyq.file}" class="btn btn-action btn-download" download>
-                                <i class="fas fa-download"></i> Download
-                            </a>
                             <button class="btn btn-action btn-share" onclick="shareDocument('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
                                 <i class="fas fa-share-alt"></i> Share
                             </button>
@@ -84,17 +100,36 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </li>
-        `).join('');
+        `).join(''));
+
+        // Show or hide Load More button
+        const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (endIndex < filteredPyqs.length) {
+            loadMoreBtn.style.display = 'inline-block';
+        } else {
+            loadMoreBtn.style.display = 'none';
+        }
     }
 
     function renderSyllabus(syllabusItems) {
-        if (!syllabusItems.length) {
-            showEmptyState('syllabusList', 'No syllabus found matching your criteria');
+        const startIndex = (currentPageSyllabus - 1) * itemsPerPageSyllabus;
+        const endIndex = startIndex + itemsPerPageSyllabus;
+        const syllabusToRender = filteredSyllabus.slice(startIndex, endIndex);
+
+        if (!syllabusToRender.length) {
+            if (currentPageSyllabus === 1) {
+                showEmptyState('syllabusList', 'No syllabus found matching your criteria');
+            }
+            document.getElementById('loadMoreSyllabusBtn').style.display = 'none';
             return;
         }
 
-        syllabusList.innerHTML = syllabusItems.map((syllabus, index) => `
-            <li class="syllabus-item" style="animation-delay: ${0.1 + index * 0.05}s">
+        if (currentPageSyllabus === 1) {
+            syllabusList.innerHTML = '';
+        }
+
+        syllabusList.insertAdjacentHTML('beforeend', syllabusToRender.map((syllabus, index) => `
+            <li class="syllabus-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
                 <div class="syllabus-info">
                     <div class="syllabus-icon">
                         <i class="fas fa-book"></i>
@@ -108,11 +143,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="syllabus-actions">
                             <button class="btn btn-action btn-preview" onclick="previewPDF('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
-                                <i class="fas fa-eye"></i> Preview
+                                <i class="fas fa-eye"></i> View
                             </button>
-                            <a href="${syllabus.file}" class="btn btn-action btn-download" download>
-                                <i class="fas fa-download"></i> Download
-                            </a>
                             <button class="btn btn-action btn-share" onclick="shareDocument('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
                                 <i class="fas fa-share-alt"></i> Share
                             </button>
@@ -120,7 +152,15 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                 </div>
             </li>
-        `).join('');
+        `).join(''));
+
+        // Show or hide Load More button
+        const loadMoreSyllabusBtn = document.getElementById('loadMoreSyllabusBtn');
+        if (endIndex < filteredSyllabus.length) {
+            loadMoreSyllabusBtn.style.display = 'inline-block';
+        } else {
+            loadMoreSyllabusBtn.style.display = 'none';
+        }
     }
 
     function showEmptyState(containerId, message) {
@@ -137,19 +177,25 @@ document.addEventListener('DOMContentLoaded', function() {
         const searchInput = document.getElementById('searchInput');
         searchInput.addEventListener('input', performSearch);
 
-        // PYQ Filter listeners
-        document.getElementById('pyqCourseFilter').addEventListener('change', filterPYQs);
-        document.getElementById('pyqYearFilter').addEventListener('change', filterPYQs);
 
-        // Syllabus Filter listeners
-        document.getElementById('syllabusCourseFilter').addEventListener('change', filterSyllabus);
-        document.getElementById('syllabusSemesterFilter').addEventListener('change', filterSyllabus);
+
+        // Load More button for PYQs
+        document.getElementById('loadMoreBtn').addEventListener('click', function() {
+            currentPage++;
+            renderPYQs();
+        });
+
+        // Load More button for Syllabus
+        document.getElementById('loadMoreSyllabusBtn').addEventListener('click', function() {
+            currentPageSyllabus++;
+            renderSyllabus();
+        });
 
         // Copy link button
         copyLinkBtn.addEventListener('click', function() {
             shareLink.select();
             document.execCommand('copy');
-            
+
             const originalText = copyLinkBtn.innerHTML;
             copyLinkBtn.innerHTML = '<i class="fas fa-check"></i> Copied!';
             setTimeout(() => {
@@ -171,13 +217,14 @@ document.addEventListener('DOMContentLoaded', function() {
     window.performSearch = function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase();
         const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
-        
+
         if (activeTab === '#nav-pyq') {
             const filtered = allData.pyqs.filter(pyq =>
                 pyq.title.toLowerCase().includes(searchTerm)
             );
             filteredPyqs = filtered;
-            filterPYQs(); // Apply additional filters
+            currentPage = 1;
+            renderPYQs();
         } else if (activeTab === '#nav-syllabus') {
             const filtered = allData.syllabus.filter(syllabus =>
                 syllabus.title.toLowerCase().includes(searchTerm) ||
@@ -185,71 +232,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 (syllabus.semester && syllabus.semester.toLowerCase().includes(searchTerm))
             );
             filteredSyllabus = filtered;
-            filterSyllabus(); // Apply additional filters
+            currentPageSyllabus = 1;
+            renderSyllabus();
         }
     };
 
-    // Filter functions
-    function filterPYQs() {
-        const courseFilter = document.getElementById('pyqCourseFilter').value;
-        const yearFilter = document.getElementById('pyqYearFilter').value;
-        
-        let filtered = [...filteredPyqs];
-        
-        if (courseFilter) {
-            filtered = filtered.filter(pyq => pyq.title.includes(courseFilter));
-        }
-        
-        if (yearFilter) {
-            filtered = filtered.filter(pyq => pyq.title.includes(yearFilter));
-        }
-        
-        renderPYQs(filtered);
-    }
 
-    function filterSyllabus() {
-        const courseFilter = document.getElementById('syllabusCourseFilter').value;
-        const semesterFilter = document.getElementById('syllabusSemesterFilter').value;
-        
-        let filtered = [...filteredSyllabus];
-        
-        if (courseFilter) {
-            filtered = filtered.filter(syllabus => 
-                syllabus.course && syllabus.course.includes(courseFilter)
-            );
-        }
-        
-        if (semesterFilter) {
-            filtered = filtered.filter(syllabus => 
-                syllabus.semester && syllabus.semester.includes(semesterFilter)
-            );
-        }
-        
-        renderSyllabus(filtered);
-    }
 
-    // Clear filter functions
-    window.clearPyqFilters = function() {
-        document.getElementById('pyqCourseFilter').value = '';
-        document.getElementById('pyqYearFilter').value = '';
-        filteredPyqs = [...allData.pyqs];
-        filterPYQs();
-    };
-
-    window.clearSyllabusFilters = function() {
-        document.getElementById('syllabusCourseFilter').value = '';
-        document.getElementById('syllabusSemesterFilter').value = '';
-        filteredSyllabus = [...allData.syllabus];
-        filterSyllabus();
-    };
-
-    // PDF preview function
+    // PDF view function
     window.previewPDF = function(filePath, title) {
-        pdfViewer.src = filePath;
-        downloadBtn.href = filePath;
-        downloadBtn.download = title;
-        document.getElementById('pdfModalLabel').textContent = title;
-        pdfModal.show();
+        window.open(filePath, '_blank');
     };
 
     // Share function
