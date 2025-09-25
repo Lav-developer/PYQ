@@ -1,3 +1,17 @@
+// Initialize Firebase
+const firebaseConfig = {
+    apiKey: "AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ",
+    authDomain: "dsmnru-data.firebaseapp.com",
+    databaseURL: "https://dsmnru-data-default-rtdb.firebaseio.com",
+    projectId: "dsmnru-data",
+    storageBucket: "dsmnru-data.firebasestorage.app",
+    messagingSenderId: "62250453477",
+    appId: "1:62250453477:web:087c07403e4fead220470c",
+    measurementId: "G-VL6V3T96YX"
+};
+
+firebase.initializeApp(firebaseConfig);
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize modals
     const pdfModal = new bootstrap.Modal(document.getElementById('pdfModal'));
@@ -8,7 +22,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const copyLinkBtn = document.getElementById('copyLinkBtn');
     const pyqList = document.getElementById('pyqList');
     const syllabusList = document.getElementById('syllabusList');
-    
+
     // Global data storage
     let allData = { pyqs: [], syllabus: [] };
     let filteredPyqs = [];
@@ -33,29 +47,30 @@ document.addEventListener('DOMContentLoaded', function() {
         return yearMatch ? parseInt(yearMatch[1]) : 0;
     }
 
-    // Load data from JSON and render them
-    fetch('data.json')
-        .then(response => response.json())
-        .then(data => {
+    // Load data from Firebase and render them
+    const database = firebase.database();
+    database.ref().once('value')
+        .then(snapshot => {
+            const data = snapshot.val();
             // Handle both old format (only pyqs) and new format (pyqs + syllabus)
             allData.pyqs = data.pyqs || [];
             allData.syllabus = data.syllabus || [];
-            
+
             // Add year to each PYQ and sort by year in descending order
             const processedPYQs = allData.pyqs.map(pyq => ({
                 ...pyq,
                 year: extractYearFromTitle(pyq.title)
             })).sort((a, b) => b.year - a.year);
-            
+
             // Process syllabus data
             const processedSyllabus = allData.syllabus.map(syllabus => ({
                 ...syllabus,
                 year: extractYearFromTitle(syllabus.title)
             })).sort((a, b) => b.year - a.year);
-            
+
             allData.pyqs = processedPYQs;
             allData.syllabus = processedSyllabus;
-            
+
             filteredPyqs = [...processedPYQs];
             filteredSyllabus = [...processedSyllabus];
 
