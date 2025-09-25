@@ -10,6 +10,18 @@
     <meta name="author" content="DSMNRU Academic Archive">
     <meta name="language" content="English">
     <meta name="revisit-after" content="7 days">
+    <meta name="distribution" content="global">
+    <meta name="rating" content="general">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="icon" href="img/favicon.ico" type="image/x-icon">
+    <link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon">
+    <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-72x72.png">
+    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-114x114.png">
+    <link rel="apple-touch-icon" sizes="144x144" href="img/apple-touch-icon-144x144.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+
+    
     
     <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -24,6 +36,31 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="DSMNRU Archive">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Swiper/8.4.5/swiper-bundle.min.css"/>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Swiper/8.4.5/swiper-bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.11/clipboard.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.34/moment-timezone-with-data.min.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-storage-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-functions-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-remote-config-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-performance-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js"></script>
+
 
     <!-- SEO and Social Media Tags -->
     <meta property="og:title" content="DSMNRU PYQ & Syllabus - Previous Year Question Papers & Course Syllabus">
@@ -37,105 +74,10 @@
     <meta name="twitter:title" content="DSMNRU PYQ & Syllabus - Academic Resources">
     <meta name="twitter:description" content="Free DSMNRU PYQ and syllabus downloads for students">
     <meta name="twitter:image" content="https://dsmnru-pyq.email/img/dsmnru-logo.png">
+    <meta name="twitter:site" content="@dsmnru_updates">
+    <meta name="twitter:creator" content="@dsmnru_updates">
 
-    <!-- Structured Data -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@graph": [
-        {
-          "@type": "EducationalOrganization",
-          "name": "DSMNRU Academic Archive",
-          "description": "Complete collection of DSMNRU previous year question papers (PYQs) and syllabus for B.Tech, B.Sc, and other courses",
-          "url": "https://dsmnru-pyq.email/",
-          "logo": "https://dsmnru-pyq.email/img/dsmnru-logo.png",
-          "sameAs": [
-            "https://t.me/dsmnru_updates",
-            "https://youtube.com/@dsmnruupdates"
-          ],
-          "offers": [
-            {
-              "@type": "Course",
-              "name": "B.Tech PYQ Collection",
-              "description": "Previous year question papers for B.Tech courses at DSMNRU"
-            },
-            {
-              "@type": "Course",
-              "name": "B.Sc PYQ Collection",
-              "description": "Previous year question papers for B.Sc courses at DSMNRU"
-            }
-          ]
-        },
-        {
-          "@type": "WebSite",
-          "name": "DSMNRU PYQ & Syllabus",
-          "url": "https://dsmnru-pyq.email/",
-          "description": "Download DSMNRU PYQ, previous year question papers, syllabus for B.Tech, B.Sc, M.Tech courses. Complete academic resources for DSMNRU students.",
-          "publisher": {
-            "@type": "Organization",
-            "name": "DSMNRU Academic Archive"
-          },
-          "potentialAction": {
-            "@type": "SearchAction",
-            "target": "https://dsmnru-pyq.email/?s={search_term_string}",
-            "query-input": "required name=search_term_string"
-          }
-        },
-        {
-          "@type": "FAQPage",
-          "mainEntity": [
-            {
-              "@type": "Question",
-              "name": "What is DSMNRU PYQ?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "DSMNRU PYQ refers to Previous Year Question papers from Dr. Shakuntala Misra National Rehabilitation University. These are exam papers from previous years that help students prepare for their examinations."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "How can I download DSMNRU syllabus?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "You can download DSMNRU syllabus for various courses like B.Tech, B.Sc, M.Tech from our syllabus section. All downloads are free and available in PDF format."
-              }
-            },
-            {
-              "@type": "Question",
-              "name": "Are the question papers updated regularly?",
-              "acceptedAnswer": {
-                "@type": "Answer",
-                "text": "Yes, we regularly update our collection with new question papers and syllabus. Subscribe to our newsletter or follow our Telegram channel for updates."
-              }
-            }
-          ]
-        },
-        {
-          "@type": "BreadcrumbList",
-          "itemListElement": [
-            {
-              "@type": "ListItem",
-              "position": 1,
-              "name": "Home",
-              "item": "https://dsmnru-pyq.email/"
-            },
-            {
-              "@type": "ListItem",
-              "position": 2,
-              "name": "PYQ",
-              "item": "https://dsmnru-pyq.email/#pyq"
-            },
-            {
-              "@type": "ListItem",
-              "position": 3,
-              "name": "Syllabus",
-              "item": "https://dsmnru-pyq.email/#syllabus"
-            }
-          ]
-        }
-      ]
-    }
-    </script>
+
 
 </head>
 <body>
