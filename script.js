@@ -667,12 +667,10 @@ function trackToolUsage(toolName, action) {
 
     // Floating Dashboard Button Functionality
     const dashboardBtn = document.getElementById('dashboardBtn');
-    const dashboardModal = new bootstrap.Modal(document.getElementById('dashboardModal'));
 
     if (dashboardBtn) {
         dashboardBtn.addEventListener('click', function() {
-            loadDashboardSettings();
-            dashboardModal.show();
+            window.location.href = 'admin.html';
         });
     }
 
