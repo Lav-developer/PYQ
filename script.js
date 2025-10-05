@@ -2,7 +2,6 @@
 const firebaseConfig = {
     apiKey: "AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ",
     authDomain: "dsmnru-data.firebaseapp.com",
-    databaseURL: "https://dsmnru-data-default-rtdb.firebaseio.com",
     projectId: "dsmnru-data",
     storageBucket: "dsmnru-data.firebasestorage.app",
     messagingSenderId: "62250453477",
@@ -47,43 +46,43 @@ document.addEventListener('DOMContentLoaded', function() {
         return yearMatch ? parseInt(yearMatch[1]) : 0;
     }
 
-    // Load data from Firebase and render them
-    const database = firebase.database();
-    database.ref().once('value')
-        .then(snapshot => {
-            const data = snapshot.val();
-            // Handle both old format (only pyqs) and new format (pyqs + syllabus)
-            allData.pyqs = data.pyqs || [];
-            allData.syllabus = data.syllabus || [];
+    // Load data from Firestore
+    const db = firebase.firestore();
+    Promise.all([
+        db.collection('pyqs').get(),
+        db.collection('syllabus').get()
+    ])
+    .then(([pyqSnap, syllabusSnap]) => {
+        allData.pyqs = pyqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-            // Add year to each PYQ and sort by year in descending order
-            const processedPYQs = allData.pyqs.map(pyq => ({
-                ...pyq,
-                year: extractYearFromTitle(pyq.title)
-            })).sort((a, b) => b.year - a.year);
+        // Add year to each item and sort
+        const processedPYQs = allData.pyqs.map(pyq => ({
+            ...pyq,
+            year: extractYearFromTitle(pyq.title)
+        })).sort((a, b) => b.year - a.year);
 
-            // Process syllabus data
-            const processedSyllabus = allData.syllabus.map(syllabus => ({
-                ...syllabus,
-                year: extractYearFromTitle(syllabus.title)
-            })).sort((a, b) => b.year - a.year);
+        const processedSyllabus = allData.syllabus.map(syllabus => ({
+            ...syllabus,
+            year: extractYearFromTitle(syllabus.title)
+        })).sort((a, b) => b.year - a.year);
 
-            allData.pyqs = processedPYQs;
-            allData.syllabus = processedSyllabus;
+        allData.pyqs = processedPYQs;
+        allData.syllabus = processedSyllabus;
 
-            filteredPyqs = [...processedPYQs];
-            filteredSyllabus = [...processedSyllabus];
+        filteredPyqs = [...processedPYQs];
+        filteredSyllabus = [...processedSyllabus];
 
-            loadBookmarks();
-            renderPYQs(filteredPyqs);
-            renderSyllabus(filteredSyllabus);
-            setupEventListeners();
-        })
-        .catch(error => {
-            console.error('Error loading data:', error);
-            showEmptyState('pyqList', 'Error loading question papers');
-            showEmptyState('syllabusList', 'Error loading syllabus');
-        });
+        loadBookmarks();
+        renderPYQs(filteredPyqs);
+        renderSyllabus(filteredSyllabus);
+        setupEventListeners();
+    })
+    .catch(error => {
+        console.error('Error loading data from Firestore:', error);
+        showEmptyState('pyqList', 'Error loading question papers');
+        showEmptyState('syllabusList', 'Error loading syllabus');
+    });
 
     function renderPYQs(pyqs) {
         const startIndex = (currentPage - 1) * itemsPerPage;

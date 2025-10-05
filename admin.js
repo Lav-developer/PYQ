@@ -2,7 +2,6 @@
 const firebaseConfig = {
     apiKey: "AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ",
     authDomain: "dsmnru-data.firebaseapp.com",
-    databaseURL: "https://dsmnru-data-default-rtdb.firebaseio.com",
     projectId: "dsmnru-data",
     storageBucket: "dsmnru-data.firebasestorage.app",
     messagingSenderId: "62250453477",
@@ -13,7 +12,7 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 
 const auth = firebase.auth();
-const database = firebase.database();
+const db = firebase.firestore();
 let allData = { pyqs: [], syllabus: [] };
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -88,14 +87,19 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadData() {
-    database.ref().once('value')
-        .then(snapshot => {
-            allData = snapshot.val() || { pyqs: [], syllabus: [] };
-            renderLists();
-        })
-        .catch(error => {
-            console.error('Error loading data:', error);
-        });
+    // Load pyqs and syllabus collections from Firestore
+    Promise.all([
+        db.collection('pyqs').get(),
+        db.collection('syllabus').get()
+    ])
+    .then(([pyqSnap, syllabusSnap]) => {
+        allData.pyqs = pyqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderLists();
+    })
+    .catch(error => {
+        console.error('Error loading data from Firestore:', error);
+    });
 }
 
 function renderLists() {
@@ -137,32 +141,60 @@ function renderSyllabus() {
 }
 
 function addItem(type, item) {
-    allData[type].push(item);
-    saveData();
+    // Add document to Firestore collection
+    db.collection(type).add(item)
+        .then(docRef => {
+            allData[type].push({ id: docRef.id, ...item });
+            renderLists();
+            alert('Item added successfully!');
+        })
+        .catch(error => {
+            console.error('Error adding item:', error);
+            alert('Error adding item. Please try again.');
+        });
 }
 
 function editItem(type, index, item) {
-    allData[type][index] = item;
-    saveData();
+    const existing = allData[type][index];
+    if (!existing || !existing.id) {
+        alert('Unable to find item id to update.');
+        return;
+    }
+    db.collection(type).doc(existing.id).set(item, { merge: true })
+        .then(() => {
+            allData[type][index] = { id: existing.id, ...item };
+            renderLists();
+            alert('Item updated successfully!');
+        })
+        .catch(error => {
+            console.error('Error updating item:', error);
+            alert('Error updating item. Please try again.');
+        });
 }
 
 function deleteItem(type, index) {
     if (confirm('Are you sure you want to delete this item?')) {
-        allData[type].splice(index, 1);
-        saveData();
+        const existing = allData[type][index];
+        if (!existing || !existing.id) {
+            alert('Unable to find item id to delete.');
+            return;
+        }
+        db.collection(type).doc(existing.id).delete()
+            .then(() => {
+                allData[type].splice(index, 1);
+                renderLists();
+                alert('Item deleted successfully!');
+            })
+            .catch(error => {
+                console.error('Error deleting item:', error);
+                alert('Error deleting item. Please try again.');
+            });
     }
 }
 
 function saveData() {
-    database.ref().set(allData)
-        .then(() => {
-            alert('Data saved successfully!');
-            renderLists();
-        })
-        .catch(error => {
-            console.error('Error saving data:', error);
-            alert('Error saving data. Please try again.');
-        });
+    // Deprecated for Firestore-based flows. Keep for compatibility but warn.
+    console.warn('saveData() called - this project now uses Firestore. Use addItem/editItem/deleteItem instead.');
 }
 
 // Global functions for onclick
