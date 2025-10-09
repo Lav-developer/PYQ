@@ -195,5 +195,33 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="admin.js"></script>
+
+    <!-- Realtime Chat Widget (bottom-right) for admin -->
+    <div id="chatWidget" class="chat-widget" aria-hidden="true">
+        <button id="chatToggleBtn" class="chat-toggle" aria-pressed="false" aria-label="Open chat" onclick="toggleChatWidget()">
+            <i class="fas fa-comments"></i>
+        </button>
+        <div class="chat-frame-wrap" role="dialog" aria-label="Site chat">
+            <iframe id="chatFrame" src="https://realtime-agent-cfje.onrender.com/" title="Chat assistant" frameborder="0" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        </div>
+    </div>
+
+    <script>
+    // Minimal admin init for chat widget: restore open state and keyboard shortcut
+    (function(){
+        const STORAGE_KEY = 'dsmnru_chat_widget_open';
+        const widget = document.getElementById('chatWidget');
+        const toggle = document.getElementById('chatToggleBtn');
+        if (!widget || !toggle) return;
+        function setOpen(v){
+            widget.classList.toggle('open', v);
+            toggle.setAttribute('aria-pressed', v ? 'true' : 'false');
+            localStorage.setItem(STORAGE_KEY, v ? '1' : '0');
+        }
+        toggle.addEventListener('click', ()=> setOpen(!widget.classList.contains('open')));
+        setOpen(localStorage.getItem(STORAGE_KEY) === '1');
+        window.addEventListener('keydown', e=>{ if (e.altKey && (e.key==='c' || e.key==='C')) { e.preventDefault(); toggle.click(); } });
+    })();
+    </script>
 </body>
 </html>

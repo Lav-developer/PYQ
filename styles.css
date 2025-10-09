@@ -2304,3 +2304,85 @@ select:focus {
         font-size: 16px;
     }
 }
+
+/* Chat widget (bottom-right) */
+.chat-widget {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: 99999;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+  /* Ensure frame appears to the left of the toggle */
+  flex-direction: row;
+}
+.chat-widget .chat-toggle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #26707a, #32a8a0);
+  color: white;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.18);
+}
+.chat-widget .chat-frame-wrap {
+  width: 360px;
+  height: 520px;
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+  /* frame will expand to the left of the button */
+  transform-origin: left bottom;
+  transition: transform 220ms ease, opacity 220ms ease;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px) scale(0.98);
+  order: 0; /* ensure frame is placed before toggle */
+}
+.chat-widget.open .chat-frame-wrap {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+.chat-widget iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
+}
+/* Ensure toggle sits to the right of the frame */
+.chat-widget .chat-toggle { order: 1; }
+
+@media (max-width: 640px) {
+  .chat-widget { right: 12px; bottom: 12px; }
+  .chat-widget .chat-frame-wrap { width: 300px; height: 440px; }
+}
+
+@media (max-width: 420px) {
+  /* on very small screens show a touch-friendly overlay panel instead of hiding it */
+  .chat-widget {
+    right: 8px;
+    bottom: 8px;
+  }
+  .chat-widget .chat-frame-wrap {
+    display: block;
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 72px; /* leave space for the toggle */
+    height: calc(100vh - 96px);
+    width: auto;
+    border-radius: 12px;
+    box-shadow: 0 20px 40px rgba(0,0,0,0.35);
+    transform-origin: center bottom;
+    z-index: 100000;
+  }
+  /* keep toggle above the overlay */
+  .chat-widget .chat-toggle { position: fixed; right: 16px; bottom: 16px; z-index: 100001; }
+}
