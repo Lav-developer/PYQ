@@ -570,20 +570,47 @@ function showToolInfo(toolId) {
     const toolInfo = {
         'cgpa': {
             title: 'CGPA Calculator',
-            description: 'A comprehensive tool to calculate your Cumulative Grade Point Average (CGPA) and Semester Grade Point Average (SGPA).',
+            description: 'A comprehensive tool to calculate your Semester Grade Point Average (SGPA) for a set of subjects. Use it to compute semester performance quickly.',
             features: [
-                'Calculate CGPA for multiple semesters',
-                'Track individual semester performance',
-                'Support for different grading systems',
-                'Export results and maintain history',
-                'Mobile-responsive design',
-                'Secure and privacy-focused'
+                'Calculate SGPA from letter grades and credits',
+                'Adjust subject count dynamically',
+                'Quick credit +/- controls',
+                'Results preview and last-calculation persistence'
             ],
             benefits: [
-                'Monitor your academic progress',
-                'Plan future semester targets',
-                'Prepare for scholarship applications',
-                'Track improvement over time'
+                'Quickly estimate semester performance',
+                'Plan target grades for upcoming subjects',
+                'Save and reuse values locally'
+            ]
+        },
+        'attendance': {
+            title: 'Attendance Tracker',
+            description: 'Track daily attendance per subject and view monthly summaries. Mark Present/Absent for specific dates and monitor percent attendance for each subject.',
+            features: [
+                'Record attendance by date (Present / Absent)',
+                'Monthly summary and percentage calculation',
+                'Edit and delete subjects',
+                'Local persistence using localStorage'
+            ],
+            benefits: [
+                'Keep a reliable local record of attendance',
+                'Identify subjects close to attendance warning thresholds',
+                'Simple offline-first design'
+            ]
+        },
+        'planner': {
+            title: 'Study Planner',
+            description: 'Create tasks with due dates and reminders. Track progress and completion to stay organized during the semester.',
+            features: [
+                'Add / edit / delete study tasks',
+                'Mark tasks complete and track progress',
+                'Optional reminders for upcoming due dates',
+                'Lightweight local storage for quick start'
+            ],
+            benefits: [
+                'Organize study sessions and assignments',
+                'Track completion rate visually',
+                'Receive simple reminders for priority tasks'
             ]
         }
     };
@@ -598,7 +625,7 @@ function showToolInfo(toolId) {
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title">
-                            <i class="fas fa-calculator me-2"></i>${info.title}
+                            <i class="fas fa-info-circle me-2"></i>${info.title}
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
@@ -622,14 +649,14 @@ function showToolInfo(toolId) {
                         
                         <div class="alert alert-info mt-3">
                             <i class="fas fa-info-circle me-2"></i>
-                            <strong>Pro Tip:</strong> Use this calculator regularly to stay on top of your academic performance and set realistic goals for upcoming semesters.
+                            <strong>Pro Tip:</strong> Use this tool regularly to stay on top of your academic tasks and attendance.
                         </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <a href="https://cgpa-calc.streamlit.app/" target="_blank" class="btn btn-primary">
-                            <i class="fas fa-external-link-alt me-2"></i>Use Calculator
-                        </a>
+                        <button type="button" class="btn btn-primary" id="openToolBtn">
+                            <i class="fas fa-play me-2"></i> Open Tool
+                        </button>
                     </div>
                 </div>
             </div>
@@ -646,9 +673,31 @@ function showToolInfo(toolId) {
     document.body.insertAdjacentHTML('beforeend', modalHTML);
 
     // Show modal
-    const modal = new bootstrap.Modal(document.getElementById('toolInfoModal'));
+    const modalEl = document.getElementById('toolInfoModal');
+    const modal = new bootstrap.Modal(modalEl);
     modal.show();
+
+    // Wire Open Tool button to trigger the corresponding tool
+    const openButtonMap = { cgpa: 'openCgpaBtn', attendance: 'openAttendanceBtn', planner: 'openPlannerBtn' };
+    const openToolBtn = document.getElementById('openToolBtn');
+    if (openToolBtn) {
+        openToolBtn.addEventListener('click', () => {
+            modal.hide();
+            const targetBtnId = openButtonMap[toolId];
+            const targetBtn = document.getElementById(targetBtnId);
+            if (targetBtn) {
+                targetBtn.click();
+                trackToolUsage(toolId, 'open_from_info');
+            } else {
+                // Fallback: if no button exists, just log
+                console.warn('Open button for', toolId, 'not found');
+            }
+        });
+    }
 }
+
+// Expose to global scope for inline onclick handlers
+window.showToolInfo = showToolInfo;
 
 // Enhanced analytics for tool usage
 function trackToolUsage(toolName, action) {
@@ -799,6 +848,96 @@ function trackToolUsage(toolName, action) {
     // Apply settings when DOM is loaded
     applySavedSettings();
 
+    /* ----------------- CGPA Calculator Module ----------------- */
+    const cgpaModalEl = document.getElementById('cgpaModal');
+    const openCgpaBtn = document.getElementById('openCgpaBtn');
+    if (openCgpaBtn && cgpaModalEl) {
+        const cgpaModal = new bootstrap.Modal(cgpaModalEl);
+        openCgpaBtn.addEventListener('click', ()=>{ cgpaModal.show(); renderCgpaSubjects(); });
+
+        // Grade to points mapping (example 10-point scale)
+        const gradeMap = { 'O':10, 'A+':9, 'A':8, 'B+':7, 'B':6, 'C':5, 'D':4, 'F':0 };
+
+        const cgpaCountInput = document.getElementById('cgpaCount');
+        const cgpaInc = document.getElementById('cgpaInc');
+        const cgpaDec = document.getElementById('cgpaDec');
+        const cgpaSubjects = document.getElementById('cgpaSubjects');
+        const calculateCgpaBtn = document.getElementById('calculateCgpaBtn');
+        const resetCgpaBtn = document.getElementById('resetCgpaBtn');
+        const cgpaResults = document.getElementById('cgpaResults');
+
+        function renderCgpaSubjects(){
+            const count = Number(cgpaCountInput.value) || 1;
+            cgpaSubjects.innerHTML = '';
+            for(let i=1;i<=count;i++){
+                const row = document.createElement('div');
+                row.className = 'd-flex gap-2 align-items-center mb-2';
+                row.innerHTML = `
+                    <div style="flex:1">
+                        <label class="form-label">Letter grade for subject ${i}</label>
+                        <select class="form-control cgpa-grade" data-i="${i}">
+                            <option value="O">O</option>
+                            <option value="A+">A+</option>
+                            <option value="A">A</option>
+                            <option value="B+">B+</option>
+                            <option value="B">B</option>
+                            <option value="C">C</option>
+                            <option value="D">D</option>
+                            <option value="F">F</option>
+                        </select>
+                    </div>
+                    <div style="width:120px">
+                        <label class="form-label">Credits</label>
+                        <div class="d-flex align-items-center">
+                            <button class="btn btn-outline-light btn-sm credit-dec" type="button">-</button>
+                            <input type="number" min="0" value="1" class="form-control form-control-sm mx-1 cgpa-credit" style="width:60px" />
+                            <button class="btn btn-outline-light btn-sm credit-inc" type="button">+</button>
+                        </div>
+                    </div>
+                `;
+                cgpaSubjects.appendChild(row);
+            }
+
+            // wire credit +/- buttons
+            cgpaSubjects.querySelectorAll('.credit-inc').forEach(btn=> btn.addEventListener('click', (e)=>{ const input = e.target.closest('div').querySelector('.cgpa-credit'); input.value = Number(input.value||0)+1; }));
+            cgpaSubjects.querySelectorAll('.credit-dec').forEach(btn=> btn.addEventListener('click', (e)=>{ const input = e.target.closest('div').querySelector('.cgpa-credit'); input.value = Math.max(0, Number(input.value||0)-1); }));
+        }
+
+        cgpaInc.addEventListener('click', ()=>{ cgpaCountInput.value = Math.min(20, Number(cgpaCountInput.value||1)+1); renderCgpaSubjects(); });
+        cgpaDec.addEventListener('click', ()=>{ cgpaCountInput.value = Math.max(1, Number(cgpaCountInput.value||1)-1); renderCgpaSubjects(); });
+        cgpaCountInput.addEventListener('change', renderCgpaSubjects);
+
+        function calculateCgpa(){
+            const grades = Array.from(document.querySelectorAll('.cgpa-grade')).map(s=>s.value);
+            const credits = Array.from(document.querySelectorAll('.cgpa-credit')).map(i=>Number(i.value||0));
+            let totalPoints = 0, totalCredits = 0;
+            for(let i=0;i<grades.length;i++){
+                const g = grades[i];
+                const c = credits[i]||0;
+                const pts = (gradeMap[g]!==undefined)? gradeMap[g] : 0;
+                totalPoints += pts * c;
+                totalCredits += c;
+            }
+            const sgpa = totalCredits ? (totalPoints/totalCredits) : 0;
+            cgpaResults.innerHTML = `
+                <div class="card card__body">
+                    <p><strong>Total Credits:</strong> ${totalCredits}</p>
+                    <p><strong>Total Grade Points:</strong> ${totalPoints.toFixed(2)}</p>
+                    <p><strong>SGPA / Semester GPA:</strong> ${sgpa.toFixed(2)}</p>
+                </div>
+            `;
+
+            // Save to simple local history (last calculation)
+            localStorage.setItem('dsmnruCgpaLast', JSON.stringify({ totalCredits, totalPoints, sgpa, timestamp: new Date().toISOString() }));
+        }
+
+        calculateCgpaBtn.addEventListener('click', calculateCgpa);
+        resetCgpaBtn.addEventListener('click', ()=>{ cgpaCountInput.value = 1; renderCgpaSubjects(); cgpaResults.innerHTML = ''; });
+
+        // initial render
+        renderCgpaSubjects();
+    }
+
     // Add event listeners for tool tracking
     // Track CGPA calculator clicks
     const cgpaButtons = document.querySelectorAll('a[href*="cgpa-calc.streamlit.app"]');
@@ -842,3 +981,240 @@ function toggleChatWidget() {
         console.error('toggleChatWidget error:', err);
     }
 }
+
+/* ------------------ Study Planner (global) ------------------ */
+(function(){
+    const PLANNER_KEY = 'dsmnruStudyPlanner';
+    let plannerTasks = [];
+
+    function loadPlanner(){
+        try{ plannerTasks = JSON.parse(localStorage.getItem(PLANNER_KEY)) || []; }catch(e){ plannerTasks = []; }
+        updatePlannerSummary();
+    }
+    function savePlanner(){ localStorage.setItem(PLANNER_KEY, JSON.stringify(plannerTasks)); updatePlannerSummary(); }
+
+    function updatePlannerSummary(){
+        const total = plannerTasks.length;
+        const completed = plannerTasks.filter(t=>t.completed).length;
+        const countEl = document.getElementById('plannerCount');
+        const compEl = document.getElementById('plannerCompleted');
+        const fill = document.getElementById('plannerProgressFill');
+        if(countEl) countEl.textContent = `${total} task${total!==1?'s':''}`;
+        if(compEl) compEl.textContent = `${completed} completed`;
+        if(fill) fill.style.width = total? `${Math.round((completed/total)*100)}%` : '0%';
+    }
+
+    function renderPlannerModal(){
+        let modal = document.getElementById('plannerModal');
+        if(!modal){
+            modal = document.createElement('div'); modal.id='plannerModal'; modal.className='modal fade'; modal.tabIndex=-1;
+            modal.innerHTML = `
+            <div class="modal-dialog modal-lg modal-dialog-centered">
+              <div class="modal-content planner-panel">
+                <div class="modal-header">
+                  <h5 class="modal-title">Study Planner</h5>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                  <form id="plannerForm" class="mb-3 d-flex gap-2">
+                    <input id="plannerTitle" class="form-control" placeholder="Task title (e.g. Read Chapters 1-3)" required />
+                    <input id="plannerDue" type="datetime-local" class="form-control" />
+                    <button class="btn btn-primary" type="submit">Add</button>
+                  </form>
+                  <ul id="plannerList" class="planner-list"></ul>
+                </div>
+                <div class="modal-footer">
+                  <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                  <button class="btn btn-outline-light" id="clearPlannerBtn">Clear All</button>
+                </div>
+              </div>
+            </div>`;
+            document.body.appendChild(modal);
+            modal.bs = new bootstrap.Modal(modal);
+            modal.querySelector('#plannerForm').addEventListener('submit', function(e){
+                e.preventDefault();
+                const title = document.getElementById('plannerTitle').value.trim();
+                const due = document.getElementById('plannerDue').value || null;
+                if(!title) return;
+                plannerTasks.push({ id: Date.now(), title, due, completed:false }); savePlanner(); renderPlannerItems(); document.getElementById('plannerForm').reset(); scheduleReminders();
+            });
+            modal.querySelector('#clearPlannerBtn').addEventListener('click', function(){ if(confirm('Clear all tasks?')){ plannerTasks = []; savePlanner(); renderPlannerItems(); } });
+        }
+        renderPlannerItems(); modal.bs.show();
+    }
+
+    function renderPlannerItems(){
+        const list = document.getElementById('plannerList'); if(!list) return;
+        if(plannerTasks.length===0){ list.innerHTML = `<li class="empty-state"><p>No tasks yet. Add a task using the form above.</p></li>`; updatePlannerSummary(); return; }
+        list.innerHTML = plannerTasks.map(task => `
+            <li class="planner-item" data-id="${task.id}">
+                <div class="left">
+                    <input type="checkbox" class="planner-checkbox" ${task.completed? 'checked':''} />
+                    <div>
+                      <div class="planner-title">${escapeHtml(task.title)}</div>
+                      <div class="meta">${task.due? ('Due: '+ formatDate(task.due)) : ''}</div>
+                    </div>
+                </div>
+                <div class="planner-actions">
+                    <button class="btn btn-sm btn-outline-light btn-edit">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger btn-delete">Delete</button>
+                </div>
+            </li>`).join('');
+        list.querySelectorAll('.planner-item').forEach(li=>{
+            const id = Number(li.getAttribute('data-id'));
+            li.querySelector('.planner-checkbox').addEventListener('change', function(){ const task = plannerTasks.find(t=>t.id===id); if(!task) return; task.completed = this.checked; savePlanner(); renderPlannerItems(); });
+            li.querySelector('.btn-delete').addEventListener('click', function(){ if(confirm('Delete task?')){ plannerTasks = plannerTasks.filter(t=>t.id!==id); savePlanner(); renderPlannerItems(); } });
+            li.querySelector('.btn-edit').addEventListener('click', function(){ const task = plannerTasks.find(t=>t.id===id); if(!task) return; const newTitle = prompt('Edit task title', task.title); if(newTitle!==null){ task.title = newTitle.trim() || task.title; savePlanner(); renderPlannerItems(); } });
+        });
+        updatePlannerSummary();
+    }
+
+    function scheduleReminders(){ if(window._plannerTimeouts) window._plannerTimeouts.forEach(t=>clearTimeout(t)); window._plannerTimeouts = []; plannerTasks.forEach(task=>{ if(task.due && !task.completed){ const when = new Date(task.due).getTime(); const now = Date.now(); const delta = when - now; if(delta>0 && delta<1000*60*60*24*7){ const timeout = setTimeout(()=>{ if(window.Notification && Notification.permission==='granted'){ new Notification('Study Planner Reminder', { body: task.title }); } else { alert('Reminder: '+task.title); } }, delta); window._plannerTimeouts.push(timeout); } } }); }
+
+    function formatDate(iso){ try{ const d = new Date(iso); return d.toLocaleString(); }catch(e){return iso} }
+    function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+    // wire open button
+    document.addEventListener('DOMContentLoaded', function(){ const openPlannerBtn = document.getElementById('openPlannerBtn'); if(openPlannerBtn) openPlannerBtn.addEventListener('click', function(){ renderPlannerModal(); }); loadPlanner(); scheduleReminders(); if('Notification' in window && Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(e){} } });
+
+})();
+
+/* ------------------ Attendance Tracker (global) ------------------ */
+(function(){
+        const ATT_KEY = 'dsmnruAttendance';
+        let attendance = []; // {id, subject, present, total}
+        const WARNING_THRESHOLD = 75; // percent
+
+        // Local HTML-escape helper (attendance module scope)
+        function escapeHtml(s){ return String(s).replace(/[&<>"']/g, function(c){
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":"&#39;"}[c]);
+        }); }
+
+        function loadAttendance(){
+                try{ attendance = JSON.parse(localStorage.getItem(ATT_KEY)) || []; }catch(e){ attendance = []; }
+                updateAttendanceSummary();
+        }
+        function saveAttendance(){ localStorage.setItem(ATT_KEY, JSON.stringify(attendance)); updateAttendanceSummary(); }
+
+        function updateAttendanceSummary(){
+                const subs = attendance.length;
+                const near = attendance.filter(s=> percentage(s) < WARNING_THRESHOLD && percentage(s) >= WARNING_THRESHOLD-5).length;
+                const subjectsEl = document.getElementById('attendanceSubjects');
+                const warnEl = document.getElementById('attendanceWarn');
+                if(subjectsEl) subjectsEl.textContent = `${subs} subject${subs!==1?'s':''}`;
+                if(warnEl) warnEl.textContent = `${near} near limit`;
+        }
+
+        function percentage(s){ if(!s || s.total===0) return 0; return Math.round((s.present / s.total)*100); }
+
+        function renderAttendanceModal(){
+                let modal = document.getElementById('attendanceModal');
+                if(!modal){
+                        modal = document.createElement('div'); modal.id='attendanceModal'; modal.className='modal fade'; modal.tabIndex=-1;
+                        modal.innerHTML = `
+                        <div class="modal-dialog modal-lg modal-dialog-centered">
+                            <div class="modal-content planner-panel">
+                                <div class="modal-header">
+                                    <h5 class="modal-title">Attendance Tracker</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                                </div>
+                                <div class="modal-body">
+                                    <form id="attendanceForm" class="mb-3 d-flex gap-2">
+                                        <input id="attendanceSubject" class="form-control" placeholder="Subject name (e.g. Mathematics)" required />
+                                        <button class="btn btn-primary" type="submit">Add Subject</button>
+                                    </form>
+                                    <div class="d-flex gap-2 mb-3">
+                                        <label class="form-label mb-0">Mark date:</label>
+                                        <input id="attendanceDate" type="date" class="form-control" />
+                                        <label class="form-label mb-0">View month:</label>
+                                        <input id="attendanceMonth" type="month" class="form-control" />
+                                    </div>
+                                    <ul id="attendanceList" class="attendance-list"></ul>
+                                </div>
+                                <div class="modal-footer">
+                                    <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                                    <button class="btn btn-outline-light" id="clearAttendanceBtn">Clear All</button>
+                                </div>
+                            </div>
+                        </div>`;
+                        document.body.appendChild(modal);
+                        modal.bs = new bootstrap.Modal(modal);
+                        // set default values for date/month inputs when modal created
+                        const dateInput = modal.querySelector('#attendanceDate');
+                        const monthInput = modal.querySelector('#attendanceMonth');
+                        const today = new Date();
+                        const yyyy = today.getFullYear();
+                        const mm = String(today.getMonth()+1).padStart(2,'0');
+                        dateInput.value = `${yyyy}-${mm}-${String(today.getDate()).padStart(2,'0')}`;
+                        monthInput.value = `${yyyy}-${mm}`;
+
+                        modal.querySelector('#attendanceForm').addEventListener('submit', function(e){
+                            e.preventDefault();
+                            const sub = document.getElementById('attendanceSubject').value.trim();
+                            if(!sub) return;
+                            // new structure uses records mapping date->'P'|'A'
+                            attendance.push({ id: Date.now(), subject: sub, records: {} });
+                            saveAttendance(); renderAttendanceItems(); this.reset();
+                        });
+                        modal.querySelector('#clearAttendanceBtn').addEventListener('click', function(){ if(confirm('Clear attendance data for all subjects?')){ attendance=[]; saveAttendance(); renderAttendanceItems(); } });
+                        // when month or date changes, re-render list to show current month values
+                        modal.querySelector('#attendanceMonth').addEventListener('input', renderAttendanceItems);
+                        modal.querySelector('#attendanceDate').addEventListener('input', renderAttendanceItems);
+                }
+                renderAttendanceItems(); modal.bs.show();
+        }
+
+        function renderAttendanceItems(){
+                const list = document.getElementById('attendanceList'); if(!list) return;
+                if(attendance.length===0){ list.innerHTML = `<li class="empty-state"><p>No subjects yet. Add a subject to start tracking attendance.</p></li>`; updateAttendanceSummary(); return; }
+                const monthInput = document.getElementById('attendanceMonth');
+                const dateInput = document.getElementById('attendanceDate');
+                const selectedMonth = monthInput && monthInput.value ? monthInput.value : (new Date()).toISOString().slice(0,7);
+                const selectedDate = dateInput && dateInput.value ? dateInput.value : (new Date()).toISOString().slice(0,10);
+                list.innerHTML = attendance.map(s=>{
+                        // support legacy present/total if records missing
+                        let pct = 0; let monthSummaryText = '';
+                        if(s.records){
+                            const keys = Object.keys(s.records).filter(k => k.startsWith(selectedMonth));
+                            const total = keys.length;
+                            const present = keys.filter(k => s.records[k]==='P').length;
+                            pct = total? Math.round((present/total)*100) : 0;
+                            monthSummaryText = total? `Present this month: ${present} / ${total} (${pct}%)` : 'No records this month';
+                        } else if(typeof s.present === 'number'){
+                            pct = percentage(s);
+                            monthSummaryText = `Present: ${s.present} / ${s.total} (${pct}%)`;
+                        }
+                        // status for selected date
+                        const statusForDate = (s.records && s.records[selectedDate]) ? s.records[selectedDate] : 'N/A';
+                        return `
+                        <li class="attendance-item" data-id="${s.id}">
+                            <div>
+                                <strong>${escapeHtml(s.subject)}</strong>
+                                <div class="meta">${monthSummaryText}</div>
+                                <div class="meta">Status on ${selectedDate}: ${statusForDate}</div>
+                                <div class="attendance-progress"><div style="width:${pct}%"></div></div>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-outline-light mark-present">Present</button>
+                                <button class="btn btn-sm btn-outline-danger mark-absent">Absent</button>
+                                <button class="btn btn-sm btn-outline-light btn-edit">Edit</button>
+                                <button class="btn btn-sm btn-outline-danger btn-delete">Delete</button>
+                            </div>
+                        </li>`;
+                }).join('');
+                list.querySelectorAll('.attendance-item').forEach(li=>{
+                        const id = Number(li.getAttribute('data-id'));
+                        li.querySelector('.mark-present').addEventListener('click', ()=>{ const s = attendance.find(x=>x.id===id); const dateInput = document.getElementById('attendanceDate'); const d = dateInput && dateInput.value ? dateInput.value : (new Date()).toISOString().slice(0,10); if(!s.records) s.records = {}; s.records[d]='P'; saveAttendance(); renderAttendanceItems(); checkWarnings(s); });
+                        li.querySelector('.mark-absent').addEventListener('click', ()=>{ const s = attendance.find(x=>x.id===id); const dateInput = document.getElementById('attendanceDate'); const d = dateInput && dateInput.value ? dateInput.value : (new Date()).toISOString().slice(0,10); if(!s.records) s.records = {}; s.records[d]='A'; saveAttendance(); renderAttendanceItems(); checkWarnings(s); });
+                        li.querySelector('.btn-delete').addEventListener('click', ()=>{ if(confirm('Delete subject?')){ attendance = attendance.filter(x=>x.id!==id); saveAttendance(); renderAttendanceItems(); } });
+                        li.querySelector('.btn-edit').addEventListener('click', ()=>{ const s = attendance.find(x=>x.id===id); const newName = prompt('Edit subject name', s.subject); if(newName!==null){ s.subject = newName.trim() || s.subject; saveAttendance(); renderAttendanceItems(); } });
+                });
+                updateAttendanceSummary();
+        }
+
+        function checkWarnings(s){ const pct = percentage(s); if(pct < WARNING_THRESHOLD){ if(pct < WARNING_THRESHOLD-10){ alert(`Warning: ${s.subject} attendance is low (${pct}%).`); } else { /* softer warning */ } } }
+
+        // wire button
+        document.addEventListener('DOMContentLoaded', function(){ const openBtn = document.getElementById('openAttendanceBtn'); if(openBtn) openBtn.addEventListener('click', ()=> renderAttendanceModal()); loadAttendance(); });
+
+})();

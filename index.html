@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DSMNRU PYQ & Syllabus - Previous Year Question Papers & Course Syllabus | B.Tech, B.Sc, M.Tech</title>
     <meta name="description" content="Download DSMNRU PYQ, previous year question papers, syllabus for B.Tech, B.Sc, M.Tech courses. Complete academic resources for DSMNRU students. Free downloads.">
-    <meta name="keywords" content="DSMNRU, question papers, syllabus, B.Tech, B.Sc, previous year, exam, DSMNRU PYQ, DSMNRU syllabus, PYQ DSMNRU, DSMNRU exam papers, DSMNRU study materials, DSMNRU academic resources, DSMNRU previous year questions, DSMNRU course syllabus">
+    <meta name="keywords" content="DSMNRU, PYQ, previous year question papers, syllabus, B.Tech, B.Sc, exam papers, study materials">
     <meta name="robots" content="index, follow">
     <meta name="author" content="DSMNRU Academic Archive">
     <meta name="language" content="English">
@@ -26,7 +26,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
-    <link rel="canonical" href="https://dsmnru-pyq.email/">
+    <link rel="canonical" href="https://dsmnru-pyq.netlify.app/">
     <link rel="alternate" href="https://dsmnru-pyq.netlify.app/" hreflang="en">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#32a8a0">
@@ -60,18 +60,39 @@
 
     <!-- SEO and Social Media Tags -->
     <meta property="og:title" content="DSMNRU PYQ & Syllabus - Previous Year Question Papers & Course Syllabus">
-    <meta property="og:description" content="Download DSMNRU PYQ, previous year question papers, syllabus for B.Tech, B.Sc, M.Tech courses. Complete academic resources for DSMNRU students.">
+    <meta property="og:description" content="Browse and download DSMNRU previous year question papers and course syllabus for B.Tech, B.Sc and more. Free academic resources for DSMNRU students.">
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://dsmnru-pyq.email/">
-    <meta property="og:image" content="https://dsmnru-pyq.email/img/dsmnru-logo.png">
+    <meta property="og:url" content="https://dsmnru-pyq.netlify.app/">
+    <meta property="og:image" content="https://dsmnru-pyq.netlify.app/img/dsmnru-logo.png">
     <meta property="og:site_name" content="DSMNRU Academic Archive">
     <meta property="og:locale" content="en_US">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="DSMNRU PYQ & Syllabus - Academic Resources">
     <meta name="twitter:description" content="Free DSMNRU PYQ and syllabus downloads for students">
-    <meta name="twitter:image" content="https://dsmnru-pyq.email/img/dsmnru-logo.png">
+    <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/dsmnru-logo.png">
     <meta name="twitter:site" content="@dsmnru_updates">
     <meta name="twitter:creator" content="@dsmnru_updates">
+        <!-- Structured data for better search appearance -->
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "Organization",
+            "name": "DSMNRU Academic Archive",
+            "url": "https://dsmnru-pyq.netlify.app/",
+            "logo": "https://dsmnru-pyq.netlify.app/img/Logo.png",
+            "sameAs": ["https://t.me/dsmnru_updates","https://youtube.com/@dsmnruupdates"]
+        }
+        </script>
+        <script type="application/ld+json">
+        {
+            "@context": "https://schema.org",
+            "@type": "WebSite",
+            "url": "https://dsmnru-pyq.netlify.app/",
+            "name": "DSMNRU Academic Archive",
+            "description": "Browse and download DSMNRU previous year question papers and course syllabus.",
+            "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive"}
+        }
+        </script>
 
 
 
@@ -210,15 +231,10 @@
                             Calculate your Cumulative Grade Point Average (CGPA) and Semester Grade Point Average (SGPA) 
                             easily with our interactive calculator. Track your academic performance semester by semester.
                         </p>
-                        <div class="tool-features">
-                            <span class="feature-tag"><i class="fas fa-chart-line"></i> Grade Tracking</span>
-                            <span class="feature-tag"><i class="fas fa-history"></i> Semester History</span>
-                            <span class="feature-tag"><i class="fas fa-mobile-alt"></i> Mobile Friendly</span>
-                        </div>
                         <div class="tool-actions">
-                            <a href="https://cgpa-calculate.streamlit.app/" target="_blank" class="btn-tool-primary">
-                                <i class="fas fa-external-link-alt"></i> Use Calculator
-                            </a>
+                            <button class="btn-tool-primary" id="openCgpaBtn">
+                                <i class="fas fa-calculator"></i> Open CGPA Calculator
+                            </button>
                             <button class="btn-tool-info" onclick="showToolInfo('cgpa')">
                                 <i class="fas fa-info-circle"></i> Learn More
                             </button>
@@ -227,34 +243,51 @@
                 </div>
 
                 <!-- Coming Soon Tools -->
-                <div class="tool-card coming-soon">
+                <div class="tool-card attendance-card">
                     <div class="tool-icon">
                         <i class="fas fa-calendar-check"></i>
                     </div>
                     <div class="tool-content">
                         <h3 class="tool-title">Attendance Tracker</h3>
-                        <p class="tool-description">
-                            Keep track of your attendance across all subjects and get alerts when you're approaching 
-                            the minimum attendance requirement.
-                        </p>
-                        <div class="coming-soon-badge">
-                            <i class="fas fa-hourglass-half"></i> Coming Soon
+                        <p class="tool-description">Track attendance per subject, mark present/absent, and see percentage & warnings.</p>
+                        <div class="attendance-summary">
+                            <span id="attendanceSubjects">0 subjects</span>
+                            <span id="attendanceWarn">0 near limit</span>
+                        </div>
+                        <div class="tool-actions">
+                            <button class="btn btn-tool-primary" id="openAttendanceBtn">
+                                <i class="fas fa-user-check"></i> Open Attendance Tracker
+                            </button>
+                            <button class="btn-tool-info" onclick="showToolInfo('attendance')">
+                                <i class="fas fa-info-circle"></i> Learn More
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <div class="tool-card coming-soon">
+                <div class="tool-card study-planner-card">
                     <div class="tool-icon">
                         <i class="fas fa-book-open"></i>
                     </div>
                     <div class="tool-content">
                         <h3 class="tool-title">Study Planner</h3>
-                        <p class="tool-description">
-                            Create personalized study schedules, set reminders for assignments and exams, 
-                            and track your study progress effectively.
-                        </p>
-                        <div class="coming-soon-badge">
-                            <i class="fas fa-hourglass-half"></i> Coming Soon
+                        <p class="tool-description">Create personalized study schedules, set reminders for assignments and exams, and track your study progress effectively.</p>
+                        <div class="planner-summary">
+                            <div class="planner-stats">
+                                <span id="plannerCount">0 tasks</span>
+                                <span id="plannerCompleted">0 completed</span>
+                            </div>
+                            <div class="planner-progress">
+                                <div class="planner-progress-bar"><div id="plannerProgressFill" style="width:0%"></div></div>
+                            </div>
+                        </div>
+                        <div class="tool-actions">
+                            <button class="btn btn-tool-primary" id="openPlannerBtn">
+                                <i class="fas fa-tasks"></i> Open Study Planner
+                            </button>
+                            <button class="btn-tool-info" onclick="showToolInfo('planner')">
+                                <i class="fas fa-info-circle"></i> Learn More
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -426,7 +459,39 @@
             </div>
         </div>
     </div>
+                <!-- CGPA Calculator Modal (top-level) -->
+                <div class="modal fade" id="cgpaModal" tabindex="-1" aria-labelledby="cgpaModalLabel" aria-hidden="true">
+                    <div class="modal-dialog modal-lg modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title" id="cgpaModalLabel">CGPA Calculator</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Enter number of subjects</label>
+                                    <div class="d-flex gap-2 align-items-center">
+                                        <button class="btn btn-outline-light" id="cgpaDec">-</button>
+                                        <input id="cgpaCount" type="number" class="form-control" value="1" min="1" max="20" />
+                                        <button class="btn btn-outline-light" id="cgpaInc">+</button>
+                                    </div>
+                                </div>
 
+                                <div id="cgpaSubjects"></div>
+
+                                <div class="d-flex gap-3 mt-3">
+                                    <button class="btn btn-primary" id="calculateCgpaBtn"><i class="fas fa-rocket"></i> Calculate CGPA</button>
+                                    <button class="btn btn-outline-light" id="resetCgpaBtn">Reset</button>
+                                </div>
+
+                                <div class="mt-4">
+                                    <h5>Results</h5>
+                                    <div id="cgpaResults" class="mt-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
     <!-- Share Modal -->
     <div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
         <div class="modal-dialog">
@@ -526,6 +591,8 @@
                         </div>
                     </div>
                 </div>
+
+                            
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="saveDashboardSettings">Save Settings</button>

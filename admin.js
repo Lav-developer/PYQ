@@ -13,6 +13,7 @@ firebase.initializeApp(firebaseConfig);
 
 const auth = firebase.auth();
 const db = firebase.firestore();
+const storage = firebase.storage();
 let allData = { pyqs: [], syllabus: [] };
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -51,6 +52,18 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('logoutBtn').addEventListener('click', function() {
         auth.signOut();
     });
+
+    // Generate sitemap button
+    const genBtn = document.getElementById('generateSitemapBtn');
+    if (genBtn) {
+        genBtn.addEventListener('click', function() {
+            if (!auth.currentUser) {
+                alert('You must be signed in to generate the sitemap.');
+                return;
+            }
+            generateSitemap();
+        });
+    }
 
     // Add PYQ form
     document.getElementById('addPyqForm').addEventListener('submit', function(e) {
@@ -96,10 +109,101 @@ function loadData() {
         allData.pyqs = pyqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         renderLists();
+        // update sitemap status if visible
+        updateSitemapStatus('ready');
     })
     .catch(error => {
         console.error('Error loading data from Firestore:', error);
     });
+}
+
+function generateSitemap() {
+    // Build sitemap XML from allData
+    try {
+        const baseUrl = (location.protocol + '//' + location.hostname).replace(/\/$/, '') + '/';
+        const urls = [];
+
+        // Add homepage
+        urls.push({ loc: baseUrl, priority: 1.0, changefreq: 'daily' });
+
+        // Add index.html explicitly
+        urls.push({ loc: baseUrl + 'index.html', priority: 0.9, changefreq: 'daily' });
+
+        // Add each pyq and syllabus file URL if present
+        allData.pyqs.forEach(item => {
+            if (item.file) urls.push({ loc: item.file, priority: 0.8, changefreq: 'monthly' });
+        });
+        allData.syllabus.forEach(item => {
+            if (item.file) urls.push({ loc: item.file, priority: 0.8, changefreq: 'monthly' });
+        });
+
+        const xmlParts = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'];
+        urls.forEach(u => {
+            xmlParts.push('  <url>');
+            xmlParts.push(`    <loc>${escapeXml(u.loc)}</loc>`);
+            if (u.changefreq) xmlParts.push(`    <changefreq>${u.changefreq}</changefreq>`);
+            if (u.priority !== undefined) xmlParts.push(`    <priority>${u.priority.toFixed(2)}</priority>`);
+            xmlParts.push('  </url>');
+        });
+        xmlParts.push('</urlset>');
+        const sitemapXml = xmlParts.join('\n');
+
+        // Upload to Firebase Storage
+        const blob = new Blob([sitemapXml], { type: 'application/xml' });
+        const ref = storage.ref().child('sitemap.xml');
+        updateSitemapStatus('uploading');
+        ref.put(blob, { contentType: 'application/xml' })
+            .then(snapshot => snapshot.ref.getDownloadURL())
+            .then(url => {
+                // Show the download URL to admin
+                updateSitemapStatus('done', url);
+                alert('Sitemap generated and uploaded. Public URL:\n' + url);
+            })
+            .catch(err => {
+                console.error('Error uploading sitemap:', err);
+                updateSitemapStatus('error');
+                alert('Failed to upload sitemap: ' + err.message);
+            });
+    } catch (err) {
+        console.error('Error generating sitemap:', err);
+        alert('Error generating sitemap: ' + err.message);
+    }
+}
+
+function escapeXml(unsafe) {
+    return (unsafe || '').replace(/[<>&'\"]/g, function(c) {
+        switch (c) {
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '&': return '&amp;';
+            case "'": return '&apos;';
+            case '"': return '&quot;';
+        }
+    });
+}
+
+function updateSitemapStatus(state, url) {
+    const container = document.getElementById('sitemapStatus');
+    const msg = document.getElementById('sitemapMessage');
+    const link = document.getElementById('sitemapUrl');
+    if (!container || !msg || !link) return;
+    if (state === 'ready') {
+        container.style.display = 'none';
+    } else if (state === 'uploading') {
+        container.style.display = 'block';
+        msg.textContent = 'Generating sitemap and uploading...';
+        link.style.display = 'none';
+    } else if (state === 'done') {
+        container.style.display = 'block';
+        msg.textContent = 'Sitemap uploaded. Public URL:';
+        link.href = url;
+        link.textContent = url;
+        link.style.display = 'block';
+    } else if (state === 'error') {
+        container.style.display = 'block';
+        msg.textContent = 'Error generating sitemap. See console.';
+        link.style.display = 'none';
+    }
 }
 
 function renderLists() {

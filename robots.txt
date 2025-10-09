@@ -1,5 +1,10 @@
 User-agent: *
-Disallow:
+# Disallow admin pages and any uploaded backend endpoints
+Disallow: /admin.html
+Disallow: /admin.js
 Disallow: /cgi-bin/
-Sitemap: https://dsmnru-pyq.email/sitemap.xml
-site
+
+User-agent: *
+Allow: /
+
+Sitemap: https://dsmnru-pyq.netlify.app/sitemap.xml

@@ -409,6 +409,51 @@ pre code {
   position: relative;
 }
 
+/* Study Planner styles */
+.study-planner-card .planner-summary {
+  margin-top: 12px;
+}
+.planner-stats {
+  display:flex;
+  gap:12px;
+  font-size:13px;
+  color:var(--color-text-secondary);
+  margin-bottom:8px;
+}
+.planner-progress-bar{
+  width:100%;
+  height:10px;
+  background:rgba(255,255,255,0.03);
+  border-radius:6px;
+  overflow:hidden;
+  border:1px solid var(--color-card-border);
+}
+#plannerProgressFill{
+  height:100%;
+  background:var(--color-primary);
+  width:0%;
+  transition: width 300ms var(--ease-standard);
+}
+
+/* Planner modal / panel */
+.planner-panel {
+  max-width:760px;
+  margin:0 auto;
+}
+.planner-list{list-style:none;padding:0;margin:0;}
+.planner-item{display:flex;align-items:center;justify-content:space-between;padding:10px;border:1px solid var(--color-card-border);border-radius:8px;margin-bottom:8px;background:var(--color-surface);}
+.planner-item .left{display:flex;gap:12px;align-items:center}
+.planner-item .meta{font-size:12px;color:var(--color-text-secondary)}
+.planner-actions button{margin-left:8px}
+
+/* Attendance Tracker styles */
+.attendance-card .attendance-summary{margin-top:10px;display:flex;gap:12px;color:var(--color-text-secondary);font-size:13px}
+.attendance-list{list-style:none;padding:0;margin:0}
+.attendance-item{display:flex;align-items:center;justify-content:space-between;padding:10px;border:1px solid var(--color-card-border);border-radius:8px;margin-bottom:8px;background:var(--color-surface)}
+.attendance-item .meta{font-size:13px;color:var(--color-text-secondary)}
+.attendance-progress{height:10px;background:rgba(255,255,255,0.03);border-radius:6px;overflow:hidden;border:1px solid var(--color-card-border)}
+.attendance-progress > div{height:100%;background:var(--color-warning);width:0%;transition:width 250ms var(--ease-standard)}
+
 .btn:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -1122,17 +1167,29 @@ body {
 
 .modal-header {
   border-bottom: 1px solid var(--secondary-color);
-  padding: var(--space-16);
+  padding: calc(var(--space-12) + 4px) var(--space-16);
 }
 
 .modal-footer {
   border-top: 1px solid var(--secondary-color);
-  padding: var(--space-16);
+  padding: calc(var(--space-12) + 4px) var(--space-16);
 }
 
 .btn-close {
   filter: invert(1);
 }
+
+/* Increase modal body padding for better breathing room */
+.modal-body {
+  padding: calc(var(--space-16) + 4px) !important;
+}
+
+/* CGPA modal specific layout adjustments */
+#cgpaSubjects { padding: 0 4px; }
+#cgpaSubjects .d-flex { padding-left: 4px; padding-right: 4px; }
+
+/* Ensure results card has internal padding and margin inside modal */
+#cgpaResults .card__body { padding: var(--space-16); margin-top: var(--space-12); }
 
 .social-share-buttons {
   display: flex;
@@ -2033,6 +2090,57 @@ input, textarea, select {
 input:focus, textarea:focus, select:focus {
     border-color: var(--secondary-color);
     box-shadow: 0 0 0 0.2rem rgba(var(--color-teal-300-rgb), 0.25);
+}
+
+/* Placeholder visibility: ensure readable contrast in dark surface inputs
+   and darker placeholders for inputs with white backgrounds (search/newsletter) */
+input, textarea, select, .form-control {
+  color: var(--color-text); /* ensure visible input text */
+}
+
+input::placeholder,
+textarea::placeholder,
+select::placeholder,
+.form-control::placeholder {
+  color: rgba(var(--color-gray-300-rgb), 0.78); /* stronger contrast */
+  opacity: 1; /* force visible in some browsers */
+}
+input::-webkit-input-placeholder,
+textarea::-webkit-input-placeholder,
+select::-webkit-input-placeholder,
+.form-control::-webkit-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); }
+input::-moz-placeholder,
+textarea::-moz-placeholder,
+select::-moz-placeholder,
+.form-control::-moz-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); opacity:1; }
+input:-ms-input-placeholder,
+textarea:-ms-input-placeholder,
+select:-ms-input-placeholder,
+.form-control:-ms-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); }
+input::-ms-input-placeholder,
+textarea::-ms-input-placeholder,
+select::-ms-input-placeholder,
+.form-control::-ms-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); }
+
+/* For inputs that use a white background (search box, newsletter) use darker placeholder */
+.search-box input::placeholder,
+.newsletter-form input::placeholder {
+  color: rgba(var(--color-slate-900-rgb), 0.65);
+  opacity: 1;
+}
+.search-box input::-webkit-input-placeholder,
+.newsletter-form input::-webkit-input-placeholder { color: rgba(var(--color-slate-900-rgb), 0.65); }
+.search-box input::-moz-placeholder,
+.newsletter-form input::-moz-placeholder { color: rgba(var(--color-slate-900-rgb), 0.65); opacity:1; }
+.search-box input:-ms-input-placeholder,
+.newsletter-form input:-ms-input-placeholder { color: rgba(var(--color-slate-900-rgb), 0.65); }
+.search-box input::-ms-input-placeholder,
+.newsletter-form input::-ms-input-placeholder { color: rgba(var(--color-slate-900-rgb), 0.65); }
+
+/* Ensure result sections and injected content in modals/cards are readable */
+#cgpaResults, #cgpaResults p, .card.card__body, .card.card__body p {
+  color: var(--color-text) !important;
+  opacity: 1 !important;
 }
 
 /* Tab Animations */
