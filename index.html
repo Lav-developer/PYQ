@@ -13,12 +13,9 @@
     <meta name="distribution" content="global">
     <meta name="rating" content="general">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="icon" href="img/favicon.ico" type="image/x-icon">
-    <link rel="shortcut icon" href="img/favicon.ico" type="image/x-icon">
-    <link rel="apple-touch-icon" href="img/apple-touch-icon.png">
-    <link rel="apple-touch-icon" sizes="72x72" href="img/apple-touch-icon-72x72.png">
-    <link rel="apple-touch-icon" sizes="114x114" href="img/apple-touch-icon-114x114.png">
-    <link rel="apple-touch-icon" sizes="144x144" href="img/apple-touch-icon-144x144.png">
+    <link rel="icon" href="img/Logo.png" type="image/png">
+    <link rel="shortcut icon" href="img/Logo.png" type="image/png">
+    <!-- Apple touch icons removed (not present in repo) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
 
     
@@ -117,19 +114,12 @@
         </div>
     </header>
 
-    <!-- Floating Dashboard Button -->
-    <button id="dashboardBtn" class="floating-dashboard-btn" title="Admin Panel">
-        <i class="fas fa-cog"></i>
-    </button>
 
-    <!-- Realtime Chat Widget (bottom-right) -->
+    <!-- Realtime Chat Button (opens external chat) -->
     <div id="chatWidget" class="chat-widget" aria-hidden="true">
         <button id="chatToggleBtn" class="chat-toggle" aria-pressed="false" aria-label="Open chat" onclick="toggleChatWidget()">
             <i class="fas fa-comments"></i>
         </button>
-        <div class="chat-frame-wrap" role="dialog" aria-label="Site chat">
-            <iframe id="chatFrame" src="https://realtime-agent-cfje.onrender.com/" title="Chat assistant" frameborder="0" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
-        </div>
     </div>
 
     <!-- Main Content -->
@@ -377,8 +367,7 @@
         </div>
     </section>
 
-    <script async src="https://comments.app/js/widget.js?3" data-comments-app-website="ym_nXfeP" data-limit="50" data-color="72E350" data-dislikes="1" data-outlined="1" data-colorful="1" data-dark="1"></script>
-
+<script async src="https://comments.app/js/widget.js?3" data-comments-app-website="ym_nXfeP" data-limit="5" data-dislikes="1" data-outlined="1" data-colorful="1" data-dark="1"></script>
     <!-- Newsletter Section -->
     <section class="newsletter-section py-5">
         <div class="container">

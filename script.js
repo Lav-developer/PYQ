@@ -832,17 +832,12 @@ function trackToolUsage(toolName, action) {
 // Global fallback toggle for chat widget (so inline onclick works)
 function toggleChatWidget() {
     try {
-        const widget = document.getElementById('chatWidget');
-        const toggle = document.getElementById('chatToggleBtn');
-        if (!widget || !toggle) return;
-        const isOpen = widget.classList.toggle('open');
-        toggle.setAttribute('aria-pressed', isOpen ? 'true' : 'false');
-        localStorage.setItem('dsmnru_chat_widget_open', isOpen ? '1' : '0');
-        const frameWrap = widget.querySelector('.chat-frame-wrap');
-        if (isOpen && frameWrap) {
-            const iframe = frameWrap.querySelector('iframe');
-            if (iframe) iframe.focus();
-        }
+        // Open the official chat panel in a new tab/window; fallback to same-tab if blocked
+        const CHAT_URL = 'https://realtime-agent-cfje.onrender.com/';
+        // Use noopener for security
+        const newWin = window.open(CHAT_URL, '_blank', 'noopener');
+        // Optionally store a metric that user opened the external chat
+        try { localStorage.setItem('dsmnru_chat_last_open', Date.now().toString()); } catch (e) { /* ignore */ }
     } catch (err) {
         console.error('toggleChatWidget error:', err);
     }
