@@ -317,15 +317,70 @@
 
     <!-- Upload Section -->
     <section class="upload-section py-5">
-        <div class="container text-center">
-            <h3><i class="fas fa-cloud-upload-alt"></i> Help us grow the collection</h3>
-            <p class="upload-instructions">Share your question papers and syllabus to help fellow students</p>
-            <a href="https://t.me/dsmnru_pyq_syll_bot" target="_blank" class="btn btn-upload">
-                <i class="fab fa-telegram-plane"></i> Upload via Telegram Bot
-            </a>
-            <small class="form-note d-block mt-2">
-                Send files with <code>Course/Year/Semester</code> in caption
-            </small>
+        <div class="container">
+            <div class="upload-container mx-auto" style="max-width: 600px;">
+                <h3 class="text-center mb-4"><i class="fas fa-cloud-upload-alt"></i> Help us grow the collection</h3>
+                <p class="upload-instructions text-center mb-4">Share your question papers and syllabus to help fellow students</p>
+                
+                <form id="uploadForm" enctype="multipart/form-data" class="upload-form">
+                    <div class="form-group mb-3">
+                        <label for="uploadFile" class="form-label">
+                            <i class="fas fa-file"></i> Select File (PDF/Image)
+                        </label>
+                        <input type="file" class="form-control" id="uploadFile" name="file" 
+                               accept=".pdf,.jpg,.jpeg,.png" required>
+                        <small class="form-text text-muted">Max 20MB. Supported: PDF, JPG, PNG</small>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="uploadTitle" class="form-label">
+                            <i class="fas fa-heading"></i> Title
+                        </label>
+                        <input type="text" class="form-control" id="uploadTitle" name="title" 
+                               placeholder="e.g., {2023} Physics Paper 1" required>
+                        <small class="form-text text-muted">Use {YYYY} for year, e.g., {2023}</small>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="uploadCourse" class="form-label">
+                                <i class="fas fa-book"></i> Course
+                            </label>
+                            <input type="text" class="form-control" id="uploadCourse" name="course" 
+                                   placeholder="e.g., B.Tech CSE">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="uploadSemester" class="form-label">
+                                <i class="fas fa-calendar"></i> Semester
+                            </label>
+                            <input type="text" class="form-control" id="uploadSemester" name="semester" 
+                                   placeholder="e.g., 3rd Semester">
+                        </div>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="uploadDescription" class="form-label">
+                            <i class="fas fa-align-left"></i> Description (Optional)
+                        </label>
+                        <textarea class="form-control" id="uploadDescription" name="description" 
+                                  rows="2" placeholder="Add any additional details..."></textarea>
+                    </div>
+
+                    <div class="form-group mb-3">
+                        <label for="uploaderEmail" class="form-label">
+                            <i class="fas fa-envelope"></i> Your Email (for verification)
+                        </label>
+                        <input type="email" class="form-control" id="uploaderEmail" name="email" 
+                               placeholder="your@email.com">
+                    </div>
+
+                    <button type="submit" class="btn btn-upload w-100" id="submitBtn">
+                        <i class="fas fa-upload"></i> Upload File
+                    </button>
+                </form>
+
+                <div id="uploadStatus" class="mt-3" style="display:none;"></div>
+            </div>
         </div>
     </section>
 

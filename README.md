@@ -1,6 +1,6 @@
 # DSMNRU Academic Archive (PYQ + Syllabus)
 
-A small static frontend to browse and download Previous Year Question Papers (PYQs) and syllabi for DSMNRU students.
+A small Dynamic website to browse and download Previous Year Question Papers (PYQs) and syllabi for DSMNRU students.
 
 This repository is a static site (no build step). The public UI reads content from Firestore at runtime and stores small client-side state in localStorage for features like bookmarks and tools.
 
