@@ -53,7 +53,7 @@ function setupUserUploadHandler() {
         const progressBar = document.getElementById('uploadProgressBar');
 
         statusDiv.style.display = 'block';
-        statusMessage.textContent = 'Uploading file to temporary storage...';
+        statusMessage.textContent = 'Uploading file to database...';
         progressDiv.style.display = 'block';
 
         try {
@@ -184,6 +184,45 @@ document.addEventListener('DOMContentLoaded', function() {
         showEmptyState('pyqList', 'Error loading question papers');
         showEmptyState('syllabusList', 'Error loading syllabus');
     });
+
+    // Load and render contributors from Firestore
+    function loadContributors() {
+        db.collection('contributors').orderBy('name').get()
+            .then(snapshot => {
+                const contributorsGrid = document.getElementById('contributorsGrid');
+                if (!contributorsGrid) return;
+
+                contributorsGrid.innerHTML = '';
+                
+                snapshot.forEach(doc => {
+                    const contributor = { id: doc.id, ...doc.data() };
+                    const card = document.createElement('div');
+                    card.className = 'contributor-card';
+                    card.innerHTML = `
+                        <div class="contributor-avatar">${contributor.avatar}</div>
+                        <h5>${contributor.name}</h5>
+                        <p class="contributor-role">${contributor.role}</p>
+                    `;
+                    contributorsGrid.appendChild(card);
+                });
+
+                // Add the "Join our team" card at the end
+                const joinCard = document.createElement('div');
+                joinCard.className = 'contributor-more';
+                joinCard.innerHTML = `
+                    <div class="more-avatar">+</div>
+                    <h5>Join our team!</h5>
+                    <p class="contributor-role">Become a contributor</p>
+                `;
+                contributorsGrid.appendChild(joinCard);
+            })
+            .catch(error => {
+                console.error('Error loading contributors:', error);
+            });
+    }
+
+    // Load contributors when page loads
+    loadContributors();
 
     function renderPYQs(pyqs) {
         const startIndex = (currentPage - 1) * itemsPerPage;

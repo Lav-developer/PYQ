@@ -440,3 +440,167 @@ window.loadPendingOnDemand = function() {
     pendingLoaded = true;
     loadPendingUploads();
 };
+// Contributor Management Functions
+let contributorsLoaded = false;
+
+window.loadContributorsOnDemand = function() {
+    loadContributors();
+};
+
+function loadContributors() {
+    db.collection('contributors').orderBy('name').get()
+        .then(snapshot => {
+            const contributors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            renderContributors(contributors);
+        })
+        .catch(error => {
+            console.error('Error loading contributors:', error);
+            document.getElementById('contributorsList').innerHTML = '<div class="alert alert-danger">Error loading contributors</div>';
+        });
+}
+
+function renderContributors(contributors) {
+    const list = document.getElementById('contributorsList');
+    if (!contributors.length) {
+        list.innerHTML = '<div class="alert alert-info">No contributors yet. Add one using the form above.</div>';
+        return;
+    }
+
+    list.innerHTML = contributors.map(contributor => `
+        <div class="list-group-item d-flex justify-content-between align-items-center">
+            <div>
+                <div class="d-flex align-items-center gap-2">
+                    <div class="contributor-avatar-small">${contributor.avatar}</div>
+                    <div>
+                        <strong>${contributor.name}</strong>
+                        <p class="text-muted mb-0 small">${contributor.role}</p>
+                    </div>
+                </div>
+            </div>
+            <div class="btn-group" role="group">
+                <button class="btn btn-sm btn-outline-primary" onclick="editContributor('${contributor.id}', '${contributor.name}', '${contributor.avatar}', '${contributor.role}')">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteContributor('${contributor.id}', '${contributor.name}')">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getContributorInitials(name) {
+    return name
+        .trim()
+        .split(/\s+/)
+        .filter(part => part.length)
+        .map(part => part[0].toUpperCase())
+        .join('')
+        .slice(0, 4);
+}
+
+const allowedContributorRoles = [
+    'PYQs Provider',
+    'Syllabus Provider',
+    'PYQs + Syllabus Provider'
+];
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Contributor form submission
+    const addContributorForm = document.getElementById('addContributorForm');
+    if (addContributorForm) {
+        const nameInput = document.getElementById('contributorName');
+        const avatarInput = document.getElementById('contributorAvatar');
+        const roleInput = document.getElementById('contributorRole');
+
+        if (nameInput && avatarInput) {
+            nameInput.addEventListener('input', function() {
+                const initials = getContributorInitials(nameInput.value);
+                avatarInput.value = initials;
+            });
+        }
+
+        addContributorForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const name = nameInput.value.trim();
+            const avatar = getContributorInitials(name);
+            const role = roleInput.value;
+
+            if (!name || !avatar || !role) {
+                alert('Please fill all fields');
+                return;
+            }
+
+            if (!allowedContributorRoles.includes(role)) {
+                alert('Please select a valid role');
+                return;
+            }
+
+            db.collection('contributors').add({
+                name,
+                avatar,
+                role
+            })
+            .then(() => {
+                addContributorForm.reset();
+                loadContributors();
+            })
+            .catch(error => {
+                console.error('Error adding contributor:', error);
+                alert('Error adding contributor: ' + error.message);
+            });
+        });
+        
+        // Load contributors on page init
+        loadContributors();
+    }
+});
+
+window.editContributor = function(id, name, avatar, role) {
+    const newName = prompt('Edit name:', name);
+    if (newName === null) return;
+
+    const newRole = prompt('Edit role (PYQs Provider / Syllabus Provider / PYQs + Syllabus Provider):', role);
+    if (newRole === null) return;
+
+    const trimmedName = newName.trim();
+    const trimmedRole = newRole.trim();
+    const newAvatar = getContributorInitials(trimmedName);
+
+    if (!trimmedName || !newAvatar || !trimmedRole) {
+        alert('All fields are required');
+        return;
+    }
+
+    if (!allowedContributorRoles.includes(trimmedRole)) {
+        alert('Please enter a valid role');
+        return;
+    }
+
+    db.collection('contributors').doc(id).set({
+        name: trimmedName,
+        avatar: newAvatar,
+        role: trimmedRole
+    })
+    .then(() => {
+        loadContributors();
+    })
+    .catch(error => {
+        console.error('Error updating contributor:', error);
+        alert('Error updating contributor: ' + error.message);
+    });
+};
+
+window.deleteContributor = function(id, name) {
+    if (confirm(`Are you sure you want to delete ${name}?`)) {
+        db.collection('contributors').doc(id).delete()
+            .then(() => {
+                loadContributors();
+            })
+            .catch(error => {
+                console.error('Error deleting contributor:', error);
+                alert('Error deleting contributor: ' + error.message);
+            });
+    }
+};

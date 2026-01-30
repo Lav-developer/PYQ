@@ -1453,6 +1453,21 @@ body {
   color: var(--accent-color);
 }
 
+/* Admin Panel Contributor Avatar */
+.contributor-avatar-small {
+  width: 50px;
+  height: 50px;
+  background: linear-gradient(135deg, #32b8c6, #2da6b2);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2121;
+  flex-shrink: 0;
+}
+
 /* Newsletter Section */
 .newsletter-section {
   background: linear-gradient(135deg, var(--dark-bg) 0%, var(--primary-color) 100%);

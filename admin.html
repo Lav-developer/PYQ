@@ -412,6 +412,49 @@
                     </div>
                 </div>
 
+                <!-- Manage Contributors -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#contributorsCollapse">
+                            <i class="fas fa-users me-2"></i> Manage Contributors
+                        </button>
+                    </h2>
+                    <div id="contributorsCollapse" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                        <div class="accordion-body">
+                            <form id="addContributorForm" class="mb-4">
+                                <div class="mb-3">
+                                    <label for="contributorName" class="form-label">Name <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="contributorName" placeholder="Enter contributor name" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="contributorAvatar" class="form-label">Avatar <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" id="contributorAvatar" placeholder="Auto-generated" maxlength="4" readonly required>
+                                    <small class="form-text text-muted">Auto-generated from name (e.g., Lav Kush → LK)</small>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="contributorRole" class="form-label">Role <span class="text-danger">*</span></label>
+                                    <select class="form-control" id="contributorRole" required>
+                                        <option value="" disabled selected>Select role</option>
+                                        <option value="PYQs Provider">PYQs Provider</option>
+                                        <option value="Syllabus Provider">Syllabus Provider</option>
+                                        <option value="PYQs + Syllabus Provider">PYQs + Syllabus Provider</option>
+                                    </select>
+                                </div>
+                                <button type="submit" class="btn btn-primary w-100">
+                                    <i class="fas fa-plus me-2"></i> Add Contributor
+                                </button>
+                            </form>
+
+                            <div class="mt-4">
+                                <h6 class="mb-3">Contributors List</h6>
+                                <div id="contributorsList" class="list-group">
+                                    <div class="text-center text-muted">Loading...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
