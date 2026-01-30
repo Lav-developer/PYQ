@@ -377,11 +377,10 @@ function downloadPendingFile(downloadUrl, fileName) {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    alert('File download started. Download it, upload to your cloud storage, then delete from Firebase.');
 }
 
 function deletePendingUpload(docId) {
-    if (confirm('Delete this pending upload from the list? The file on 0x0.st will auto-delete after 30 days.')) {
+    if (confirm('Delete this pending upload from the list? The file on tmpfile.org will auto-delete after 30 days.')) {
         // Delete from Firestore only
         db.collection('pendingUploads').doc(docId).delete()
             .then(() => {
