@@ -100,21 +100,9 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 function loadData() {
-    // Load pyqs and syllabus collections from Firestore
-    Promise.all([
-        db.collection('pyqs').get(),
-        db.collection('syllabus').get()
-    ])
-    .then(([pyqSnap, syllabusSnap]) => {
-        allData.pyqs = pyqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        renderLists();
-        // update sitemap status if visible
-        updateSitemapStatus('ready');
-    })
-    .catch(error => {
-        console.error('Error loading data from Firestore:', error);
-    });
+    // Don't load data on page load anymore - use lazy loading instead
+    // Just initialize UI
+    console.log('Admin panel loaded. Data will load when sections are expanded.');
 }
 
 function generateSitemap() {
@@ -327,3 +315,129 @@ window.editSyllabus = function(index) {
 };
 
 window.deleteItem = deleteItem;
+// Pending Uploads Management
+function loadPendingUploads() {
+    db.collection('pendingUploads').where('status', '==', 'pending').get()
+        .then(snapshot => {
+            const pendingCount = snapshot.size;
+            document.getElementById('pendingCount').textContent = pendingCount;
+            
+            if (pendingCount === 0) {
+                document.getElementById('pendingUploadsList').innerHTML = '';
+                document.getElementById('noPendingMessage').style.display = 'block';
+            } else {
+                document.getElementById('noPendingMessage').style.display = 'none';
+                renderPendingUploads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            }
+        })
+        .catch(error => {
+            console.error('Error loading pending uploads:', error);
+        });
+}
+
+function renderPendingUploads(pendingDocs) {
+    const list = document.getElementById('pendingUploadsList');
+    list.innerHTML = pendingDocs.map((doc, index) => {
+        // doc is already a converted object with { id, ...data }
+        const data = doc;
+        const uploadDate = data.uploadedAt ? new Date(data.uploadedAt.toDate()).toLocaleString() : 'Unknown';
+        return `
+            <div class="list-group-item">
+                <div class="d-flex justify-content-between align-items-start">
+                    <div style="flex: 1;">
+                        <h6 class="mb-1"><strong>${data.title}</strong></h6>
+                        <small class="text-muted d-block">
+                            File: <code>${data.fileName}</code>
+                        </small>
+                        <small class="text-muted d-block">
+                            Course: ${data.course || 'N/A'} | Semester: ${data.semester || 'N/A'}
+                        </small>
+                        <small class="text-muted d-block">
+                            Uploaded by: <strong>${data.studentName || 'Anonymous'}</strong> | ${uploadDate}
+                        </small>
+                    </div>
+                    <div class="btn-group ms-3" role="group">
+                        <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${data.fileName.replace(/'/g, "\\'")}')">
+                            <i class="fas fa-download"></i> Download
+                        </button>
+                        <button class="btn btn-sm btn-outline-danger" onclick="deletePendingUpload('${doc.id}')">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function downloadPendingFile(downloadUrl, fileName) {
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    alert('File download started. Download it, upload to your cloud storage, then delete from Firebase.');
+}
+
+function deletePendingUpload(docId) {
+    if (confirm('Delete this pending upload from the list? The file on 0x0.st will auto-delete after 30 days.')) {
+        // Delete from Firestore only
+        db.collection('pendingUploads').doc(docId).delete()
+            .then(() => {
+                alert('Upload removed from pending list!');
+                loadPendingUploads();
+            })
+            .catch(error => {
+                console.error('Error deleting upload:', error);
+                alert('Error deleting upload: ' + error.message);
+            });
+    }
+}
+
+// Global function for onclick
+window.downloadPendingFile = downloadPendingFile;
+window.deletePendingUpload = deletePendingUpload;
+
+// Lazy loading functions - only load data when section is expanded
+let pyqsLoaded = false;
+let syllabusLoaded = false;
+let pendingLoaded = false;
+
+window.loadPyqsOnDemand = function() {
+    if (pyqsLoaded) return;
+    pyqsLoaded = true;
+    
+    db.collection('pyqs').get()
+        .then(pyqSnap => {
+            allData.pyqs = pyqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            document.getElementById('pyqsCount').textContent = allData.pyqs.length;
+            renderPyqs();
+        })
+        .catch(error => {
+            console.error('Error loading PYQs:', error);
+            document.getElementById('pyqsList').innerHTML = '<div class="alert alert-danger">Error loading PYQs</div>';
+        });
+};
+
+window.loadSyllabusOnDemand = function() {
+    if (syllabusLoaded) return;
+    syllabusLoaded = true;
+    
+    db.collection('syllabus').get()
+        .then(syllabusSnap => {
+            allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            document.getElementById('syllabusCount').textContent = allData.syllabus.length;
+            renderSyllabus();
+        })
+        .catch(error => {
+            console.error('Error loading Syllabus:', error);
+            document.getElementById('syllabusList').innerHTML = '<div class="alert alert-danger">Error loading Syllabus</div>';
+        });
+};
+
+window.loadPendingOnDemand = function() {
+    if (pendingLoaded) return;
+    pendingLoaded = true;
+    loadPendingUploads();
+};

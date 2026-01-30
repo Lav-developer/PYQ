@@ -11,6 +11,107 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 
+// Firebase Storage and Firestore references
+const db = firebase.firestore();
+const storage = firebase.storage();
+
+// User Upload Handler
+function setupUserUploadHandler() {
+    const uploadForm = document.getElementById('userUploadForm');
+    if (!uploadForm) return;
+
+    uploadForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const title = document.getElementById('uploadTitle').value;
+        const course = document.getElementById('uploadCourse').value;
+        const semester = document.getElementById('uploadSemester').value;
+        const name = document.getElementById('uploadName').value;
+        const file = document.getElementById('uploadFile').files[0];
+
+        if (!file) {
+            alert('Please select a file');
+            return;
+        }
+
+        // Validate file size (50MB max)
+        const maxSize = 50 * 1024 * 1024;
+        if (file.size > maxSize) {
+            alert('File size exceeds 50MB limit');
+            return;
+        }
+
+        // Validate file type
+        if (file.type !== 'application/pdf') {
+            alert('Only PDF files are allowed');
+            return;
+        }
+
+        const statusDiv = document.getElementById('uploadStatus');
+        const statusMessage = document.getElementById('uploadStatusMessage');
+        const progressDiv = document.getElementById('uploadProgress');
+        const progressBar = document.getElementById('uploadProgressBar');
+
+        statusDiv.style.display = 'block';
+        statusMessage.textContent = 'Uploading file to temporary storage...';
+        progressDiv.style.display = 'block';
+
+        try {
+            // Upload to tmpfiles.org (CORS enabled, temporary file storage)
+            const formData = new FormData();
+            formData.append('file', file);
+
+            const response = await fetch('https://tmpfiles.org/api/v1/upload', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error(`Upload failed with status ${response.status}`);
+            }
+
+            const result = await response.json();
+            
+            if (result.status !== 'success' || !result.data || !result.data.url) {
+                throw new Error('Upload failed: Invalid response from server');
+            }
+
+            // tmpfiles.org returns URL in format: https://tmpfiles.org/12345
+            // Direct download URL is: https://tmpfiles.org/dl/12345
+            const fileUrl = result.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+
+            progressBar.style.width = '100%';
+            statusMessage.textContent = 'File uploaded successfully! Saving metadata...';
+
+            // Save metadata to Firestore pendingUploads collection
+            await db.collection('pendingUploads').add({
+                title: title,
+                course: course,
+                semester: semester,
+                studentName: name,
+                fileName: file.name,
+                downloadUrl: fileUrl,
+                fileSize: file.size,
+                uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                status: 'pending'
+            });
+
+            statusMessage.innerHTML = '<strong class="text-success">✓ File uploaded successfully! Our team will review it soon. (File available for download temporarily)</strong>';
+            progressDiv.style.display = 'none';
+            uploadForm.reset();
+
+            // Hide success message after 5 seconds
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, 5000);
+        } catch (error) {
+            console.error('Upload error:', error);
+            statusMessage.innerHTML = `<strong class="text-danger">Error: ${error.message}</strong>`;
+            progressDiv.style.display = 'none';
+        }
+    });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize modals
     const pdfModal = new bootstrap.Modal(document.getElementById('pdfModal'));
@@ -47,7 +148,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Load data from Firestore
-    const db = firebase.firestore();
     Promise.all([
         db.collection('pyqs').get(),
         db.collection('syllabus').get()
@@ -77,6 +177,7 @@ document.addEventListener('DOMContentLoaded', function() {
         renderPYQs(filteredPyqs);
         renderSyllabus(filteredSyllabus);
         setupEventListeners();
+        setupUserUploadHandler();
     })
     .catch(error => {
         console.error('Error loading data from Firestore:', error);

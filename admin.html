@@ -13,40 +13,253 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-storage-compat.js"></script>
     <style>
-        
-        .card {
-            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
-            border: 1px solid rgba(0, 0, 0, 0.125);
+        /* Admin Panel Dark Theme - Matching Website */
+        :root {
+            --admin-bg: #1f2121;
+            --admin-surface: #262828;
+            --admin-text: #f5f5f5;
+            --admin-primary: #32b8c6;
+            --admin-primary-hover: #2da6b2;
+            --admin-border: rgba(119, 124, 124, 0.3);
+            --admin-card-bg: rgba(38, 40, 40, 0.8);
         }
-        .card-header {
-            background-color: #32a8a0;
+
+        body {
+            background-color: var(--admin-bg);
+            color: var(--admin-text);
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        }
+
+        .container {
+            max-width: 1200px;
+        }
+
+        h1 {
+            color: var(--admin-text);
+            font-weight: 600;
+        }
+
+        /* Cards and Accordion */
+        .accordion-item {
+            background-color: var(--admin-card-bg);
+            border: 1px solid var(--admin-border);
+            margin-bottom: 1rem;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+
+        .accordion-button {
+            background-color: var(--admin-surface);
+            color: var(--admin-text);
+            font-weight: 600;
+            border: none;
+            padding: 1rem 1.25rem;
+        }
+
+        .accordion-button:not(.collapsed) {
+            background: linear-gradient(135deg, #1d747e, #32b8c6);
             color: white;
-            font-weight: bold;
+            box-shadow: none;
         }
-        .list-group-item {
-            border: 1px solid rgba(0, 0, 0, 0.125);
-            margin-bottom: 0.5rem;
-            border-radius: 0.375rem;
+
+        .accordion-button:hover {
+            background-color: rgba(50, 184, 198, 0.1);
         }
-        .btn-outline-primary {
-            color: #32a8a0;
-            border-color: #32a8a0;
+
+        .accordion-button:focus {
+            box-shadow: 0 0 0 0.25rem rgba(50, 184, 198, 0.25);
+            border-color: var(--admin-primary);
         }
-        .btn-outline-primary:hover {
-            background-color: #32a8a0;
-            border-color: #32a8a0;
+
+        .accordion-button::after {
+            filter: brightness(0) invert(1);
         }
-        .btn-outline-danger {
-            color: #dc3545;
-            border-color: #dc3545;
+
+        .accordion-body {
+            background-color: var(--admin-surface);
+            padding: 1.5rem;
         }
-        .btn-outline-danger:hover {
-            background-color: #dc3545;
-            border-color: #dc3545;
-        }
+
+        /* Forms */
         .form-label {
             font-weight: 600;
+            color: var(--admin-text);
+            margin-bottom: 0.5rem;
+        }
+
+        .form-control {
+            background-color: rgba(31, 33, 33, 0.6);
+            border: 1px solid var(--admin-border);
+            color: var(--admin-text);
+            padding: 0.625rem 0.75rem;
+            border-radius: 0.375rem;
+        }
+
+        .form-control::placeholder {
+            color: rgba(245, 245, 245, 0.4);
+        }
+
+        .form-control:focus {
+            background-color: rgba(31, 33, 33, 0.8);
+            border-color: var(--admin-primary);
+            color: var(--admin-text);
+            box-shadow: 0 0 0 0.25rem rgba(50, 184, 198, 0.25);
+        }
+
+        /* Buttons */
+        .btn-primary {
+            background: linear-gradient(135deg, var(--admin-primary), var(--admin-primary-hover));
+            border: none;
+            color: #134252;
+            font-weight: 600;
+            padding: 0.625rem 1.25rem;
+            border-radius: 0.375rem;
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--admin-primary-hover), var(--admin-primary));
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(50, 184, 198, 0.3);
+        }
+
+        .btn-outline-primary {
+            color: var(--admin-primary);
+            border-color: var(--admin-primary);
+            background: transparent;
+        }
+
+        .btn-outline-primary:hover {
+            background-color: var(--admin-primary);
+            border-color: var(--admin-primary);
+            color: #134252;
+        }
+
+        .btn-outline-info {
+            color: #32b8c6;
+            border-color: #32b8c6;
+        }
+
+        .btn-outline-info:hover {
+            background-color: #32b8c6;
+            border-color: #32b8c6;
+            color: #134252;
+        }
+
+        .btn-outline-danger {
+            color: #ff5459;
+            border-color: #ff5459;
+        }
+
+        .btn-outline-danger:hover {
+            background-color: #ff5459;
+            border-color: #ff5459;
             color: white;
+        }
+
+        /* List Items */
+        .list-group-item {
+            background-color: rgba(31, 33, 33, 0.5);
+            border: 1px solid var(--admin-border);
+            color: var(--admin-text);
+            margin-bottom: 0.75rem;
+            border-radius: 0.5rem;
+            padding: 1rem;
+        }
+
+        .list-group-item:hover {
+            background-color: rgba(31, 33, 33, 0.7);
+        }
+
+        .list-group-item h6, .list-group-item strong {
+            color: var(--admin-primary);
+        }
+
+        .list-group-item small {
+            color: rgba(245, 245, 245, 0.7);
+        }
+
+        .list-group-item code {
+            background-color: rgba(50, 184, 198, 0.1);
+            color: var(--admin-primary);
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+        }
+
+        /* Badges */
+        .badge {
+            font-weight: 600;
+            padding: 0.375rem 0.625rem;
+            border-radius: 0.375rem;
+        }
+
+        .badge.bg-primary {
+            background-color: var(--admin-primary) !important;
+            color: #134252;
+        }
+
+        .badge.bg-warning {
+            background-color: #e68161 !important;
+            color: #134252;
+        }
+
+        /* Alerts */
+        .alert {
+            border-radius: 0.5rem;
+            border: 1px solid;
+        }
+
+        .alert-info {
+            background-color: rgba(50, 184, 198, 0.1);
+            border-color: rgba(50, 184, 198, 0.3);
+            color: var(--admin-primary);
+        }
+
+        .alert-danger {
+            background-color: rgba(192, 21, 47, 0.1);
+            border-color: rgba(192, 21, 47, 0.3);
+            color: #ff5459;
+        }
+
+        /* Login Card */
+        .card {
+            background-color: var(--admin-card-bg);
+            border: 1px solid var(--admin-border);
+            border-radius: 0.5rem;
+        }
+
+        .card-header {
+            background: linear-gradient(135deg, #1d747e, #32b8c6);
+            color: white;
+            font-weight: bold;
+            padding: 1rem 1.25rem;
+            border-bottom: none;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        /* Text colors */
+        .text-muted {
+            color: rgba(245, 245, 245, 0.6) !important;
+        }
+
+        .text-danger {
+            color: #ff5459 !important;
+        }
+
+        .text-success {
+            color: var(--admin-primary) !important;
+        }
+
+        /* Center content for login */
+        #loginSection .card {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+        }
+        
+        #loginSection .form-label {
+            color: var(--admin-text);
         }
     </style>
 </head>
@@ -89,76 +302,116 @@
                 </div>
             </div>
 
-            <!-- Add PYQ Form -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Add New PYQ</h5>
-                </div>
-                <div class="card-body">
-                    <form id="addPyqForm">
-                        <div class="mb-3">
-                            <label for="pyqTitle" class="form-label">Title</label>
-                            <input type="text" class="form-control" id="pyqTitle" required>
+            <!-- Accordion for collapsible sections -->
+            <div class="accordion" id="adminAccordion">
+                
+                <!-- Add PYQ Form -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#addPyqCollapse">
+                            <i class="fas fa-plus-circle me-2"></i> Add New PYQ
+                        </button>
+                    </h2>
+                    <div id="addPyqCollapse" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                        <div class="accordion-body">
+                            <form id="addPyqForm">
+                                <div class="mb-3">
+                                    <label for="pyqTitle" class="form-label">Title</label>
+                                    <input type="text" class="form-control" id="pyqTitle" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="pyqFile" class="form-label">File URL</label>
+                                    <input type="url" class="form-control" id="pyqFile" required>
+                                </div>
+                                <button type="submit" class="btn btn-primary">Add PYQ</button>
+                            </form>
                         </div>
-                        <div class="mb-3">
-                            <label for="pyqFile" class="form-label">File URL</label>
-                            <input type="url" class="form-control" id="pyqFile" required>
-                        </div>
-                        <button type="submit" class="btn btn-primary">Add PYQ</button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Add Syllabus Form -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Add New Syllabus</h5>
-                </div>
-                <div class="card-body">
-                    <form id="addSyllabusForm">
-                        <div class="mb-3">
-                            <label for="syllabusTitle" class="form-label">Title</label>
-                            <input type="text" class="form-control" id="syllabusTitle" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="syllabusFile" class="form-label">File URL</label>
-                            <input type="url" class="form-control" id="syllabusFile" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="syllabusCourse" class="form-label">Course (optional)</label>
-                            <input type="text" class="form-control" id="syllabusCourse">
-                        </div>
-                        <div class="mb-3">
-                            <label for="syllabusSemester" class="form-label">Semester (optional)</label>
-                            <input type="text" class="form-control" id="syllabusSemester">
-                        </div>
-                        <button type="submit" class="btn btn-primary">Add Syllabus</button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- PYQs List -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Manage PYQs</h5>
-                </div>
-                <div class="card-body">
-                    <div id="pyqsList" class="list-group">
-                        <!-- PYQs will be loaded here -->
                     </div>
                 </div>
-            </div>
 
-            <!-- Syllabus List -->
-            <div class="card mb-4">
-                <div class="card-header">
-                    <h5>Manage Syllabus</h5>
-                </div>
-                <div class="card-body">
-                    <div id="syllabusList" class="list-group">
-                        <!-- Syllabus will be loaded here -->
+                <!-- Add Syllabus Form -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#addSyllabusCollapse">
+                            <i class="fas fa-plus-circle me-2"></i> Add New Syllabus
+                        </button>
+                    </h2>
+                    <div id="addSyllabusCollapse" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                        <div class="accordion-body">
+                            <form id="addSyllabusForm">
+                                <div class="mb-3">
+                                    <label for="syllabusTitle" class="form-label">Title</label>
+                                    <input type="text" class="form-control" id="syllabusTitle" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="syllabusFile" class="form-label">File URL</label>
+                                    <input type="url" class="form-control" id="syllabusFile" required>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="syllabusCourse" class="form-label">Course (optional)</label>
+                                    <input type="text" class="form-control" id="syllabusCourse">
+                                </div>
+                                <div class="mb-3">
+                                    <label for="syllabusSemester" class="form-label">Semester (optional)</label>
+                                    <input type="text" class="form-control" id="syllabusSemester">
+                                </div>
+                                <button type="submit" class="btn btn-primary">Add Syllabus</button>
+                            </form>
+                        </div>
                     </div>
                 </div>
+
+                <!-- Manage PYQs -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#pyqsCollapse" onclick="loadPyqsOnDemand()">
+                            <i class="fas fa-edit me-2"></i> Manage PYQs <span id="pyqsCount" class="badge bg-primary ms-2">0</span>
+                        </button>
+                    </h2>
+                    <div id="pyqsCollapse" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                        <div class="accordion-body">
+                            <div id="pyqsList" class="list-group">
+                                <div class="text-center text-muted">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Manage Syllabus -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#syllabusCollapse" onclick="loadSyllabusOnDemand()">
+                            <i class="fas fa-edit me-2"></i> Manage Syllabus <span id="syllabusCount" class="badge bg-primary ms-2">0</span>
+                        </button>
+                    </h2>
+                    <div id="syllabusCollapse" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                        <div class="accordion-body">
+                            <div id="syllabusList" class="list-group">
+                                <div class="text-center text-muted">Loading...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pending Uploads -->
+                <div class="accordion-item">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#pendingCollapse" onclick="loadPendingOnDemand()">
+                            <i class="fas fa-hourglass-half me-2"></i> Pending User Uploads <span id="pendingCount" class="badge bg-warning ms-2">0</span>
+                        </button>
+                    </h2>
+                    <div id="pendingCollapse" class="accordion-collapse collapse" data-bs-parent="#adminAccordion">
+                        <div class="accordion-body">
+                            <div id="pendingUploadsList" class="list-group">
+                                <div class="text-center text-muted">Loading...</div>
+                            </div>
+                            <div id="noPendingMessage" class="alert alert-info mt-3" style="display: none; margin: 0;">
+                                No pending uploads at the moment.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
             </div>
         </div>
 
