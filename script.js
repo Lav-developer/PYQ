@@ -96,7 +96,7 @@ function setupUserUploadHandler() {
                 status: 'pending'
             });
 
-            statusMessage.innerHTML = '<strong class="text-success">✓ File uploaded successfully! Our team will review it soon. (File available for download temporarily)</strong>';
+            statusMessage.innerHTML = '<strong class="text-success">✓ File uploaded successfully! Our team will review it soon.</strong>';
             progressDiv.style.display = 'none';
             uploadForm.reset();
 
