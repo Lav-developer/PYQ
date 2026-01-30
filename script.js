@@ -34,10 +34,10 @@ function setupUserUploadHandler() {
             return;
         }
 
-        // Validate file size (50MB max)
-        const maxSize = 50 * 1024 * 1024;
+        // Validate file size (unlimited for gofile, but set reasonable limit)
+        const maxSize = 500 * 1024 * 1024; // 500MB max
         if (file.size > maxSize) {
-            alert('File size exceeds 50MB limit');
+            alert('File size exceeds 500MB limit');
             return;
         }
 
@@ -57,11 +57,27 @@ function setupUserUploadHandler() {
         progressDiv.style.display = 'block';
 
         try {
-            // Upload to tmpfiles.org (CORS enabled, temporary file storage)
+            // Upload to gofile.io (CORS enabled, unlimited file storage)
+            // First, get an available server
+            const serverResponse = await fetch('https://api.gofile.io/servers');
+            if (!serverResponse.ok) {
+                throw new Error('Failed to get upload server');
+            }
+
+            const serverData = await serverResponse.json();
+            if (serverData.status !== 'ok' || !serverData.data || !serverData.data.servers || serverData.data.servers.length === 0) {
+                throw new Error('No upload servers available');
+            }
+
+            // Use the first available server
+            const server = serverData.data.servers[0];
+            const uploadUrl = `https://${server.name}.gofile.io/uploadFile`;
+
+            // Now upload the file
             const formData = new FormData();
             formData.append('file', file);
 
-            const response = await fetch('https://tmpfiles.org/api/v1/upload', {
+            const response = await fetch(uploadUrl, {
                 method: 'POST',
                 body: formData
             });
@@ -72,13 +88,12 @@ function setupUserUploadHandler() {
 
             const result = await response.json();
             
-            if (result.status !== 'success' || !result.data || !result.data.url) {
+            if (result.status !== 'ok' || !result.data || !result.data.downloadPage) {
                 throw new Error('Upload failed: Invalid response from server');
             }
 
-            // tmpfiles.org returns URL in format: https://tmpfiles.org/12345
-            // Direct download URL is: https://tmpfiles.org/dl/12345
-            const fileUrl = result.data.url.replace('tmpfiles.org/', 'tmpfiles.org/dl/');
+            // gofile.io returns downloadPage URL directly
+            const fileUrl = result.data.downloadPage;
 
             progressBar.style.width = '100%';
             statusMessage.textContent = 'File uploaded successfully! Saving metadata...';
