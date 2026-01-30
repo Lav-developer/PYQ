@@ -6,7 +6,7 @@
     "maxAgeSeconds": 3600
   },
   {
-    "origin": ["https://dsmnru-pyq.netlify.app"],
+    "origin": ["https://dsmnru-pyq.netlify.app", "https://dsmnru-pyq.email", "https://lav-developer.github.io/PYQ/"],
     "method": ["GET", "HEAD", "DELETE", "POST", "PUT"],
     "responseHeader": ["Content-Type", "Authorization"],
     "maxAgeSeconds": 3600
