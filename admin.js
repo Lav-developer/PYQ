@@ -380,7 +380,7 @@ function downloadPendingFile(downloadUrl, fileName) {
 }
 
 function deletePendingUpload(docId) {
-    if (confirm('Delete this pending upload from the list? The file on tmpfile.org will auto-delete after 30 days.')) {
+    if (confirm('Delete this pending upload from the list? The file on gofile.io will auto-delete after 30 days.')) {
         // Delete from Firestore only
         db.collection('pendingUploads').doc(docId).delete()
             .then(() => {
