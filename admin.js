@@ -181,12 +181,8 @@ function setupSectionCollapseBehavior() {
 }
 
 function loadData() {
-    // Auto-load pending uploads so review count is visible on dashboard without expanding the section.
-    pendingLoaded = true;
-    loadPendingUploads();
-
-    // Auto-load registered users for the same reason.
-    usersLoaded = true;
+    // Auto-load pending uploads and registered users so counts and panels show immediately.
+    loadPendingOnDemand();
     loadUsersOnDemand();
 }
 
