@@ -14,18 +14,34 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
-let allData = { pyqs: [], syllabus: [] };
+let allData = { pyqs: [], syllabus: [], users: [], pendingUploads: [], contributors: [] };
+const ADMIN_EMAIL = 'kush210431@gmail.com';
+
+function isAdminUser(user) {
+    return !!user && user.email === ADMIN_EMAIL;
+}
 
 document.addEventListener('DOMContentLoaded', function() {
+    setupSectionCollapseBehavior();
+
     // Auth state listener
     auth.onAuthStateChanged(user => {
         if (user) {
+            if (!isAdminUser(user)) {
+                auth.signOut();
+                document.getElementById('loginError').textContent = 'You do not have admin access.';
+                document.getElementById('loginError').style.display = 'block';
+                document.getElementById('loginSection').style.display = 'block';
+                document.getElementById('adminSection').style.display = 'none';
+                return;
+            }
             // User is signed in
             document.getElementById('loginSection').style.display = 'none';
             document.getElementById('adminSection').style.display = 'block';
             loadData();
         } else {
             // User is signed out
+            resetLazyLoadState();
             document.getElementById('loginSection').style.display = 'block';
             document.getElementById('adminSection').style.display = 'none';
         }
@@ -66,11 +82,56 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     // Add PYQ form
-    document.getElementById('addPyqForm').addEventListener('submit', function(e) {
+    document.getElementById('addPyqForm').addEventListener('submit', async function(e) {
         e.preventDefault();
-        const title = document.getElementById('pyqTitle').value;
+        const course = document.getElementById('pyqCourse').value.trim();
+        const semester = document.getElementById('pyqSemester').value.trim();
+        const subject = document.getElementById('pyqSubject').value.trim();
+        const session = document.getElementById('pyqSession').value.trim();
         const file = document.getElementById('pyqFile').value;
-        addItem('pyqs', { title, file });
+
+        if (!course || !semester || !subject || !session || !file) {
+            alert('Please fill in course, semester, subject, session, and file URL.');
+            return;
+        }
+
+        let currentSubject = subject;
+        let title = buildPyqTitle(course, semester, currentSubject, session);
+        let duplicateExists = await pyqTitleExists(title);
+
+        if (duplicateExists === null) {
+            return;
+        }
+
+        while (duplicateExists) {
+            const shouldRename = confirm(
+                `A PYQ with this title already exists:\n\n${title}\n\nDo you want to provide another subject name?`
+            );
+
+            if (!shouldRename) {
+                return;
+            }
+
+            const alternativeSubject = prompt('Enter another subject name for this PYQ:', currentSubject);
+            if (alternativeSubject === null) {
+                return;
+            }
+
+            currentSubject = alternativeSubject.trim();
+            if (!currentSubject) {
+                alert('Subject name cannot be empty.');
+                continue;
+            }
+
+            title = buildPyqTitle(course, semester, currentSubject, session);
+
+            duplicateExists = await pyqTitleExists(title);
+            if (duplicateExists === null) {
+                return;
+            }
+        }
+
+        addItem('pyqs', { title, file, course, semester, subject: currentSubject, session });
         this.reset();
     });
 
@@ -99,16 +160,48 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function setupSectionCollapseBehavior() {
+    const adminSection = document.getElementById('adminSection');
+    if (!adminSection || !window.bootstrap || !window.bootstrap.Collapse) {
+        return;
+    }
+
+    const collapses = Array.from(adminSection.querySelectorAll('.section-card .collapse'));
+    collapses.forEach(currentCollapse => {
+        currentCollapse.addEventListener('show.bs.collapse', function() {
+            collapses.forEach(otherCollapse => {
+                if (otherCollapse === currentCollapse || !otherCollapse.classList.contains('show')) {
+                    return;
+                }
+
+                window.bootstrap.Collapse.getOrCreateInstance(otherCollapse, { toggle: false }).hide();
+            });
+        });
+    });
+}
+
 function loadData() {
-    // Don't load data on page load anymore - use lazy loading instead
-    // Just initialize UI
-    console.log('Admin panel loaded. Data will load when sections are expanded.');
+    // Auto-load pending uploads so review count is visible on dashboard without expanding the section.
+    pendingLoaded = true;
+    loadPendingUploads();
+
+    // Auto-load registered users for the same reason.
+    usersLoaded = true;
+    loadUsersOnDemand();
+}
+
+function resetLazyLoadState() {
+    pyqsLoaded = false;
+    syllabusLoaded = false;
+    pendingLoaded = false;
+    usersLoaded = false;
+    contributorsLoaded = false;
 }
 
 function generateSitemap() {
     // Build sitemap XML from allData
     try {
-        const baseUrl = (location.protocol + '//' + location.hostname).replace(/\/$/, '') + '/';
+        const baseUrl = 'https://dsmnru-pyq.netlify.app/';
         const urls = [];
 
         // Add homepage
@@ -136,24 +229,22 @@ function generateSitemap() {
         xmlParts.push('</urlset>');
         const sitemapXml = xmlParts.join('\n');
 
-        // Upload to Firebase Storage
+        // Download as file instead of uploading to Firebase
         const blob = new Blob([sitemapXml], { type: 'application/xml' });
-        const ref = storage.ref().child('sitemap.xml');
-        updateSitemapStatus('uploading');
-        ref.put(blob, { contentType: 'application/xml' })
-            .then(snapshot => snapshot.ref.getDownloadURL())
-            .then(url => {
-                // Show the download URL to admin
-                updateSitemapStatus('done', url);
-                alert('Sitemap generated and uploaded. Public URL:\n' + url);
-            })
-            .catch(err => {
-                console.error('Error uploading sitemap:', err);
-                updateSitemapStatus('error');
-                alert('Failed to upload sitemap: ' + err.message);
-            });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'sitemap.xml';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+
+        updateSitemapStatus('done', 'sitemap.xml');
+        alert(`✓ Sitemap generated successfully!\n\nGenerated ${urls.length} URLs:\n- Homepage\n- ${allData.pyqs.length} PYQ items\n- ${allData.syllabus.length} Syllabus items\n\nFile downloaded as sitemap.xml`);
     } catch (err) {
         console.error('Error generating sitemap:', err);
+        updateSitemapStatus('error');
         alert('Error generating sitemap: ' + err.message);
     }
 }
@@ -197,39 +288,178 @@ function updateSitemapStatus(state, url) {
 function renderLists() {
     renderPyqs();
     renderSyllabus();
+    renderUsers();
+    updateDashboardStats();
+}
+
+function updateDashboardStats() {
+    const setCount = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.textContent = value;
+        }
+    };
+
+    setCount('pyqsCount', allData.pyqs.length);
+    setCount('pyqsHeaderCount', allData.pyqs.length);
+    setCount('syllabusCount', allData.syllabus.length);
+    setCount('syllabusHeaderCount', allData.syllabus.length);
+    setCount('usersCount', allData.users.length);
+    setCount('usersHeaderCount', allData.users.length);
+    setCount('pendingCount', allData.pendingUploads.length);
+    setCount('pendingHeaderCount', allData.pendingUploads.length);
+    setCount('contributorsCount', allData.contributors.length);
+    setCount('contributorsHeaderCount', allData.contributors.length);
+}
+
+function escapeHtml(value) {
+    return (value || '')
+        .toString()
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function copyToClipboard(text) {
+    const value = (text || '').toString();
+    if (!value) {
+        alert('Nothing to copy.');
+        return;
+    }
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(value)
+            .then(() => alert('Copied to clipboard.'))
+            .catch(() => fallbackCopy(value));
+        return;
+    }
+
+    fallbackCopy(value);
+}
+
+function fallbackCopy(value) {
+    const tempInput = document.createElement('input');
+    tempInput.value = value;
+    document.body.appendChild(tempInput);
+    tempInput.select();
+    document.execCommand('copy');
+    document.body.removeChild(tempInput);
+    alert('Copied to clipboard.');
 }
 
 function renderPyqs() {
     const list = document.getElementById('pyqsList');
+    if (!list) return;
+
+    if (!allData.pyqs.length) {
+        list.innerHTML = '<div class="resource-empty">No PYQs added yet.</div>';
+        updateDashboardStats();
+        return;
+    }
+
     list.innerHTML = allData.pyqs.map((pyq, index) => `
-        <div class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-                <strong>${pyq.title}</strong><br>
-                <small>${pyq.file}</small>
+        <article class="resource-card">
+            <div class="resource-top">
+                <div>
+                    <div class="resource-kicker">PYQ ${index + 1}</div>
+                    <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
+                    <div class="resource-meta">
+                        ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
+                        ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} semester</span>` : ''}
+                        ${pyq.session ? `<span class="resource-pill">${escapeHtml(pyq.session)} session</span>` : ''}
+                    </div>
+                </div>
+                <div class="resource-actions">
+                    <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(pyq.file || '')})'>Copy URL</button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editPyq(${index})">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('pyqs', ${index})">Delete</button>
+                </div>
             </div>
-            <div>
-                <button class="btn btn-sm btn-outline-primary me-2" onclick="editPyq(${index})">Edit</button>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('pyqs', ${index})">Delete</button>
-            </div>
-        </div>
+            <div class="resource-detail">${escapeHtml(pyq.file)}</div>
+        </article>
     `).join('');
+
+    updateDashboardStats();
 }
 
 function renderSyllabus() {
     const list = document.getElementById('syllabusList');
+    if (!list) return;
+
+    if (!allData.syllabus.length) {
+        list.innerHTML = '<div class="resource-empty">No syllabus records added yet.</div>';
+        updateDashboardStats();
+        return;
+    }
+
     list.innerHTML = allData.syllabus.map((syllabus, index) => `
-        <div class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-                <strong>${syllabus.title}</strong><br>
-                <small>${syllabus.file}</small><br>
-                <small>Course: ${syllabus.course || 'N/A'} | Semester: ${syllabus.semester || 'N/A'}</small>
+        <article class="resource-card">
+            <div class="resource-top">
+                <div>
+                    <div class="resource-kicker">Syllabus ${index + 1}</div>
+                    <h5 class="resource-title">${escapeHtml(syllabus.title)}</h5>
+                    <div class="resource-meta">
+                        ${syllabus.course ? `<span class="resource-pill">${escapeHtml(syllabus.course)}</span>` : ''}
+                        ${syllabus.semester ? `<span class="resource-pill">${escapeHtml(syllabus.semester)}</span>` : ''}
+                    </div>
+                </div>
+                <div class="resource-actions">
+                    <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(syllabus.file || '')})'>Copy URL</button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editSyllabus(${index})">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('syllabus', ${index})">Delete</button>
+                </div>
             </div>
-            <div>
-                <button class="btn btn-sm btn-outline-primary me-2" onclick="editSyllabus(${index})">Edit</button>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('syllabus', ${index})">Delete</button>
-            </div>
-        </div>
+            <div class="resource-detail">${escapeHtml(syllabus.file)}${syllabus.course || syllabus.semester ? `<div class="mt-2">Course: ${escapeHtml(syllabus.course || 'N/A')} | Semester: ${escapeHtml(syllabus.semester || 'N/A')}</div>` : ''}</div>
+        </article>
     `).join('');
+
+    updateDashboardStats();
+}
+
+function renderUsers() {
+    const list = document.getElementById('usersList');
+    if (!list) return;
+
+    if (!allData.users.length) {
+        list.innerHTML = '<div class="resource-empty">No registered users found.</div>';
+        updateDashboardStats();
+        return;
+    }
+
+    list.innerHTML = allData.users.map((user, index) => {
+        const createdAt = user.createdAt ? new Date(user.createdAt.toDate()).toLocaleString() : 'Unknown';
+        return `
+        <article class="resource-card">
+            <div class="resource-top">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="contributor-avatar-small">${escapeHtml((user.name || user.signupName || 'U').slice(0, 2).toUpperCase())}</div>
+                    <div>
+                        <div class="resource-kicker">Registered user ${index + 1}</div>
+                        <h5 class="resource-title">${escapeHtml(user.name || user.signupName || 'Unnamed User')}</h5>
+                        <div class="resource-meta">
+                            <span class="resource-pill">${escapeHtml(user.role || 'user')}</span>
+                            <span class="resource-pill">${escapeHtml(user.course || user.signupCourse || 'N/A')}</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="resource-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editUser('${user.uid}')"><i class="fas fa-edit me-1"></i>Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteUser('${user.uid}', '${(user.name || user.signupName || 'user').replace(/'/g, "\\'")}')"><i class="fas fa-trash me-1"></i>Delete</button>
+                </div>
+            </div>
+            <div class="resource-detail">
+                <div>Email: ${escapeHtml(user.email || user.signupEmail || 'No email')}</div>
+                <div>Phone: ${escapeHtml(user.phone || 'N/A')}</div>
+                <div>Created: ${escapeHtml(createdAt)}</div>
+                <div>UID: ${escapeHtml(user.uid || 'N/A')}</div>
+            </div>
+        </article>
+    `;
+    }).join('');
+
+    updateDashboardStats();
 }
 
 function addItem(type, item) {
@@ -289,6 +519,24 @@ function saveData() {
     console.warn('saveData() called - this project now uses Firestore. Use addItem/editItem/deleteItem instead.');
 }
 
+function buildPyqTitle(course, semester, subject, session) {
+    return `${normalizePyqText(course)} ${normalizePyqText(semester)} Sem ${normalizePyqText(subject)} {${normalizePyqText(session)}}`;
+}
+
+function normalizePyqText(value) {
+    return (value || '').toString().replace(/\s+/g, ' ').trim();
+}
+
+function pyqTitleExists(title) {
+    return db.collection('pyqs').where('title', '==', title).get()
+        .then(snapshot => !snapshot.empty)
+        .catch(error => {
+            console.error('Error checking for duplicate PYQ title:', error);
+            alert('Unable to validate duplicate PYQ titles right now. Please try again.');
+            return null;
+        });
+}
+
 // Global functions for onclick
 window.editPyq = function(index) {
     const pyq = allData.pyqs[index];
@@ -315,19 +563,101 @@ window.editSyllabus = function(index) {
 };
 
 window.deleteItem = deleteItem;
+window.editUser = function(uid) {
+    const user = allData.users.find(item => item.uid === uid);
+    if (!user) {
+        alert('User not found.');
+        return;
+    }
+
+    document.getElementById('userEditUid').value = user.uid || '';
+    document.getElementById('userEditName').value = user.name || user.signupName || '';
+    document.getElementById('userEditEmail').value = user.email || user.signupEmail || '';
+    document.getElementById('userEditCourse').value = user.course || user.signupCourse || '';
+    document.getElementById('userEditPhone').value = user.phone || '';
+    document.getElementById('userEditRole').value = user.role || 'user';
+    document.getElementById('userEditCreatedAt').value = user.createdAt ? new Date(user.createdAt.toDate()).toLocaleString() : 'Unknown';
+
+    const modal = new bootstrap.Modal(document.getElementById('userEditModal'));
+    modal.show();
+};
+
+window.deleteUser = function(uid, name) {
+    if (confirm(`Are you sure you want to delete ${name}?`)) {
+        db.collection('users').doc(uid).delete()
+            .then(() => {
+                allData.users = allData.users.filter(item => item.uid !== uid);
+                renderUsers();
+                alert('User record deleted successfully!');
+            })
+            .catch(error => {
+                console.error('Error deleting user:', error);
+                alert('Error deleting user: ' + error.message);
+            });
+    }
+};
+
+    document.addEventListener('DOMContentLoaded', function() {
+        const userEditForm = document.getElementById('userEditForm');
+        if (!userEditForm) return;
+
+        userEditForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+
+            const uid = document.getElementById('userEditUid').value;
+            const name = document.getElementById('userEditName').value.trim();
+            const email = document.getElementById('userEditEmail').value.trim();
+            const course = document.getElementById('userEditCourse').value.trim();
+            const phone = document.getElementById('userEditPhone').value.trim();
+            const role = document.getElementById('userEditRole').value.trim();
+
+            if (!uid || !name || !email || !course || !phone || !role) {
+                alert('All user fields are required.');
+                return;
+            }
+
+            const updatedUser = {
+                uid,
+                name,
+                email,
+                course,
+                phone,
+                role,
+                signupName: name,
+                signupEmail: email,
+                signupCourse: course
+            };
+
+            db.collection('users').doc(uid).set(updatedUser, { merge: true })
+                .then(() => {
+                    const index = allData.users.findIndex(item => item.uid === uid);
+                    if (index !== -1) {
+                        allData.users[index] = { ...allData.users[index], ...updatedUser };
+                    }
+                    renderUsers();
+                    bootstrap.Modal.getInstance(document.getElementById('userEditModal')).hide();
+                    alert('User updated successfully!');
+                })
+                .catch(error => {
+                    console.error('Error updating user:', error);
+                    alert('Error updating user: ' + error.message);
+                });
+        });
+    });
 // Pending Uploads Management
 function loadPendingUploads() {
     db.collection('pendingUploads').where('status', '==', 'pending').get()
         .then(snapshot => {
-            const pendingCount = snapshot.size;
-            document.getElementById('pendingCount').textContent = pendingCount;
+            allData.pendingUploads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const pendingCount = allData.pendingUploads.length;
+            updateDashboardStats();
             
             if (pendingCount === 0) {
                 document.getElementById('pendingUploadsList').innerHTML = '';
                 document.getElementById('noPendingMessage').style.display = 'block';
             } else {
                 document.getElementById('noPendingMessage').style.display = 'none';
-                renderPendingUploads(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                renderPendingUploads(allData.pendingUploads);
             }
         })
         .catch(error => {
@@ -337,37 +667,49 @@ function loadPendingUploads() {
 
 function renderPendingUploads(pendingDocs) {
     const list = document.getElementById('pendingUploadsList');
+    if (!list) return;
+
+    if (!pendingDocs.length) {
+        list.innerHTML = '<div class="resource-empty">No pending uploads found.</div>';
+        updateDashboardStats();
+        return;
+    }
+
     list.innerHTML = pendingDocs.map((doc, index) => {
         // doc is already a converted object with { id, ...data }
         const data = doc;
         const uploadDate = data.uploadedAt ? new Date(data.uploadedAt.toDate()).toLocaleString() : 'Unknown';
         return `
-            <div class="list-group-item">
-                <div class="d-flex justify-content-between align-items-start">
-                    <div style="flex: 1;">
-                        <h6 class="mb-1"><strong>${data.title}</strong></h6>
-                        <small class="text-muted d-block">
-                            File: <code>${data.fileName}</code>
-                        </small>
-                        <small class="text-muted d-block">
-                            Course: ${data.course || 'N/A'} | Semester: ${data.semester || 'N/A'}
-                        </small>
-                        <small class="text-muted d-block">
-                            Uploaded by: <strong>${data.studentName || 'Anonymous'}</strong> | ${uploadDate}
-                        </small>
+            <article class="resource-card">
+                <div class="resource-top">
+                    <div>
+                        <div class="resource-kicker">Pending upload ${index + 1}</div>
+                        <h5 class="resource-title">${escapeHtml(data.title)}</h5>
+                        <div class="resource-meta">
+                            <span class="resource-pill">${escapeHtml(data.course || 'N/A')}</span>
+                            <span class="resource-pill">${escapeHtml(data.semester || 'N/A')}</span>
+                        </div>
                     </div>
-                    <div class="btn-group ms-3" role="group">
+                    <div class="resource-actions">
+                        <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(data.downloadUrl || '')})'>Copy URL</button>
                         <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${data.fileName.replace(/'/g, "\\'")}')">
-                            <i class="fas fa-download"></i> Download
+                            <i class="fas fa-download me-1"></i> Download
                         </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deletePendingUpload('${doc.id}')">
-                            <i class="fas fa-trash"></i> Delete
+                            <i class="fas fa-trash me-1"></i> Delete
                         </button>
                     </div>
                 </div>
-            </div>
+                <div class="resource-detail">
+                    <div>File: <code>${escapeHtml(data.fileName)}</code></div>
+                    <div>Uploaded by: <strong>${escapeHtml(data.studentName || 'Anonymous')}</strong></div>
+                    <div>${escapeHtml(uploadDate)}</div>
+                </div>
+            </article>
         `;
     }).join('');
+
+    updateDashboardStats();
 }
 
 function downloadPendingFile(downloadUrl, fileName) {
@@ -402,6 +744,7 @@ window.deletePendingUpload = deletePendingUpload;
 let pyqsLoaded = false;
 let syllabusLoaded = false;
 let pendingLoaded = false;
+let usersLoaded = false;
 
 window.loadPyqsOnDemand = function() {
     if (pyqsLoaded) return;
@@ -440,10 +783,31 @@ window.loadPendingOnDemand = function() {
     pendingLoaded = true;
     loadPendingUploads();
 };
+
+window.loadUsersOnDemand = function() {
+    if (usersLoaded) return;
+    usersLoaded = true;
+
+    db.collection('users').orderBy('createdAt', 'desc').get()
+        .then(snapshot => {
+            allData.users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            document.getElementById('usersCount').textContent = allData.users.length;
+            renderUsers();
+        })
+        .catch(error => {
+            console.error('Error loading users:', error);
+            const list = document.getElementById('usersList');
+            if (list) {
+                list.innerHTML = '<div class="alert alert-danger">Error loading users</div>';
+            }
+        });
+};
 // Contributor Management Functions
 let contributorsLoaded = false;
 
 window.loadContributorsOnDemand = function() {
+    if (contributorsLoaded) return;
+    contributorsLoaded = true;
     loadContributors();
 };
 
@@ -451,7 +815,10 @@ function loadContributors() {
     db.collection('contributors').orderBy('name').get()
         .then(snapshot => {
             const contributors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            allData.contributors = contributors;
+            contributorsLoaded = true;
             renderContributors(contributors);
+            updateDashboardStats();
         })
         .catch(error => {
             console.error('Error loading contributors:', error);
@@ -461,32 +828,40 @@ function loadContributors() {
 
 function renderContributors(contributors) {
     const list = document.getElementById('contributorsList');
+    if (!list) return;
+
     if (!contributors.length) {
-        list.innerHTML = '<div class="alert alert-info">No contributors yet. Add one using the form above.</div>';
+        list.innerHTML = '<div class="resource-empty">No contributors yet. Add one using the form above.</div>';
+        updateDashboardStats();
         return;
     }
 
     list.innerHTML = contributors.map(contributor => `
-        <div class="list-group-item d-flex justify-content-between align-items-center">
-            <div>
-                <div class="d-flex align-items-center gap-2">
-                    <div class="contributor-avatar-small">${contributor.avatar}</div>
+        <article class="resource-card">
+            <div class="resource-top">
+                <div class="d-flex align-items-start gap-3">
+                    <div class="contributor-avatar-small">${escapeHtml(contributor.avatar)}</div>
                     <div>
-                        <strong>${contributor.name}</strong>
-                        <p class="text-muted mb-0 small">${contributor.role}</p>
+                        <div class="resource-kicker">Contributor</div>
+                        <h5 class="resource-title">${escapeHtml(contributor.name)}</h5>
+                        <div class="resource-meta">
+                            <span class="resource-pill">${escapeHtml(contributor.role)}</span>
+                        </div>
                     </div>
                 </div>
+                <div class="resource-actions">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editContributor('${contributor.id}', '${contributor.name}', '${contributor.avatar}', '${contributor.role}')">
+                        <i class="fas fa-edit me-1"></i>Edit
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteContributor('${contributor.id}', '${contributor.name}')">
+                        <i class="fas fa-trash me-1"></i>Delete
+                    </button>
+                </div>
             </div>
-            <div class="btn-group" role="group">
-                <button class="btn btn-sm btn-outline-primary" onclick="editContributor('${contributor.id}', '${contributor.name}', '${contributor.avatar}', '${contributor.role}')">
-                    <i class="fas fa-edit"></i>
-                </button>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteContributor('${contributor.id}', '${contributor.name}')">
-                    <i class="fas fa-trash"></i>
-                </button>
-            </div>
-        </div>
+        </article>
     `).join('');
+
+    updateDashboardStats();
 }
 
 function getContributorInitials(name) {

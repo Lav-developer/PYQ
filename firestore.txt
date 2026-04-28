@@ -1,0 +1,56 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // helper: true if the signed-in user's email matches the admin email
+    function isAdminByEmail() {
+      return request.auth != null
+             && request.auth.token.email == "kush210431@gmail.com";
+    }
+
+    // Public read; writes only by the admin email
+    match /pyqs/{doc} {
+      allow read: if true;
+      allow write: if isAdminByEmail();
+    }
+    
+    match /contributors/{doc}{
+    	allow read: if true;
+      allow create, update, delete: if isAdminByEmail();
+    }
+
+    match /syllabus/{doc} {
+      allow read: if true;
+      allow write: if isAdminByEmail();
+    }
+
+    // Signed-in users manage their own profile document.
+    // Passwords are stored by Firebase Authentication and should not be duplicated in Firestore.
+    match /users/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdminByEmail());
+      allow create: if request.auth != null
+                    && request.auth.uid == userId
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.email == request.auth.token.email;
+      allow update: if request.auth != null
+                    && (request.auth.uid == userId || isAdminByEmail());
+      allow delete: if request.auth != null
+                    && (request.auth.uid == userId || isAdminByEmail());
+    }
+
+    // pendingUploads should be restricted to admin
+    match /pendingUploads/{doc} {
+  allow read: if isAdminByEmail();
+  allow create: if request.resource.data.title is string
+                && request.resource.data.studentName is string
+                && request.resource.data.downloadUrl is string;
+  allow update, delete: if isAdminByEmail();
+}
+
+    // All other documents locked down
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}

@@ -102,7 +102,53 @@
     <header class="header-container">
         <div class="container">
             <div class="header-content">
-                <h1><i class="fas fa-graduation-cap"></i> DSMNRU Academic Archive</h1>
+                <div class="header-top">
+                    <h1><i class="fas fa-graduation-cap"></i> DSMNRU Academic Archive</h1>
+                    <!-- User Profile Button -->
+                    <div class="user-profile-section">
+                        <button id="profileBtn" class="btn-user-profile" onclick="toggleProfileDropdown()">
+                            <i class="fas fa-user-circle"></i>
+                            <span id="userDisplayName">Login</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <!-- Profile Dropdown -->
+                        <div id="profileDropdown" class="profile-dropdown" style="display: none;">
+                            <div id="userLoggedOutMenu" style="display: none;">
+                                <button class="dropdown-item" onclick="openLoginModal()">
+                                    <i class="fas fa-sign-in-alt"></i> Login
+                                </button>
+                                <button class="dropdown-item" onclick="openSignupModal()">
+                                    <i class="fas fa-user-plus"></i> Sign Up
+                                </button>
+                            </div>
+                            <div id="userLoggedInMenu" style="display: none;">
+                                <div class="dropdown-header">
+                                    <div class="user-profile-info">
+                                        <div class="user-avatar"><i class="fas fa-user-circle"></i></div>
+                                        <div class="user-info">
+                                            <div id="userNameDisplay"></div>
+                                            <small id="userEmailDisplay"></small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <hr class="dropdown-divider">
+                                <button class="dropdown-item" onclick="openProfileModal()">
+                                    <i class="fas fa-user"></i> My Profile
+                                </button>
+                                <button class="dropdown-item" onclick="openSettingsModal()">
+                                    <i class="fas fa-cog"></i> Settings
+                                </button>
+                                <button class="dropdown-item" onclick="openBookmarksModal()">
+                                    <i class="fas fa-bookmark"></i> My Bookmarks
+                                </button>
+                                <hr class="dropdown-divider">
+                                <button class="dropdown-item text-danger" onclick="logout()">
+                                    <i class="fas fa-sign-out-alt"></i> Logout
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
                 <p class="subtitle">Your Gateway to Academic Excellence</p>
                 
                 <!-- Search Box -->
@@ -326,35 +372,45 @@
                         </div>
                         <div class="card-body">
                             <p class="text-muted mb-4">Share your question papers and syllabus to help fellow students</p>
-                            <form id="userUploadForm">
-                                <div class="mb-3">
-                                    <label for="uploadTitle" class="form-label">Title <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="uploadTitle" placeholder="e.g.,Indian Consititution" required>
-                                </div>
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label for="uploadCourse" class="form-label">Course (optional)</label>
-                                        <input type="text" class="form-control" id="uploadCourse" placeholder="e.g., B.A.">
+                            <div class="upload-form-shell">
+                                <form id="userUploadForm">
+                                    <div class="mb-3">
+                                        <label for="uploadTitle" class="form-label">Title <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="uploadTitle" placeholder="e.g.,Indian Consititution" required>
                                     </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label for="uploadSemester" class="form-label">Semester (optional)</label>
-                                        <input type="text" class="form-control" id="uploadSemester" placeholder="e.g., 6th">
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <label for="uploadCourse" class="form-label">Course (optional)</label>
+                                            <input type="text" class="form-control" id="uploadCourse" placeholder="e.g., B.A." required>
+                                        </div>
+                                        <div class="col-md-6 mb-3">
+                                            <label for="uploadSemester" class="form-label">Semester (optional)</label>
+                                            <input type="text" class="form-control" id="uploadSemester" placeholder="e.g., 6th" required>
+                                        </div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="uploadFile" class="form-label">PDF File <span class="text-danger">*</span></label>
+                                        <input type="file" class="form-control" id="uploadFile" accept=".pdf" required>
+                                        <small class="form-text text-muted d-block mt-2">Max size: 500MB. PDF files only.</small>
+                                    </div>
+                                    <button type="submit" class="btn btn-primary w-100">
+                                        <i class="fas fa-upload"></i> Upload File
+                                    </button>
+                                </form>
+
+                                <div id="uploadFormLockOverlay" class="upload-form-lock-overlay" aria-hidden="true">
+                                    <div class="upload-form-lock-card">
+                                        <div class="upload-form-lock-icon">
+                                            <i class="fas fa-lock"></i>
+                                        </div>
+                                        <h6 class="mb-2">Registered users can only upload</h6>
+                                        <p class="mb-3">Sign up to upload your document and get your name listed among the top contributors below.</p>
+                                        <button type="button" class="btn btn-primary" onclick="openSignupModal()">
+                                            <i class="fas fa-user-plus"></i> Sign Up Now
+                                        </button>
                                     </div>
                                 </div>
-                                <div class="mb-3">
-                                    <label for="uploadFile" class="form-label">PDF File <span class="text-danger">*</span></label>
-                                    <input type="file" class="form-control" id="uploadFile" accept=".pdf" required>
-                                    <small class="form-text text-muted d-block mt-2">Max size: 500MB. PDF files only.</small>
-                                </div>
-                                <div class="mb-3">
-                                    <label for="uploadName" class="form-label">Your Name <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="uploadName" placeholder="Enter your name" required>
-                                    <small class="form-text text-muted">Your name will be displayed as a contributor</small>
-                                </div>
-                                <button type="submit" class="btn btn-primary w-100">
-                                    <i class="fas fa-upload"></i> Upload File
-                                </button>
-                            </form>
+                            </div>
                             <div id="uploadStatus" class="mt-3" style="display: none;">
                                 <div class="alert alert-info" role="alert">
                                     <div id="uploadStatusMessage"></div>
@@ -573,6 +629,214 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="saveDashboardSettings">Save Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div class="modal fade" id="loginModal" tabindex="-1" aria-labelledby="loginModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="loginModalLabel"><i class="fas fa-sign-in-alt"></i> Login</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="loginForm">
+                        <div class="mb-3">
+                            <label for="loginEmail" class="form-label">Email Address</label>
+                            <input type="email" class="form-control" id="loginEmail" placeholder="Enter your email" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="loginPassword" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="loginPassword" placeholder="Enter your password" required>
+                        </div>
+                        <div id="loginError" class="alert alert-danger" style="display: none;"></div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-sign-in-alt"></i> Login
+                        </button>
+                    </form>
+                    <div class="mt-3 text-center">
+                        <p>Don't have an account? <a href="#" onclick="closeLoginModal(); openSignupModal();">Sign up here</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Signup Modal -->
+    <div class="modal fade" id="signupModal" tabindex="-1" aria-labelledby="signupModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="signupModalLabel"><i class="fas fa-user-plus"></i> Create Account</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="signupForm">
+                        <div class="mb-3">
+                            <label for="signupName" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="signupName" placeholder="Enter your full name" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="signupEmail" class="form-label">Email Address</label>
+                            <input type="email" class="form-control" id="signupEmail" placeholder="Enter your email" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="signupPassword" class="form-label">Password</label>
+                            <input type="password" class="form-control" id="signupPassword" placeholder="Enter a password (min 6 characters)" required minlength="6">
+                        </div>
+                        <div class="mb-3">
+                            <label for="signupConfirmPassword" class="form-label">Confirm Password</label>
+                            <input type="password" class="form-control" id="signupConfirmPassword" placeholder="Confirm your password" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="signupCourse" class="form-label">Course <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="signupCourse" placeholder="e.g., B.Tech CSE, B.A., M.Tech" required>
+                        </div>
+                        <div id="signupError" class="alert alert-danger" style="display: none;"></div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-user-plus"></i> Create Account
+                        </button>
+                    </form>
+                    <div class="mt-3 text-center">
+                        <p>Already have an account? <a href="#" onclick="closeSignupModal(); openLoginModal();">Login here</a></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Profile Modal -->
+    <div class="modal fade" id="profileModal" tabindex="-1" aria-labelledby="profileModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="profileModalLabel"><i class="fas fa-user"></i> My Profile</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="profileForm">
+                        <div class="mb-3">
+                            <label for="profileName" class="form-label">Full Name</label>
+                            <input type="text" class="form-control" id="profileName" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label for="profileEmail" class="form-label">Email Address</label>
+                            <input type="email" class="form-control" id="profileEmail" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label for="profileCourse" class="form-label">Course</label>
+                            <input type="text" class="form-control" id="profileCourse" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label for="profilePhone" class="form-label">Phone Number</label>
+                            <input type="tel" class="form-control" id="profilePhone" placeholder="Enter your phone number" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Account Created</label>
+                            <p id="profileCreatedDate" class="form-control-plaintext"></p>
+                        </div>
+                        <div id="profileError" class="alert alert-danger" style="display: none;"></div>
+                        <div id="profileSuccess" class="alert alert-success" style="display: none;"></div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-save"></i> Save Changes
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+        <!-- Search Gate Modal -->
+        <div class="modal fade" id="searchGateModal" tabindex="-1" aria-labelledby="searchGateModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content search-gate-modal">
+                    <div class="modal-body text-center p-4 p-md-5">
+                        <div class="search-gate-icon mx-auto mb-3">
+                            <i class="fas fa-lock"></i>
+                        </div>
+                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Sign up to unlock search</h5>
+                        <p class="search-gate-text mb-4">
+                            Search results are available for registered users only. Create your account to unlock search, or continue browsing with Load More.
+                        </p>
+                        <div class="search-gate-actions d-grid gap-2 d-sm-flex justify-content-sm-center">
+                            <button type="button" class="btn btn-primary btn-lg" onclick="closeSearchGateModal(); openSignupModal();">
+                                <i class="fas fa-user-plus"></i> Sign Up Now
+                            </button>
+                            <button type="button" class="btn btn-outline-light btn-lg" onclick="continueBrowsingWithoutSearch();">
+                                <i class="fas fa-arrow-down"></i> Continue with Load More
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    <!-- Settings Modal -->
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="settingsModalLabel"><i class="fas fa-cog"></i> Settings</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="settings-section">
+                        <h6 class="mb-3"><i class="fas fa-lock"></i> Security</h6>
+                        <button type="button" class="btn btn-outline-warning w-100 mb-3" onclick="openChangePasswordModal()">
+                            <i class="fas fa-key"></i> Change Password
+                        </button>
+                    </div>
+                    <div class="settings-section">
+                        <h6 class="mb-3"><i class="fas fa-bell"></i> Notifications</h6>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="emailNotifications" checked>
+                            <label class="form-check-label" for="emailNotifications">
+                                Email Notifications for new PYQs
+                            </label>
+                        </div>
+                    </div>
+                    <div class="settings-section">
+                        <h6 class="mb-3"><i class="fas fa-trash"></i> Danger Zone</h6>
+                        <button type="button" class="btn btn-outline-danger w-100" onclick="deleteAccountConfirm()">
+                            <i class="fas fa-user-slash"></i> Delete Account
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change Password Modal -->
+    <div class="modal fade" id="changePasswordModal" tabindex="-1" aria-labelledby="changePasswordModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="changePasswordModalLabel"><i class="fas fa-key"></i> Change Password</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="changePasswordForm">
+                        <div class="mb-3">
+                            <label for="currentPassword" class="form-label">Current Password</label>
+                            <input type="password" class="form-control" id="currentPassword" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="newPassword" class="form-label">New Password</label>
+                            <input type="password" class="form-control" id="newPassword" required minlength="6">
+                        </div>
+                        <div class="mb-3">
+                            <label for="confirmNewPassword" class="form-label">Confirm New Password</label>
+                            <input type="password" class="form-control" id="confirmNewPassword" required minlength="6">
+                        </div>
+                        <div id="passwordError" class="alert alert-danger" style="display: none;"></div>
+                        <div id="passwordSuccess" class="alert alert-success" style="display: none;"></div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-save"></i> Update Password
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>

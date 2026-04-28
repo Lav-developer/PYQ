@@ -14,6 +14,431 @@ firebase.initializeApp(firebaseConfig);
 // Firebase Storage and Firestore references
 const db = firebase.firestore();
 const storage = firebase.storage();
+const auth = firebase.auth();
+
+// ===== USER AUTHENTICATION & PROFILE MANAGEMENT =====
+
+// Global user state
+let currentUser = null;
+let searchGateVisible = false;
+
+function updateUploadAccessUI() {
+    const uploadSection = document.querySelector('.upload-section');
+    const uploadOverlay = document.getElementById('uploadFormLockOverlay');
+    const uploadForm = document.getElementById('userUploadForm');
+    if (!uploadSection || !uploadOverlay || !uploadForm) return;
+
+    const formControls = uploadForm.querySelectorAll('input, button');
+
+    if (currentUser) {
+        uploadSection.classList.remove('upload-locked');
+        uploadOverlay.style.display = 'none';
+        formControls.forEach(control => {
+            control.disabled = false;
+        });
+    } else {
+        uploadSection.classList.add('upload-locked');
+        uploadOverlay.style.display = 'flex';
+        formControls.forEach(control => {
+            control.disabled = true;
+        });
+    }
+}
+
+// Monitor auth state changes
+auth.onAuthStateChanged(user => {
+    currentUser = user;
+    updateUserUI();
+    updateUploadAccessUI();
+    if (user) {
+        loadUserProfile();
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput && searchInput.value.trim()) {
+            performSearch();
+        }
+    }
+});
+
+// Update UI based on auth state
+function updateUserUI() {
+    const loggedOutMenu = document.getElementById('userLoggedOutMenu');
+    const loggedInMenu = document.getElementById('userLoggedInMenu');
+    const profileBtn = document.getElementById('profileBtn');
+    const userDisplayName = document.getElementById('userDisplayName');
+
+    if (currentUser) {
+        loggedOutMenu.style.display = 'none';
+        loggedInMenu.style.display = 'block';
+        userDisplayName.textContent = currentUser.displayName || currentUser.email.split('@')[0];
+        document.getElementById('userNameDisplay').textContent = currentUser.displayName || 'User';
+        document.getElementById('userEmailDisplay').textContent = currentUser.email;
+    } else {
+        loggedOutMenu.style.display = 'block';
+        loggedInMenu.style.display = 'none';
+        userDisplayName.textContent = 'Login';
+    }
+}
+
+// Profile dropdown toggle
+function toggleProfileDropdown() {
+    const dropdown = document.getElementById('profileDropdown');
+    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+}
+
+// Close dropdown when clicking outside
+document.addEventListener('click', function(event) {
+    const profileSection = document.querySelector('.user-profile-section');
+    if (!profileSection.contains(event.target)) {
+        document.getElementById('profileDropdown').style.display = 'none';
+    }
+});
+
+// ===== LOGIN FUNCTIONS =====
+function openLoginModal() {
+    document.getElementById('profileDropdown').style.display = 'none';
+    const modal = new bootstrap.Modal(document.getElementById('loginModal'));
+    modal.show();
+}
+
+function closeLoginModal() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('loginModal'));
+    if (modal) modal.hide();
+}
+
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const email = document.getElementById('loginEmail').value;
+    const password = document.getElementById('loginPassword').value;
+    const errorDiv = document.getElementById('loginError');
+
+    try {
+        errorDiv.style.display = 'none';
+        await auth.signInWithEmailAndPassword(email, password);
+        closeLoginModal();
+        document.getElementById('loginForm').reset();
+        Swal.fire('Success', 'Logged in successfully!', 'success');
+    } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+    }
+});
+
+// ===== SIGNUP FUNCTIONS =====
+function openSignupModal() {
+    document.getElementById('profileDropdown').style.display = 'none';
+    const modal = new bootstrap.Modal(document.getElementById('signupModal'));
+    modal.show();
+}
+
+function closeSearchGateModal() {
+    const modalElement = document.getElementById('searchGateModal');
+    const modal = bootstrap.Modal.getInstance(modalElement) || bootstrap.Modal.getOrCreateInstance(modalElement);
+    modal.hide();
+    searchGateVisible = false;
+}
+
+function openSearchGateModal() {
+    if (searchGateVisible) return;
+    const modalElement = document.getElementById('searchGateModal');
+    const modal = bootstrap.Modal.getOrCreateInstance(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    searchGateVisible = true;
+    modal.show();
+}
+
+const searchGateModalElement = document.getElementById('searchGateModal');
+if (searchGateModalElement) {
+    searchGateModalElement.addEventListener('shown.bs.modal', function() {
+        const backdrop = document.querySelector('.modal-backdrop:last-of-type');
+        if (backdrop) {
+            backdrop.classList.add('search-gate-backdrop');
+        }
+    });
+
+    searchGateModalElement.addEventListener('hidden.bs.modal', function() {
+        searchGateVisible = false;
+        document.querySelectorAll('.modal-backdrop.search-gate-backdrop').forEach(backdrop => {
+            backdrop.classList.remove('search-gate-backdrop');
+        });
+    });
+}
+
+function continueBrowsingWithoutSearch() {
+    closeSearchGateModal();
+    const searchInput = document.getElementById('searchInput');
+    if (searchInput) {
+        searchInput.value = '';
+    }
+    performSearch();
+}
+
+function closeSignupModal() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('signupModal'));
+    if (modal) modal.hide();
+}
+
+document.getElementById('signupForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const name = document.getElementById('signupName').value.trim();
+    const email = document.getElementById('signupEmail').value.trim();
+    const password = document.getElementById('signupPassword').value;
+    const confirmPassword = document.getElementById('signupConfirmPassword').value;
+    const course = document.getElementById('signupCourse').value.trim();
+    const errorDiv = document.getElementById('signupError');
+
+    if (!name || !email || !password || !confirmPassword || !course) {
+        errorDiv.textContent = 'All signup fields are required.';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    if (password !== confirmPassword) {
+        errorDiv.textContent = 'Passwords do not match';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    try {
+        errorDiv.style.display = 'none';
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        const user = userCredential.user;
+
+        // Update user profile
+        await user.updateProfile({
+            displayName: name
+        });
+
+        // Create user document in Firestore
+        await db.collection('users').doc(user.uid).set({
+            uid: user.uid,
+            name: name,
+            email: email,
+            course: course,
+            signupName: name,
+            signupEmail: email,
+            signupCourse: course,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+            bookmarks: [],
+            phone: '',
+            preferences: {},
+            role: 'user'
+        }, { merge: true });
+
+        closeSignupModal();
+        document.getElementById('signupForm').reset();
+        Swal.fire('Success', 'Account created successfully!', 'success');
+    } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+    }
+});
+
+// ===== PROFILE FUNCTIONS =====
+function openProfileModal() {
+    document.getElementById('profileDropdown').style.display = 'none';
+    if (currentUser) {
+        loadUserProfile();
+        const modal = new bootstrap.Modal(document.getElementById('profileModal'));
+        modal.show();
+    }
+}
+
+async function loadUserProfile() {
+    if (!currentUser) return;
+    
+    try {
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        if (userDoc.exists) {
+            const userData = userDoc.data();
+            const nameValue = userData.name || userData.signupName || currentUser.displayName || '';
+            const emailValue = userData.email || userData.signupEmail || currentUser.email || '';
+            const courseValue = userData.course || userData.signupCourse || '';
+            const phoneValue = userData.phone || '';
+
+            document.getElementById('profileName').value = nameValue;
+            document.getElementById('profileEmail').value = emailValue;
+            document.getElementById('profileCourse').value = courseValue;
+            document.getElementById('profilePhone').value = phoneValue;
+
+            document.getElementById('profileName').readOnly = true;
+            document.getElementById('profileEmail').readOnly = true;
+            document.getElementById('profileCourse').readOnly = true;
+            
+            if (userData.createdAt) {
+                const date = new Date(userData.createdAt.toDate()).toLocaleDateString();
+                document.getElementById('profileCreatedDate').textContent = date;
+            }
+        }
+    } catch (error) {
+        console.error('Error loading profile:', error);
+    }
+}
+
+document.getElementById('profileForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    const name = document.getElementById('profileName').value.trim();
+    const course = document.getElementById('profileCourse').value.trim();
+    const phone = document.getElementById('profilePhone').value.trim();
+    const errorDiv = document.getElementById('profileError');
+    const successDiv = document.getElementById('profileSuccess');
+
+    if (!phone) {
+        errorDiv.textContent = 'Phone number is required.';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    try {
+        errorDiv.style.display = 'none';
+        successDiv.style.display = 'none';
+
+        // Update auth profile
+        await currentUser.updateProfile({
+            displayName: name
+        });
+
+        // Update Firestore user document
+        await db.collection('users').doc(currentUser.uid).set({
+            name: name,
+            course: course,
+            phone: phone,
+            email: currentUser.email,
+            uid: currentUser.uid,
+            signupName: name,
+            signupEmail: currentUser.email,
+            signupCourse: course
+        }, { merge: true });
+
+        successDiv.textContent = 'Profile updated successfully!';
+        successDiv.style.display = 'block';
+        updateUserUI();
+        
+        setTimeout(() => {
+            successDiv.style.display = 'none';
+        }, 3000);
+    } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+    }
+});
+
+// ===== SETTINGS FUNCTIONS =====
+function openSettingsModal() {
+    document.getElementById('profileDropdown').style.display = 'none';
+    const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
+    modal.show();
+}
+
+function openChangePasswordModal() {
+    const settingsModal = bootstrap.Modal.getInstance(document.getElementById('settingsModal'));
+    if (settingsModal) settingsModal.hide();
+    
+    const modal = new bootstrap.Modal(document.getElementById('changePasswordModal'));
+    modal.show();
+}
+
+document.getElementById('changePasswordForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    if (!currentUser) return;
+
+    const currentPassword = document.getElementById('currentPassword').value;
+    const newPassword = document.getElementById('newPassword').value;
+    const confirmPassword = document.getElementById('confirmNewPassword').value;
+    const errorDiv = document.getElementById('passwordError');
+    const successDiv = document.getElementById('passwordSuccess');
+
+    if (newPassword !== confirmPassword) {
+        errorDiv.textContent = 'New passwords do not match';
+        errorDiv.style.display = 'block';
+        return;
+    }
+
+    try {
+        errorDiv.style.display = 'none';
+        successDiv.style.display = 'none';
+
+        // Re-authenticate user
+        const credential = firebase.auth.EmailAuthProvider.credential(
+            currentUser.email,
+            currentPassword
+        );
+        await currentUser.reauthenticateWithCredential(credential);
+
+        // Update password
+        await currentUser.updatePassword(newPassword);
+
+        successDiv.textContent = 'Password updated successfully!';
+        successDiv.style.display = 'block';
+        document.getElementById('changePasswordForm').reset();
+
+        setTimeout(() => {
+            const modal = bootstrap.Modal.getInstance(document.getElementById('changePasswordModal'));
+            if (modal) modal.hide();
+        }, 2000);
+    } catch (error) {
+        errorDiv.textContent = error.message;
+        errorDiv.style.display = 'block';
+    }
+});
+
+function deleteAccountConfirm() {
+    Swal.fire({
+        title: 'Delete Account?',
+        text: 'This action cannot be undone. All your data will be permanently deleted.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, delete my account'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                const user = auth.currentUser;
+                await db.collection('users').doc(user.uid).delete();
+                await user.delete();
+                Swal.fire('Deleted', 'Your account has been deleted.', 'success');
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+    });
+}
+
+// ===== LOGOUT FUNCTION =====
+function logout() {
+    Swal.fire({
+        title: 'Logout?',
+        text: 'You will be logged out from your account.',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, logout'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                await auth.signOut();
+                document.getElementById('profileDropdown').style.display = 'none';
+                Swal.fire('Logged Out', 'You have been logged out successfully.', 'success');
+            } catch (error) {
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+    });
+}
+
+// ===== BOOKMARKS MODAL =====
+function openBookmarksModal() {
+    document.getElementById('profileDropdown').style.display = 'none';
+    // You can expand this to show user's bookmarks
+    Swal.fire({
+        title: 'My Bookmarks',
+        text: 'View your bookmarked documents from the Bookmarks tab',
+        icon: 'info'
+    });
+}
 
 // User Upload Handler
 function setupUserUploadHandler() {
@@ -22,6 +447,22 @@ function setupUserUploadHandler() {
 
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
+
+        if (!currentUser) {
+            Swal.fire({
+                icon: 'info',
+                title: 'Sign up to upload',
+                text: 'Only registered users can upload documents and be listed among top contributors.',
+                showCancelButton: true,
+                confirmButtonText: 'Sign Up Now',
+                cancelButtonText: 'Not now'
+            }).then(result => {
+                if (result.isConfirmed) {
+                    openSignupModal();
+                }
+            });
+            return;
+        }
 
         const title = document.getElementById('uploadTitle').value;
         const course = document.getElementById('uploadCourse').value;
@@ -137,6 +578,10 @@ document.addEventListener('DOMContentLoaded', function() {
     const copyLinkBtn = document.getElementById('copyLinkBtn');
     const pyqList = document.getElementById('pyqList');
     const syllabusList = document.getElementById('syllabusList');
+
+    document.getElementById('pdfModal').addEventListener('hidden.bs.modal', function() {
+        pdfViewer.src = '';
+    });
 
     // Global data storage
     let allData = { pyqs: [], syllabus: [] };
@@ -266,7 +711,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h5 class="pyq-title">${pyq.title}</h5>
                         <div class="pyq-actions">
                             <button class="btn btn-action btn-preview" onclick="previewPDF('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
-                                <i class="fas fa-eye"></i> View
+                                <i class="${getPreviewButtonMeta(pyq.file).icon}"></i> ${getPreviewButtonMeta(pyq.file).label}
                             </button>
                             <button class="btn btn-action btn-share" onclick="shareDocument('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
                                 <i class="fas fa-share-alt"></i> Share
@@ -321,7 +766,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         </div>
                         <div class="syllabus-actions">
                             <button class="btn btn-action btn-preview" onclick="previewPDF('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
-                                <i class="fas fa-eye"></i> View
+                                <i class="${getPreviewButtonMeta(syllabus.file).icon}"></i> ${getPreviewButtonMeta(syllabus.file).label}
                             </button>
                             <button class="btn btn-action btn-share" onclick="shareDocument('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
                                 <i class="fas fa-share-alt"></i> Share
@@ -401,7 +846,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <h5 class="pyq-title">${item.title}</h5>
                                 <div class="pyq-actions">
                                     <button class="btn btn-action btn-preview" onclick="previewPDF('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
-                                        <i class="fas fa-eye"></i> View
+                                        <i class="${getPreviewButtonMeta(item.file).icon}"></i> ${getPreviewButtonMeta(item.file).label}
                                     </button>
                                     <button class="btn btn-action btn-share" onclick="shareDocument('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
                                         <i class="fas fa-share-alt"></i> Share
@@ -430,7 +875,7 @@ document.addEventListener('DOMContentLoaded', function() {
                                 </div>
                                 <div class="syllabus-actions">
                                     <button class="btn btn-action btn-preview" onclick="previewPDF('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
-                                        <i class="fas fa-eye"></i> View
+                                        <i class="${getPreviewButtonMeta(item.file).icon}"></i> ${getPreviewButtonMeta(item.file).label}
                                     </button>
                                     <button class="btn btn-action btn-share" onclick="shareDocument('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
                                         <i class="fas fa-share-alt"></i> Share
@@ -567,6 +1012,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Search function
     window.performSearch = function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+        if (searchTerm.trim() && !currentUser) {
+            openSearchGateModal();
+            return;
+        }
+
         const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
 
         if (activeTab === '#nav-pyq') {
@@ -597,7 +1047,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // PDF view function
     window.previewPDF = function(filePath, title) {
-        window.open(filePath, '_blank');
+        if (!filePath) {
+            alert('No document link available.');
+            return;
+        }
+
+        if (isDirectPdfUrl(filePath) && !isMediaFireUrl(filePath)) {
+            pdfViewer.src = filePath;
+            document.getElementById('pdfModalLabel').textContent = title || 'Document Preview';
+            pdfModal.show();
+            return;
+        }
+
+        window.open(filePath, '_blank', 'noopener,noreferrer');
     };
 
     // Share function
@@ -649,6 +1111,27 @@ document.addEventListener('DOMContentLoaded', function() {
                 <p class="mt-2">Loading content...</p>
             </div>
         `;
+    }
+
+    function isDirectPdfUrl(filePath) {
+        const cleanUrl = filePath.split('#')[0].split('?')[0].toLowerCase();
+        return cleanUrl.endsWith('.pdf');
+    }
+
+    function isMediaFireUrl(filePath) {
+        try {
+            return new URL(filePath).hostname.toLowerCase().includes('mediafire.com');
+        } catch (error) {
+            return /mediafire\.com/i.test(filePath);
+        }
+    }
+
+    function getPreviewButtonMeta(filePath) {
+        if (isDirectPdfUrl(filePath) && !isMediaFireUrl(filePath)) {
+            return { label: 'Preview PDF', icon: 'fas fa-eye' };
+        }
+
+        return { label: 'Open on MediaFire', icon: 'fas fa-arrow-up-right-from-square' };
     }
 
     // Enhanced error handling
