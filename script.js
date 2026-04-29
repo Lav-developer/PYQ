@@ -735,7 +735,6 @@ function setupUserUploadHandler() {
         const title = document.getElementById('uploadTitle').value;
         const course = document.getElementById('uploadCourse').value;
         const semester = document.getElementById('uploadSemester').value;
-        const name = document.getElementById('uploadName').value;
         const file = document.getElementById('uploadFile').files[0];
 
         if (!file) {
@@ -762,10 +761,25 @@ function setupUserUploadHandler() {
         const progressBar = document.getElementById('uploadProgressBar');
 
         statusDiv.style.display = 'block';
-        statusMessage.textContent = 'Uploading file to database...';
+        statusMessage.textContent = 'Fetching your profile...';
         progressDiv.style.display = 'block';
 
         try {
+            // Fetch user profile from Firestore to get name and course
+            if (!currentUser) {
+                throw new Error('User not authenticated');
+            }
+
+            const userDoc = await db.collection('users').doc(currentUser.uid).get();
+            if (!userDoc.exists) {
+                throw new Error('User profile not found in database');
+            }
+
+            const userData = userDoc.data();
+            const userName = userData.name || userData.signupName || currentUser.displayName || 'Anonymous';
+            const userCourse = userData.course || userData.signupCourse || course || 'General';
+
+            statusMessage.textContent = 'Uploading file to database...';
             // Upload to gofile.io (CORS enabled, unlimited file storage)
             // First, get an available server
             const serverResponse = await fetch('https://api.gofile.io/servers');
@@ -812,7 +826,9 @@ function setupUserUploadHandler() {
                 title: title,
                 course: course,
                 semester: semester,
-                studentName: name,
+                studentName: userName,
+                studentCourse: userCourse,
+                userId: currentUser.uid,
                 fileName: file.name,
                 downloadUrl: fileUrl,
                 fileSize: file.size,
