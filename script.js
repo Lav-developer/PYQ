@@ -295,15 +295,13 @@ function closeSignupModal() {
 
 document.getElementById('signupForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    const name = document.getElementById('signupName').value.trim();
     const email = document.getElementById('signupEmail').value.trim();
     const password = document.getElementById('signupPassword').value;
     const confirmPassword = document.getElementById('signupConfirmPassword').value;
-    const course = document.getElementById('signupCourse').value.trim();
     const errorDiv = document.getElementById('signupError');
 
-    if (!name || !email || !password || !confirmPassword || !course) {
-        errorDiv.textContent = 'All signup fields are required.';
+    if (!email || !password || !confirmPassword) {
+        errorDiv.textContent = 'Email, password, and password confirmation are required.';
         errorDiv.style.display = 'block';
         return;
     }
@@ -318,10 +316,11 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         errorDiv.style.display = 'none';
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
+        const displayName = email.split('@')[0] || 'User';
 
         // Update user profile
         await user.updateProfile({
-            displayName: name
+            displayName
         });
 
         // Send verification email only for non-Google password accounts
@@ -332,12 +331,12 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         // Create user document in Firestore
         await db.collection('users').doc(user.uid).set({
             uid: user.uid,
-            name: name,
             email: email,
-            course: course,
-            signupName: name,
             signupEmail: email,
-            signupCourse: course,
+            name: displayName,
+            signupName: displayName,
+            course: '',
+            signupCourse: '',
             emailVerified: isGoogleUser(user) ? true : false,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             bookmarks: [],
@@ -354,7 +353,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             title: 'Account Created!',
             html: isGoogleUser(user)
                 ? '<p>Google account created successfully.</p><p>You can use the app immediately. No email verification is needed.</p>'
-                : `<p>Account created successfully!</p><p>A verification email has been sent to <strong>${email}</strong>.</p><p>Please check your email and click the verification link to activate your account.</p>`,
+                : `<p>Account created successfully!</p><p>A verification email has been sent to <strong>${email}</strong>.</p><p>Please check your email and click the verification link to activate your account.</p><p>You can add your name, course, and phone number later from your profile.</p>`,
             icon: 'success',
             confirmButtonText: 'OK'
         });
@@ -392,9 +391,7 @@ async function loadUserProfile() {
             document.getElementById('profileCourse').value = courseValue;
             document.getElementById('profilePhone').value = phoneValue;
 
-            document.getElementById('profileName').readOnly = true;
             document.getElementById('profileEmail').readOnly = true;
-            document.getElementById('profileCourse').readOnly = true;
             
             if (userData.createdAt) {
                 const date = new Date(userData.createdAt.toDate()).toLocaleDateString();
