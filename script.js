@@ -29,8 +29,19 @@ db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
 let currentUser = null;
 let searchGateVisible = false;
 
+function isGoogleUser(user) {
+    if (!user || !Array.isArray(user.providerData)) return false;
+    return user.providerData.some(provider => provider && provider.providerId === 'google.com');
+}
+
+function requiresEmailVerification(user) {
+    return !!user && !isGoogleUser(user) && !user.emailVerified;
+}
+
 async function ensureUserDocumentSynced(user) {
     if (!user) return;
+
+    const googleAccount = isGoogleUser(user);
 
     const userRef = db.collection('users').doc(user.uid);
     const existingDoc = await userRef.get();
@@ -46,7 +57,7 @@ async function ensureUserDocumentSynced(user) {
         course: existingData.course || existingData.signupCourse || '',
         phone: existingData.phone || '',
         role: existingData.role || 'user',
-        emailVerified: !!user.emailVerified,
+        emailVerified: !!user.emailVerified || googleAccount,
         createdAt: existingData.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
         lastSeenAt: firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
@@ -61,7 +72,7 @@ function updateUploadAccessUI() {
 
     const formControls = uploadForm.querySelectorAll('input, button');
 
-    if (currentUser && currentUser.emailVerified) {
+    if (currentUser && !requiresEmailVerification(currentUser)) {
         uploadSection.classList.remove('upload-locked');
         uploadOverlay.style.display = 'none';
         formControls.forEach(control => {
@@ -86,7 +97,7 @@ auth.onAuthStateChanged(user => {
         user.reload()
             .then(async () => {
                 await ensureUserDocumentSynced(user);
-                if (!user.emailVerified) {
+                if (requiresEmailVerification(user)) {
                     // Show verification prompt modal
                     showEmailVerificationPrompt();
                 } else {
@@ -120,10 +131,10 @@ function updateUserUI() {
         // Show verification badge if email not verified
         const verificationBadge = document.getElementById('emailVerificationBadge');
         if (verificationBadge) {
-            if (currentUser.emailVerified) {
-                verificationBadge.style.display = 'none';
-            } else {
+            if (requiresEmailVerification(currentUser)) {
                 verificationBadge.style.display = 'inline-block';
+            } else {
+                verificationBadge.style.display = 'none';
             }
         }
     } else {
@@ -159,6 +170,43 @@ function closeLoginModal() {
     if (modal) modal.hide();
 }
 
+async function signInWithGoogle(providerEntryPoint) {
+    try {
+        const provider = new firebase.auth.GoogleAuthProvider();
+        const result = await auth.signInWithPopup(provider);
+        await result.user.reload();
+        await ensureUserDocumentSynced(result.user);
+
+        const loginModal = bootstrap.Modal.getInstance(document.getElementById('loginModal'));
+        if (loginModal) loginModal.hide();
+        const signupModal = bootstrap.Modal.getInstance(document.getElementById('signupModal'));
+        if (signupModal) signupModal.hide();
+
+        document.getElementById('loginForm').reset();
+        document.getElementById('signupForm').reset();
+
+        Swal.fire({
+            title: 'Signed in with Google',
+            text: providerEntryPoint === 'signup' ? 'Your Google account was created and signed in.' : 'You are now signed in with your Google account.',
+            icon: 'success'
+        });
+    } catch (error) {
+        const message = error.code === 'auth/popup-closed-by-user'
+            ? 'Google sign-in was cancelled.'
+            : error.message;
+        const errorDiv = providerEntryPoint === 'signup'
+            ? document.getElementById('signupError')
+            : document.getElementById('loginError');
+
+        if (errorDiv) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        } else {
+            Swal.fire('Error', message, 'error');
+        }
+    }
+}
+
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     const email = document.getElementById('loginEmail').value;
@@ -173,7 +221,7 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
         closeLoginModal();
         document.getElementById('loginForm').reset();
         
-        if (result.user.emailVerified) {
+        if (!requiresEmailVerification(result.user)) {
             Swal.fire('Success', 'Logged in successfully!', 'success');
         } else {
             Swal.fire({
@@ -276,8 +324,10 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             displayName: name
         });
 
-        // Send verification email
-        await user.sendEmailVerification();
+        // Send verification email only for non-Google password accounts
+        if (!isGoogleUser(user)) {
+            await user.sendEmailVerification();
+        }
 
         // Create user document in Firestore
         await db.collection('users').doc(user.uid).set({
@@ -288,7 +338,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             signupName: name,
             signupEmail: email,
             signupCourse: course,
-            emailVerified: false,
+            emailVerified: isGoogleUser(user) ? true : false,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             bookmarks: [],
             phone: '',
@@ -302,7 +352,9 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         // Show success message with verification instruction
         Swal.fire({
             title: 'Account Created!',
-            html: `<p>Account created successfully!</p><p>A verification email has been sent to <strong>${email}</strong>.</p><p>Please check your email and click the verification link to activate your account.</p>`,
+            html: isGoogleUser(user)
+                ? '<p>Google account created successfully.</p><p>You can use the app immediately. No email verification is needed.</p>'
+                : `<p>Account created successfully!</p><p>A verification email has been sent to <strong>${email}</strong>.</p><p>Please check your email and click the verification link to activate your account.</p>`,
             icon: 'success',
             confirmButtonText: 'OK'
         });
@@ -667,7 +719,7 @@ function setupUserUploadHandler() {
         }
 
         // Check if email is verified
-        if (!currentUser.emailVerified) {
+        if (requiresEmailVerification(currentUser)) {
             Swal.fire({
                 icon: 'warning',
                 title: 'Email Not Verified',
