@@ -1332,9 +1332,25 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function setupEventListeners() {
-        // Search functionality
+        // Search functionality with debounce to limit server reads
         const searchInput = document.getElementById('searchInput');
-        searchInput.addEventListener('input', performSearch);
+        // debounce helper: ensures the wrapped function runs after `wait` ms of inactivity
+        function debounce(fn, wait) {
+            let timer = null;
+            return function(...args) {
+                if (timer) clearTimeout(timer);
+                timer = setTimeout(() => {
+                    timer = null;
+                    try { fn.apply(this, args); } catch (e) { console.error(e); }
+                }, wait);
+            };
+        }
+
+        const debouncedSearch = debounce(() => {
+            if (typeof window.performSearch === 'function') window.performSearch();
+        }, 1000);
+
+        if (searchInput) searchInput.addEventListener('input', debouncedSearch);
 
 
 
@@ -1390,39 +1406,67 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Search function
-    window.performSearch = function() {
+    // Search function — now queries Firestore server when a search term is entered
+    window.performSearch = async function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-        if (searchTerm.trim() && (!currentUser || !currentUser.emailVerified)) {
-            if (currentUser && !currentUser.emailVerified) {
-                showEmailVerificationPrompt();
-            } else {
-                openSearchGateModal();
-            }
+
+        // Only gate search for unauthenticated visitors.
+        if (searchTerm.trim() && !currentUser) {
+            openSearchGateModal();
             return;
         }
 
         const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
 
+        // Helper: perform a server read of an entire collection then filter client-side.
+        async function fetchAndFilterCollection(collectionName, filterFn) {
+            try {
+                showLoading(collectionName === 'pyqs' ? 'pyqList' : 'syllabusList');
+                const snap = await db.collection(collectionName).get({ source: 'server' });
+                const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const processed = processAndSortItems(items);
+                return processed.filter(filterFn);
+            } catch (err) {
+                console.error('Search error fetching from server:', err);
+                return [];
+            }
+        }
+
         if (activeTab === '#nav-pyq') {
-            const filtered = allData.pyqs.filter(pyq =>
-                pyq.title.toLowerCase().includes(searchTerm)
-            );
-            filteredPyqs = filtered;
+            if (!searchTerm.trim()) {
+                // Empty search — show cached/paginated data
+                filteredPyqs = [...allData.pyqs];
+                currentPage = 1;
+                renderPYQs();
+                return;
+            }
+
+            // Query server for all PYQs, then filter by substring match (case-insensitive)
+            const results = await fetchAndFilterCollection('pyqs', pyq => (pyq.title || '').toLowerCase().includes(searchTerm));
+            filteredPyqs = results;
             currentPage = 1;
             renderPYQs();
         } else if (activeTab === '#nav-syllabus') {
-            const filtered = allData.syllabus.filter(syllabus =>
-                syllabus.title.toLowerCase().includes(searchTerm) ||
-                (syllabus.course && syllabus.course.toLowerCase().includes(searchTerm)) ||
-                (syllabus.semester && syllabus.semester.toLowerCase().includes(searchTerm))
-            );
-            filteredSyllabus = filtered;
+            if (!searchTerm.trim()) {
+                filteredSyllabus = [...allData.syllabus];
+                currentPageSyllabus = 1;
+                renderSyllabus();
+                return;
+            }
+
+            // Query server for syllabus and filter across title/course/semester
+            const results = await fetchAndFilterCollection('syllabus', s => {
+                const title = (s.title || '').toLowerCase();
+                const course = (s.course || '').toLowerCase();
+                const semester = (s.semester || '').toLowerCase();
+                return title.includes(searchTerm) || course.includes(searchTerm) || semester.includes(searchTerm);
+            });
+
+            filteredSyllabus = results;
             currentPageSyllabus = 1;
             renderSyllabus();
         } else if (activeTab === '#nav-bookmarks') {
-            // For bookmarks, we need to filter the bookmarked items
-            // Since bookmarks are stored as file paths, we need to filter the actual items
+            // Bookmarks: filter current bookmarked items (they are sourced from allData)
             currentPageBookmarks = 1;
             renderBookmarks(searchTerm);
         }
