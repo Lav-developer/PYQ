@@ -22,6 +22,7 @@ const auth = firebase.auth();
 let currentUser = null;
 let searchGateVisible = false;
 
+// Update UI based on auth state
 function updateUploadAccessUI() {
     const uploadSection = document.querySelector('.upload-section');
     const uploadOverlay = document.getElementById('uploadFormLockOverlay');
@@ -30,7 +31,7 @@ function updateUploadAccessUI() {
 
     const formControls = uploadForm.querySelectorAll('input, button');
 
-    if (currentUser) {
+    if (currentUser && currentUser.emailVerified) {
         uploadSection.classList.remove('upload-locked');
         uploadOverlay.style.display = 'none';
         formControls.forEach(control => {
@@ -51,11 +52,19 @@ auth.onAuthStateChanged(user => {
     updateUserUI();
     updateUploadAccessUI();
     if (user) {
-        loadUserProfile();
-        const searchInput = document.getElementById('searchInput');
-        if (searchInput && searchInput.value.trim()) {
-            performSearch();
-        }
+        // Check if email is verified
+        user.reload().then(() => {
+            if (!user.emailVerified) {
+                // Show verification prompt modal
+                showEmailVerificationPrompt();
+            } else {
+                loadUserProfile();
+                const searchInput = document.getElementById('searchInput');
+                if (searchInput && searchInput.value.trim()) {
+                    performSearch();
+                }
+            }
+        });
     }
 });
 
@@ -72,6 +81,16 @@ function updateUserUI() {
         userDisplayName.textContent = currentUser.displayName || currentUser.email.split('@')[0];
         document.getElementById('userNameDisplay').textContent = currentUser.displayName || 'User';
         document.getElementById('userEmailDisplay').textContent = currentUser.email;
+        
+        // Show verification badge if email not verified
+        const verificationBadge = document.getElementById('emailVerificationBadge');
+        if (verificationBadge) {
+            if (currentUser.emailVerified) {
+                verificationBadge.style.display = 'none';
+            } else {
+                verificationBadge.style.display = 'inline-block';
+            }
+        }
     } else {
         loggedOutMenu.style.display = 'block';
         loggedInMenu.style.display = 'none';
@@ -113,10 +132,22 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 
     try {
         errorDiv.style.display = 'none';
-        await auth.signInWithEmailAndPassword(email, password);
+        const result = await auth.signInWithEmailAndPassword(email, password);
+        await result.user.reload();
+        
         closeLoginModal();
         document.getElementById('loginForm').reset();
-        Swal.fire('Success', 'Logged in successfully!', 'success');
+        
+        if (result.user.emailVerified) {
+            Swal.fire('Success', 'Logged in successfully!', 'success');
+        } else {
+            Swal.fire({
+                title: 'Welcome Back!',
+                html: '<p>Your email is not verified yet.</p><p>Please verify your email to unlock all features.</p>',
+                icon: 'info'
+            });
+            showEmailVerificationPrompt();
+        }
     } catch (error) {
         errorDiv.textContent = error.message;
         errorDiv.style.display = 'block';
@@ -210,6 +241,9 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             displayName: name
         });
 
+        // Send verification email
+        await user.sendEmailVerification();
+
         // Create user document in Firestore
         await db.collection('users').doc(user.uid).set({
             uid: user.uid,
@@ -219,6 +253,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             signupName: name,
             signupEmail: email,
             signupCourse: course,
+            emailVerified: false,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
             bookmarks: [],
             phone: '',
@@ -228,7 +263,14 @@ document.getElementById('signupForm').addEventListener('submit', async function(
 
         closeSignupModal();
         document.getElementById('signupForm').reset();
-        Swal.fire('Success', 'Account created successfully!', 'success');
+        
+        // Show success message with verification instruction
+        Swal.fire({
+            title: 'Account Created!',
+            html: `<p>Account created successfully!</p><p>A verification email has been sent to <strong>${email}</strong>.</p><p>Please check your email and click the verification link to activate your account.</p>`,
+            icon: 'success',
+            confirmButtonText: 'OK'
+        });
     } catch (error) {
         errorDiv.textContent = error.message;
         errorDiv.style.display = 'block';
@@ -408,6 +450,125 @@ function deleteAccountConfirm() {
     });
 }
 
+// ===== EMAIL VERIFICATION FUNCTIONS =====
+function showEmailVerificationPrompt() {
+    const modalElement = document.getElementById('emailVerificationModal');
+    if (modalElement) {
+        const modal = new bootstrap.Modal(modalElement);
+        document.getElementById('verificationEmail').textContent = currentUser.email;
+        modal.show();
+    }
+}
+
+async function logoutAndChangeEmail() {
+    Swal.fire({
+        title: 'Use Different Email?',
+        html: '<p>This will log you out so you can create a new account with a different email address.</p><p><strong>Note:</strong> Your current unverified account will be deleted.</p>',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'Yes, logout and change email',
+        cancelButtonText: 'Cancel'
+    }).then(async (result) => {
+        if (result.isConfirmed) {
+            try {
+                const user = auth.currentUser;
+                const uid = user.uid;
+                
+                // Close verification modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('emailVerificationModal'));
+                if (modal) modal.hide();
+                
+                // Delete user data from Firestore
+                await db.collection('users').doc(uid).delete();
+                
+                // Delete Firebase Auth user
+                await user.delete();
+                
+                // Sign out
+                await auth.signOut();
+                
+                Swal.fire({
+                    title: 'Account Deleted',
+                    text: 'Your account has been deleted. You can now sign up with a different email.',
+                    icon: 'success'
+                }).then(() => {
+                    // Show signup modal
+                    openSignupModal();
+                });
+            } catch (error) {
+                if (error.code === 'auth/requires-recent-login') {
+                    Swal.fire({
+                        title: 'Re-authentication Required',
+                        text: 'Please log out and log back in to delete your account. Then try again.',
+                        icon: 'warning'
+                    }).then(async () => {
+                        await auth.signOut();
+                        window.location.reload();
+                    });
+                } else {
+                    Swal.fire('Error', error.message, 'error');
+                }
+            }
+        }
+    });
+}
+
+async function resendVerificationEmail() {
+    try {
+        const resendBtn = document.getElementById('resendVerificationBtn');
+        const originalText = resendBtn.innerHTML;
+        resendBtn.disabled = true;
+        
+        await currentUser.sendEmailVerification();
+        
+        Swal.fire({
+            title: 'Email Sent!',
+            text: 'Verification email has been sent to ' + currentUser.email,
+            icon: 'success',
+            timer: 3000
+        });
+        
+        resendBtn.disabled = false;
+        resendBtn.innerHTML = originalText;
+    } catch (error) {
+        Swal.fire('Error', error.message, 'error');
+        resendBtn.disabled = false;
+    }
+}
+
+async function checkEmailVerification() {
+    try {
+        await currentUser.reload();
+        
+        if (currentUser.emailVerified) {
+            // Update Firestore document
+            await db.collection('users').doc(currentUser.uid).set({
+                emailVerified: true
+            }, { merge: true });
+            
+            const modal = bootstrap.Modal.getInstance(document.getElementById('emailVerificationModal'));
+            if (modal) modal.hide();
+            
+            Swal.fire({
+                title: 'Email Verified!',
+                text: 'Your email has been verified successfully. You now have full access to all features.',
+                icon: 'success'
+            });
+            
+            updateUploadAccessUI();
+        } else {
+            Swal.fire({
+                title: 'Email Not Verified Yet',
+                text: 'Please check your email and click the verification link. Then try again.',
+                icon: 'info'
+            });
+        }
+    } catch (error) {
+        Swal.fire('Error', error.message, 'error');
+    }
+}
+
 // ===== LOGOUT FUNCTION =====
 function logout() {
     Swal.fire({
@@ -459,6 +620,23 @@ function setupUserUploadHandler() {
             }).then(result => {
                 if (result.isConfirmed) {
                     openSignupModal();
+                }
+            });
+            return;
+        }
+
+        // Check if email is verified
+        if (!currentUser.emailVerified) {
+            Swal.fire({
+                icon: 'warning',
+                title: 'Email Not Verified',
+                html: `<p>Please verify your email to upload documents.</p><p>Check your inbox at <strong>${currentUser.email}</strong> and click the verification link.</p>`,
+                showCancelButton: true,
+                confirmButtonText: 'Verify Email',
+                cancelButtonText: 'Later'
+            }).then(result => {
+                if (result.isConfirmed) {
+                    showEmailVerificationPrompt();
                 }
             });
             return;
@@ -1012,8 +1190,12 @@ document.addEventListener('DOMContentLoaded', function() {
     // Search function
     window.performSearch = function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-        if (searchTerm.trim() && !currentUser) {
-            openSearchGateModal();
+        if (searchTerm.trim() && (!currentUser || !currentUser.emailVerified)) {
+            if (currentUser && !currentUser.emailVerified) {
+                showEmailVerificationPrompt();
+            } else {
+                openSearchGateModal();
+            }
             return;
         }
 

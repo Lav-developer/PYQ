@@ -130,6 +130,9 @@
                                             <small id="userEmailDisplay"></small>
                                         </div>
                                     </div>
+                                    <span id="emailVerificationBadge" class="badge bg-warning text-dark" style="display: none; margin-top: 0.5rem; font-size: 0.75rem;">
+                                        <i class="fas fa-exclamation-triangle"></i> Email Not Verified
+                                    </span>
                                 </div>
                                 <hr class="dropdown-divider">
                                 <button class="dropdown-item" onclick="openProfileModal()">
@@ -693,7 +696,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="signupCourse" class="form-label">Course <span class="text-danger">*</span></label>
-                            <input type="text" class="form-control" id="signupCourse" placeholder="e.g., B.Tech CSE, B.A., M.Tech" required>
+                            <input type="text" class="form-control" id="signupCourse" placeholder="e.g., B.Tech, B.A., M.Tech" required>
                         </div>
                         <div id="signupError" class="alert alert-danger" style="display: none;"></div>
                         <button type="submit" class="btn btn-primary w-100">
@@ -837,6 +840,57 @@
                             <i class="fas fa-save"></i> Update Password
                         </button>
                     </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Email Verification Modal -->
+    <div class="modal fade" id="emailVerificationModal" tabindex="-1" aria-labelledby="emailVerificationModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-warning">
+                    <h5 class="modal-title" id="emailVerificationModalLabel">
+                        <i class="fas fa-envelope"></i> Verify Your Email
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-4">
+                        <div style="font-size: 3rem; color: #ffc107; margin-bottom: 1rem;">
+                            <i class="fas fa-exclamation-circle"></i>
+                        </div>
+                        <h6 class="mb-2">Email Verification Required</h6>
+                        <p class="text-muted mb-3">
+                            We've sent a verification email to <strong id="verificationEmail"></strong>
+                        </p>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <p class="mb-0">
+                            <i class="fas fa-info-circle"></i> 
+                            <strong>Next Steps:</strong>
+                        </p>
+                        <ol class="mb-0 mt-2" style="padding-left: 1.5rem;">
+                            <li>Check your email inbox (and spam folder)</li>
+                            <li>Click the verification link in the email</li>
+                            <li>Return here and click "I've Verified My Email"</li>
+                        </ol>
+                    </div>
+
+                    <p class="text-muted small">
+                        <strong>Note:</strong> You'll have limited access until your email is verified. You cannot search, upload documents, or access full features with an unverified email.
+                    </p>
+                </div>
+                <div class="modal-footer gap-2">
+                    <button type="button" class="btn btn-outline-danger btn-sm" onclick="logoutAndChangeEmail()">
+                        <i class="fas fa-sign-out-alt"></i> Use Different Email
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" id="resendVerificationBtn" onclick="resendVerificationEmail()">
+                        <i class="fas fa-redo"></i> Resend Email
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="checkEmailVerification()">
+                        <i class="fas fa-check-circle"></i> I've Verified My Email
+                    </button>
                 </div>
             </div>
         </div>
