@@ -16,6 +16,13 @@ const db = firebase.firestore();
 const storage = firebase.storage();
 const auth = firebase.auth();
 
+db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
+    // Multi-tab and unsupported-browser failures are safe to ignore for this app.
+    if (error.code !== 'failed-precondition' && error.code !== 'unimplemented') {
+        console.warn('Firestore persistence unavailable:', error.message);
+    }
+});
+
 // ===== USER AUTHENTICATION & PROFILE MANAGEMENT =====
 
 // Global user state
@@ -767,13 +774,19 @@ document.addEventListener('DOMContentLoaded', function() {
     let filteredSyllabus = [];
     let bookmarks = { pyqs: [], syllabus: [] };
 
+    const serverPageSize = 20;
+    let pyqLastVisible = null;
+    let syllabusLastVisible = null;
+    let pyqHasMore = true;
+    let syllabusHasMore = true;
+
     // Pagination variables for PYQs
     let currentPage = 1;
-    const itemsPerPage = 10;
+    const itemsPerPage = 20;
 
     // Pagination variables for Syllabus
     let currentPageSyllabus = 1;
-    const itemsPerPageSyllabus = 10;
+    const itemsPerPageSyllabus = 20;
 
     // Pagination variables for Bookmarks
     let currentPageBookmarks = 1;
@@ -785,48 +798,125 @@ document.addEventListener('DOMContentLoaded', function() {
         return yearMatch ? parseInt(yearMatch[1]) : 0;
     }
 
-    // Load data from Firestore
-    Promise.all([
-        db.collection('pyqs').get(),
-        db.collection('syllabus').get()
-    ])
-    .then(([pyqSnap, syllabusSnap]) => {
-        allData.pyqs = pyqSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-        // Add year to each item and sort
-        const processedPYQs = allData.pyqs.map(pyq => ({
-            ...pyq,
-            year: extractYearFromTitle(pyq.title)
+    function processAndSortItems(items) {
+        return items.map(item => ({
+            ...item,
+            year: extractYearFromTitle(item.title || '')
         })).sort((a, b) => b.year - a.year);
+    }
 
-        const processedSyllabus = allData.syllabus.map(syllabus => ({
-            ...syllabus,
-            year: extractYearFromTitle(syllabus.title)
-        })).sort((a, b) => b.year - a.year);
+    async function getInitialPage(collectionName) {
+        const baseQuery = db.collection(collectionName).orderBy('title').limit(serverPageSize);
 
-        allData.pyqs = processedPYQs;
-        allData.syllabus = processedSyllabus;
+        try {
+            const cacheSnap = await baseQuery.get({ source: 'cache' });
+            if (!cacheSnap.empty) {
+                return { snapshot: cacheSnap, fromCache: true };
+            }
+        } catch (error) {
+            // Cache may be empty/unavailable; fall through to server read.
+        }
 
-        filteredPyqs = [...processedPYQs];
-        filteredSyllabus = [...processedSyllabus];
+        const serverSnap = await baseQuery.get({ source: 'server' });
+        return { snapshot: serverSnap, fromCache: false };
+    }
 
-        loadBookmarks();
-        renderPYQs(filteredPyqs);
-        renderSyllabus(filteredSyllabus);
-        setupEventListeners();
-        setupUserUploadHandler();
-    })
-    .catch(error => {
-        console.error('Error loading data from Firestore:', error);
-        showEmptyState('pyqList', 'Error loading question papers');
-        showEmptyState('syllabusList', 'Error loading syllabus');
-    });
+    async function loadCollectionPage(collectionName, append = false) {
+        const isPyq = collectionName === 'pyqs';
+        const lastVisible = isPyq ? pyqLastVisible : syllabusLastVisible;
+
+        let query = db.collection(collectionName).orderBy('title').limit(serverPageSize);
+        if (append && lastVisible) {
+            query = query.startAfter(lastVisible);
+        }
+
+        const pageResult = append
+            ? { snapshot: await query.get({ source: 'server' }), fromCache: false }
+            : await getInitialPage(collectionName);
+
+        const snap = pageResult.snapshot;
+        const pageItems = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const processedPage = processAndSortItems(pageItems);
+
+        if (isPyq) {
+            allData.pyqs = append ? [...allData.pyqs, ...processedPage] : processedPage;
+            filteredPyqs = [...allData.pyqs];
+            pyqLastVisible = snap.docs.length ? snap.docs[snap.docs.length - 1] : pyqLastVisible;
+            pyqHasMore = snap.docs.length === serverPageSize;
+            if (!append && pageResult.fromCache) {
+                // Refresh silently from server after showing cached results.
+                try {
+                    const freshSnap = await db.collection(collectionName).orderBy('title').limit(serverPageSize).get({ source: 'server' });
+                    const freshPage = processAndSortItems(freshSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    allData.pyqs = freshPage;
+                    filteredPyqs = [...freshPage];
+                    pyqLastVisible = freshSnap.docs.length ? freshSnap.docs[freshSnap.docs.length - 1] : null;
+                    pyqHasMore = freshSnap.docs.length === serverPageSize;
+                } catch (error) {
+                    console.warn('Unable to refresh pyqs from server:', error.message);
+                }
+            }
+        } else {
+            allData.syllabus = append ? [...allData.syllabus, ...processedPage] : processedPage;
+            filteredSyllabus = [...allData.syllabus];
+            syllabusLastVisible = snap.docs.length ? snap.docs[snap.docs.length - 1] : syllabusLastVisible;
+            syllabusHasMore = snap.docs.length === serverPageSize;
+            if (!append && pageResult.fromCache) {
+                try {
+                    const freshSnap = await db.collection(collectionName).orderBy('title').limit(serverPageSize).get({ source: 'server' });
+                    const freshPage = processAndSortItems(freshSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                    allData.syllabus = freshPage;
+                    filteredSyllabus = [...freshPage];
+                    syllabusLastVisible = freshSnap.docs.length ? freshSnap.docs[freshSnap.docs.length - 1] : null;
+                    syllabusHasMore = freshSnap.docs.length === serverPageSize;
+                } catch (error) {
+                    console.warn('Unable to refresh syllabus from server:', error.message);
+                }
+            }
+        }
+    }
+
+    async function bootstrapContent() {
+        try {
+            await Promise.all([
+                loadCollectionPage('pyqs'),
+                loadCollectionPage('syllabus')
+            ]);
+
+            loadBookmarks();
+            renderPYQs(filteredPyqs);
+            renderSyllabus(filteredSyllabus);
+            setupEventListeners();
+            setupUserUploadHandler();
+        } catch (error) {
+            console.error('Error loading data from Firestore:', error);
+            showEmptyState('pyqList', 'Error loading question papers');
+            showEmptyState('syllabusList', 'Error loading syllabus');
+        }
+    }
+
+    bootstrapContent();
 
     // Load and render contributors from Firestore
     function loadContributors() {
-        db.collection('contributors').orderBy('name').get()
+        const contributorsQuery = db.collection('contributors').orderBy('name').limit(12);
+
+        contributorsQuery.get({ source: 'cache' })
             .then(snapshot => {
+                if (!snapshot.empty) {
+                    renderContributors(snapshot);
+                }
+                return contributorsQuery.get({ source: 'server' });
+            })
+            .then(snapshot => {
+                renderContributors(snapshot);
+            })
+            .catch(error => {
+                console.error('Error loading contributors:', error);
+            });
+    }
+
+    function renderContributors(snapshot) {
                 const contributorsGrid = document.getElementById('contributorsGrid');
                 if (!contributorsGrid) return;
 
@@ -853,14 +943,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     <p class="contributor-role">Become a contributor</p>
                 `;
                 contributorsGrid.appendChild(joinCard);
-            })
-            .catch(error => {
-                console.error('Error loading contributors:', error);
-            });
+    }
+
+    async function loadAggregatedStats() {
+        try {
+            const statsDoc = await db.collection('meta').doc('archiveStats').get({ source: 'cache' });
+            if (!statsDoc.exists) {
+                await db.collection('meta').doc('archiveStats').get({ source: 'server' });
+            }
+        } catch (error) {
+            console.warn('Aggregated stats document unavailable:', error.message);
+        }
     }
 
     // Load contributors when page loads
     loadContributors();
+    loadAggregatedStats();
 
     function renderPYQs(pyqs) {
         const startIndex = (currentPage - 1) * itemsPerPage;
@@ -905,7 +1003,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Show or hide Load More button
         const loadMoreBtn = document.getElementById('loadMoreBtn');
-        if (endIndex < filteredPyqs.length) {
+        if (endIndex < filteredPyqs.length || (pyqHasMore && !document.getElementById('searchInput').value.trim())) {
             loadMoreBtn.style.display = 'inline-block';
         } else {
             loadMoreBtn.style.display = 'none';
@@ -960,7 +1058,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Show or hide Load More button
         const loadMoreSyllabusBtn = document.getElementById('loadMoreSyllabusBtn');
-        if (endIndex < filteredSyllabus.length) {
+        if (endIndex < filteredSyllabus.length || (syllabusHasMore && !document.getElementById('searchInput').value.trim())) {
             loadMoreSyllabusBtn.style.display = 'inline-block';
         } else {
             loadMoreSyllabusBtn.style.display = 'none';
@@ -1142,13 +1240,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
         // Load More button for PYQs
-        document.getElementById('loadMoreBtn').addEventListener('click', function() {
+        document.getElementById('loadMoreBtn').addEventListener('click', async function() {
+            if (pyqHasMore && !document.getElementById('searchInput').value.trim()) {
+                await loadCollectionPage('pyqs', true);
+            }
             currentPage++;
             renderPYQs();
         });
 
         // Load More button for Syllabus
-        document.getElementById('loadMoreSyllabusBtn').addEventListener('click', function() {
+        document.getElementById('loadMoreSyllabusBtn').addEventListener('click', async function() {
+            if (syllabusHasMore && !document.getElementById('searchInput').value.trim()) {
+                await loadCollectionPage('syllabus', true);
+            }
             currentPageSyllabus++;
             renderSyllabus();
         });
