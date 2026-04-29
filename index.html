@@ -130,9 +130,7 @@
                                             <small id="userEmailDisplay"></small>
                                         </div>
                                     </div>
-                                    <span id="emailVerificationBadge" class="badge bg-warning text-dark" style="display: none; margin-top: 0.5rem; font-size: 0.75rem;">
-                                        <i class="fas fa-exclamation-triangle"></i> Email Not Verified
-                                    </span>
+
                                 </div>
                                 <hr class="dropdown-divider">
                                 <button class="dropdown-item" onclick="openProfileModal()">
@@ -739,7 +737,7 @@
                     <form id="profileForm">
                         <div class="mb-3">
                             <label for="profileName" class="form-label">Full Name</label>
-                            <input type="text" class="form-control" id="profileName" readonly>
+                            <input type="text" class="form-control" id="profileName" required>
                         </div>
                         <div class="mb-3">
                             <label for="profileEmail" class="form-label">Email Address</label>
@@ -747,7 +745,7 @@
                         </div>
                         <div class="mb-3">
                             <label for="profileCourse" class="form-label">Course</label>
-                            <input type="text" class="form-control" id="profileCourse" readonly>
+                            <input type="text" class="form-control" id="profileCourse" required>
                         </div>
                         <div class="mb-3">
                             <label for="profilePhone" class="form-label">Phone Number</label>
@@ -777,7 +775,7 @@
                         <div class="search-gate-icon mx-auto mb-3">
                             <i class="fas fa-lock"></i>
                         </div>
-                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Sign up to unlock search</h5>
+                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Sign up to unlock</h5>
                         <p class="search-gate-text mb-4">
                             Search results are available for registered users only. Create your account to unlock search, or continue browsing with Load More.
                         </p>
@@ -816,12 +814,6 @@
                                 Email Notifications for new PYQs
                             </label>
                         </div>
-                    </div>
-                    <div class="settings-section">
-                        <h6 class="mb-3"><i class="fas fa-trash"></i> Danger Zone</h6>
-                        <button type="button" class="btn btn-outline-danger w-100" onclick="deleteAccountConfirm()">
-                            <i class="fas fa-user-slash"></i> Delete Account
-                        </button>
                     </div>
                 </div>
             </div>
@@ -889,23 +881,19 @@
                         <ol class="mb-0 mt-2" style="padding-left: 1.5rem;">
                             <li>Check your email inbox (and spam folder)</li>
                             <li>Click the verification link in the email</li>
-                            <li>Return here and click "I've Verified My Email"</li>
+                            <li>Return here and click "Verified"</li>
                         </ol>
                     </div>
-
-                    <p class="text-muted small">
-                        <strong>Note:</strong> You'll have limited access until your email is verified. You cannot search, upload documents, or access full features with an unverified email.
-                    </p>
                 </div>
                 <div class="modal-footer gap-2">
                     <button type="button" class="btn btn-outline-danger btn-sm" onclick="logoutAndChangeEmail()">
                         <i class="fas fa-sign-out-alt"></i> Use Different Email
                     </button>
                     <button type="button" class="btn btn-outline-secondary" id="resendVerificationBtn" onclick="resendVerificationEmail()">
-                        <i class="fas fa-redo"></i> Resend Email
+                        <i class="fas fa-redo"></i> Resend
                     </button>
                     <button type="button" class="btn btn-primary" onclick="checkEmailVerification()">
-                        <i class="fas fa-check-circle"></i> I've Verified My Email
+                        <i class="fas fa-check-circle"></i> Verified
                     </button>
                 </div>
             </div>
