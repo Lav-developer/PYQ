@@ -29,6 +29,29 @@ db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
 let currentUser = null;
 let searchGateVisible = false;
 
+async function ensureUserDocumentSynced(user) {
+    if (!user) return;
+
+    const userRef = db.collection('users').doc(user.uid);
+    const existingDoc = await userRef.get();
+    const existingData = existingDoc.exists ? existingDoc.data() : {};
+
+    await userRef.set({
+        uid: user.uid,
+        email: user.email || existingData.email || '',
+        name: existingData.name || existingData.signupName || user.displayName || 'User',
+        signupName: existingData.signupName || existingData.name || user.displayName || 'User',
+        signupEmail: existingData.signupEmail || existingData.email || user.email || '',
+        signupCourse: existingData.signupCourse || existingData.course || '',
+        course: existingData.course || existingData.signupCourse || '',
+        phone: existingData.phone || '',
+        role: existingData.role || 'user',
+        emailVerified: !!user.emailVerified,
+        createdAt: existingData.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
+        lastSeenAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+}
+
 // Update UI based on auth state
 function updateUploadAccessUI() {
     const uploadSection = document.querySelector('.upload-section');
@@ -60,18 +83,23 @@ auth.onAuthStateChanged(user => {
     updateUploadAccessUI();
     if (user) {
         // Check if email is verified
-        user.reload().then(() => {
-            if (!user.emailVerified) {
-                // Show verification prompt modal
-                showEmailVerificationPrompt();
-            } else {
-                loadUserProfile();
-                const searchInput = document.getElementById('searchInput');
-                if (searchInput && searchInput.value.trim()) {
-                    performSearch();
+        user.reload()
+            .then(async () => {
+                await ensureUserDocumentSynced(user);
+                if (!user.emailVerified) {
+                    // Show verification prompt modal
+                    showEmailVerificationPrompt();
+                } else {
+                    loadUserProfile();
+                    const searchInput = document.getElementById('searchInput');
+                    if (searchInput && searchInput.value.trim()) {
+                        performSearch();
+                    }
                 }
-            }
-        });
+            })
+            .catch(error => {
+                console.error('Error syncing auth user with Firestore profile:', error);
+            });
     }
 });
 
@@ -298,6 +326,7 @@ async function loadUserProfile() {
     if (!currentUser) return;
     
     try {
+        await ensureUserDocumentSynced(currentUser);
         const userDoc = await db.collection('users').doc(currentUser.uid).get();
         if (userDoc.exists) {
             const userData = userDoc.data();
@@ -319,6 +348,11 @@ async function loadUserProfile() {
                 const date = new Date(userData.createdAt.toDate()).toLocaleDateString();
                 document.getElementById('profileCreatedDate').textContent = date;
             }
+        } else {
+            document.getElementById('profileName').value = currentUser.displayName || 'User';
+            document.getElementById('profileEmail').value = currentUser.email || '';
+            document.getElementById('profileCourse').value = '';
+            document.getElementById('profilePhone').value = '';
         }
     } catch (error) {
         console.error('Error loading profile:', error);
@@ -1417,7 +1451,7 @@ document.addEventListener('DOMContentLoaded', function() {
             return { label: 'Preview PDF', icon: 'fas fa-eye' };
         }
 
-        return { label: 'Open on MediaFire', icon: 'fas fa-arrow-up-right-from-square' };
+        return { label: 'Download', icon: 'fas fa-download' };
     }
 
     // Enhanced error handling
