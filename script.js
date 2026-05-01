@@ -102,6 +102,7 @@ auth.onAuthStateChanged(user => {
                     showEmailVerificationPrompt();
                 } else {
                     loadUserProfile();
+                    checkAndShowProfileCompletionReminder();
                     const searchInput = document.getElementById('searchInput');
                     if (searchInput && searchInput.value.trim()) {
                         performSearch();
@@ -449,6 +450,15 @@ document.getElementById('profileForm').addEventListener('submit', async function
         successDiv.style.display = 'block';
         updateUserUI();
         
+        // Clear dismissal timestamp so reminder won't show again for this profile
+        localStorage.removeItem('profileCompletionDismissed');
+        
+        // Close the profile completion reminder modal if it's open
+        const profileCompletionModal = bootstrap.Modal.getInstance(document.getElementById('profileCompletionModal'));
+        if (profileCompletionModal) {
+            profileCompletionModal.hide();
+        }
+        
         setTimeout(() => {
             successDiv.style.display = 'none';
         }, 3000);
@@ -657,6 +667,76 @@ async function checkEmailVerification() {
     } catch (error) {
         Swal.fire('Error', error.message, 'error');
     }
+}
+
+// ===== PROFILE COMPLETION REMINDER FUNCTIONS =====
+function isProfileComplete(userData) {
+    if (!userData) return false;
+    
+    // Check if all required fields are present and not empty
+    const hasName = userData.name && userData.name.trim() && userData.name !== 'User';
+    const hasCourse = userData.course && userData.course.trim();
+    const hasPhone = userData.phone && userData.phone.trim();
+    
+    return hasName && hasCourse && hasPhone;
+}
+
+async function checkAndShowProfileCompletionReminder() {
+    if (!currentUser) return;
+    
+    try {
+        // Fetch user document to check profile completeness
+        const userDoc = await db.collection('users').doc(currentUser.uid).get();
+        const userData = userDoc.exists ? userDoc.data() : {};
+        
+        // Check if profile is incomplete
+        if (!isProfileComplete(userData)) {
+            // Check if user has dismissed the reminder recently (within 24 hours)
+            const lastDismissed = localStorage.getItem('profileCompletionDismissed');
+            if (lastDismissed) {
+                const hoursSinceDismissed = (Date.now() - parseInt(lastDismissed)) / (1000 * 60 * 60);
+                if (hoursSinceDismissed < 24) {
+                    // User dismissed recently, don't show again
+                    return;
+                }
+            }
+            
+            // Show the reminder modal
+            showProfileCompletionReminder();
+        }
+    } catch (error) {
+        console.error('Error checking profile completion:', error);
+    }
+}
+
+function showProfileCompletionReminder() {
+    const modalElement = document.getElementById('profileCompletionModal');
+    if (modalElement) {
+        const modal = new bootstrap.Modal(modalElement, {
+            backdrop: 'static',
+            keyboard: false
+        });
+        modal.show();
+    }
+}
+
+function dismissProfileCompletionReminder() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('profileCompletionModal'));
+    if (modal) modal.hide();
+    
+    // Store timestamp of dismissal in localStorage
+    localStorage.setItem('profileCompletionDismissed', Date.now().toString());
+}
+
+function openProfileModalFromReminder() {
+    const modal = bootstrap.Modal.getInstance(document.getElementById('profileCompletionModal'));
+    if (modal) modal.hide();
+    
+    // Clear the dismissal timestamp so reminder can show again after completion
+    localStorage.removeItem('profileCompletionDismissed');
+    
+    // Open profile modal
+    openProfileModal();
 }
 
 // ===== LOGOUT FUNCTION =====

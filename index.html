@@ -421,36 +421,12 @@
     </section>
 
 <script async src="https://comments.app/js/widget.js?3" data-comments-app-website="ym_nXfeP" data-limit="5" data-dislikes="1" data-outlined="1" data-colorful="1" data-dark="1"></script>
-    <!-- Newsletter Section -->
-    <section class="newsletter-section py-5">
-        <div class="container">
-            <div class="newsletter-card">
-                <div class="newsletter-content">
-                    <h3><i class="fas fa-bell"></i> Stay Updated</h3>
-                    <p>Get notified when new question papers and syllabus are uploaded</p>
-                    <form class="newsletter-form" name="newsletter" netlify>
-                        <div class="input-group">
-                            <input type="email"name="Email" class="form-control" placeholder="Enter your email" required>
-                            <button class="btn btn-newsletter" type="submit">
-                                Subscribe <i class="fas fa-arrow-right"></i>
-                            </button>
-                        </div>
-                        <small class="form-note">We respect your privacy. Unsubscribe at any time.</small>
-                    </form>
-                </div>
-                <div class="newsletter-image">
-                    <i class="fas fa-envelope-open-text"></i>
-                </div>
-            </div>
-        </div>
-    </section>
 
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-content">
             <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for students.</p>
             <div class="social-links">
-                <a href="https://youtube.com/@dsmnruupdates" target="_blank" title="YouTube"><i class="fab fa-youtube"></i></a>
                 <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp"><i class="fab fa-whatsapp"></i></a>
             </div>
         </div>
@@ -867,6 +843,50 @@
                     </button>
                     <button type="button" class="btn btn-primary" onclick="checkEmailVerification()">
                         <i class="fas fa-check-circle"></i> Verified
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Profile Completion Reminder Modal -->
+    <div class="modal fade" id="profileCompletionModal" tabindex="-1" aria-labelledby="profileCompletionModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header bg-info">
+                    <h5 class="modal-title" id="profileCompletionModalLabel">
+                        <i class="fas fa-user-check"></i> Complete Your Profile
+                    </h5>
+                </div>
+                <div class="modal-body">
+                    <div class="text-center mb-4">
+                        <div style="font-size: 3rem; color: #0dcaf0; margin-bottom: 1rem;">
+                            <i class="fas fa-clipboard-list"></i>
+                        </div>
+                        <h6 class="mb-2">Your profile is incomplete</h6>
+                        <p class="text-muted mb-3">
+                            Complete your profile to unlock all features and get a better experience on our platform.
+                        </p>
+                    </div>
+                    
+                    <div class="alert alert-info">
+                        <p class="mb-0">
+                            <i class="fas fa-info-circle"></i> 
+                            <strong>Benefits of completing your profile:</strong>
+                        </p>
+                        <ul class="mb-0 mt-2" style="padding-left: 1.5rem;">
+                            <li>Upload and share documents</li>
+                            <li>Better personalized experience</li>
+                            <li>Become a top contributor</li>
+                        </ul>
+                    </div>
+                </div>
+                <div class="modal-footer gap-2">
+                    <button type="button" class="btn btn-outline-secondary" onclick="dismissProfileCompletionReminder()">
+                        <i class="fas fa-clock"></i> Remind Later
+                    </button>
+                    <button type="button" class="btn btn-primary" onclick="openProfileModalFromReminder()">
+                        <i class="fas fa-user-edit"></i> Complete Now
                     </button>
                 </div>
             </div>
