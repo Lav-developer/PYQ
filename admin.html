@@ -758,11 +758,6 @@
                     <p>Question papers ready for moderation.</p>
                 </div>
                 <div class="stat-card">
-                    <small>Syllabus</small>
-                    <strong id="syllabusCount">0</strong>
-                    <p>Course syllabi currently in the library.</p>
-                </div>
-                <div class="stat-card">
                     <small>Pending uploads</small>
                     <strong id="pendingCount">0</strong>
                     <p>New student uploads waiting for review.</p>
@@ -853,41 +848,6 @@
 
                 <div class="card section-card">
                     <div class="card-header">
-                        <div class="section-header-button mb-0">
-                            <span>
-                                <span class="section-chip"><i class="fas fa-file-lines"></i> Quick create</span>
-                                <span class="d-block mt-2">Add a new syllabus</span>
-                            </span>
-                            <span class="section-header-copy">Store the file once and reuse the course and semester tags.</span>
-                        </div>
-                    </div>
-                    <div class="card-body">
-                        <form id="addSyllabusForm" class="resource-form">
-                            <div class="mb-3">
-                                <label for="syllabusTitle" class="form-label">Title</label>
-                                <input type="text" class="form-control" id="syllabusTitle" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="syllabusFile" class="form-label">File URL</label>
-                                <input type="url" class="form-control" id="syllabusFile" required>
-                            </div>
-                            <div class="row g-3">
-                                <div class="col-md-6">
-                                    <label for="syllabusCourse" class="form-label">Course (optional)</label>
-                                    <input type="text" class="form-control" id="syllabusCourse">
-                                </div>
-                                <div class="col-md-6">
-                                    <label for="syllabusSemester" class="form-label">Semester (optional)</label>
-                                    <input type="text" class="form-control" id="syllabusSemester">
-                                </div>
-                            </div>
-                            <button type="submit" class="btn btn-primary mt-3"><i class="fas fa-plus me-2"></i>Add Syllabus</button>
-                        </form>
-                    </div>
-                </div>
-
-                <div class="card section-card">
-                    <div class="card-header">
                         <button class="section-header-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#pyqsCollapse" aria-expanded="false" aria-controls="pyqsCollapse" onclick="loadPyqsOnDemand()">
                             <span>
                                 <span class="section-chip"><i class="fas fa-layer-group"></i> Content library</span>
@@ -904,29 +864,6 @@
                             <p class="section-copy mb-3">Review titles, copy file links, edit records, or delete obsolete papers.</p>
                             <div id="pyqsList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading PYQs...</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="card section-card">
-                    <div class="card-header">
-                        <button class="section-header-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#syllabusCollapse" aria-expanded="false" aria-controls="syllabusCollapse" onclick="loadSyllabusOnDemand()">
-                            <span>
-                                <span class="section-chip"><i class="fas fa-book-open"></i> Content library</span>
-                                <span class="d-block mt-2">Manage syllabus files</span>
-                            </span>
-                            <span class="d-inline-flex align-items-center">
-                                <span class="section-chip"><span id="syllabusHeaderCount">0</span> items</span>
-                                <span class="collapse-icon"><i class="fas fa-chevron-down"></i></span>
-                            </span>
-                        </button>
-                    </div>
-                    <div id="syllabusCollapse" class="collapse">
-                        <div class="card-body">
-                            <p class="section-copy mb-3">Keep semester references clean and make the file URLs easy to reach.</p>
-                            <div id="syllabusList" class="resource-list section-scroll">
-                                <div class="resource-empty">Loading syllabus records...</div>
                             </div>
                         </div>
                     </div>

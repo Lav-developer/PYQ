@@ -861,31 +861,23 @@ document.addEventListener('DOMContentLoaded', function() {
     const shareLink = document.getElementById('shareLink');
     const copyLinkBtn = document.getElementById('copyLinkBtn');
     const pyqList = document.getElementById('pyqList');
-    const syllabusList = document.getElementById('syllabusList');
 
     document.getElementById('pdfModal').addEventListener('hidden.bs.modal', function() {
         pdfViewer.src = '';
     });
 
     // Global data storage
-    let allData = { pyqs: [], syllabus: [] };
+    let allData = { pyqs: [] };
     let filteredPyqs = [];
-    let filteredSyllabus = [];
-    let bookmarks = { pyqs: [], syllabus: [] };
+    let bookmarks = { pyqs: [] };
 
     const serverPageSize = 20;
     let pyqLastVisible = null;
-    let syllabusLastVisible = null;
     let pyqHasMore = true;
-    let syllabusHasMore = true;
 
     // Pagination variables for PYQs
     let currentPage = 1;
     const itemsPerPage = 20;
-
-    // Pagination variables for Syllabus
-    let currentPageSyllabus = 1;
-    const itemsPerPageSyllabus = 20;
 
     // Pagination variables for Bookmarks
     let currentPageBookmarks = 1;
@@ -922,7 +914,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function loadCollectionPage(collectionName, append = false) {
         const isPyq = collectionName === 'pyqs';
-        const lastVisible = isPyq ? pyqLastVisible : syllabusLastVisible;
+        if (!isPyq) return;
+
+        const lastVisible = pyqLastVisible;
 
         let query = db.collection(collectionName).orderBy('title').limit(serverPageSize);
         if (append && lastVisible) {
@@ -937,60 +931,36 @@ document.addEventListener('DOMContentLoaded', function() {
         const pageItems = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         const processedPage = processAndSortItems(pageItems);
 
-        if (isPyq) {
-            allData.pyqs = append ? [...allData.pyqs, ...processedPage] : processedPage;
-            filteredPyqs = [...allData.pyqs];
-            pyqLastVisible = snap.docs.length ? snap.docs[snap.docs.length - 1] : pyqLastVisible;
-            pyqHasMore = snap.docs.length === serverPageSize;
-            if (!append && pageResult.fromCache) {
-                // Refresh silently from server after showing cached results.
-                try {
-                    const freshSnap = await db.collection(collectionName).orderBy('title').limit(serverPageSize).get({ source: 'server' });
-                    const freshPage = processAndSortItems(freshSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    allData.pyqs = freshPage;
-                    filteredPyqs = [...freshPage];
-                    pyqLastVisible = freshSnap.docs.length ? freshSnap.docs[freshSnap.docs.length - 1] : null;
-                    pyqHasMore = freshSnap.docs.length === serverPageSize;
-                } catch (error) {
-                    console.warn('Unable to refresh pyqs from server:', error.message);
-                }
-            }
-        } else {
-            allData.syllabus = append ? [...allData.syllabus, ...processedPage] : processedPage;
-            filteredSyllabus = [...allData.syllabus];
-            syllabusLastVisible = snap.docs.length ? snap.docs[snap.docs.length - 1] : syllabusLastVisible;
-            syllabusHasMore = snap.docs.length === serverPageSize;
-            if (!append && pageResult.fromCache) {
-                try {
-                    const freshSnap = await db.collection(collectionName).orderBy('title').limit(serverPageSize).get({ source: 'server' });
-                    const freshPage = processAndSortItems(freshSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                    allData.syllabus = freshPage;
-                    filteredSyllabus = [...freshPage];
-                    syllabusLastVisible = freshSnap.docs.length ? freshSnap.docs[freshSnap.docs.length - 1] : null;
-                    syllabusHasMore = freshSnap.docs.length === serverPageSize;
-                } catch (error) {
-                    console.warn('Unable to refresh syllabus from server:', error.message);
-                }
+        allData.pyqs = append ? [...allData.pyqs, ...processedPage] : processedPage;
+        filteredPyqs = [...allData.pyqs];
+        pyqLastVisible = snap.docs.length ? snap.docs[snap.docs.length - 1] : pyqLastVisible;
+        pyqHasMore = snap.docs.length === serverPageSize;
+        if (!append && pageResult.fromCache) {
+            // Refresh silently from server after showing cached results.
+            try {
+                const freshSnap = await db.collection(collectionName).orderBy('title').limit(serverPageSize).get({ source: 'server' });
+                const freshPage = processAndSortItems(freshSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                allData.pyqs = freshPage;
+                filteredPyqs = [...freshPage];
+                pyqLastVisible = freshSnap.docs.length ? freshSnap.docs[freshSnap.docs.length - 1] : null;
+                pyqHasMore = freshSnap.docs.length === serverPageSize;
+            } catch (error) {
+                console.warn('Unable to refresh pyqs from server:', error.message);
             }
         }
     }
 
     async function bootstrapContent() {
         try {
-            await Promise.all([
-                loadCollectionPage('pyqs'),
-                loadCollectionPage('syllabus')
-            ]);
+            await loadCollectionPage('pyqs');
 
             loadBookmarks();
             renderPYQs(filteredPyqs);
-            renderSyllabus(filteredSyllabus);
             setupEventListeners();
             setupUserUploadHandler();
         } catch (error) {
             console.error('Error loading data from Firestore:', error);
             showEmptyState('pyqList', 'Error loading question papers');
-            showEmptyState('syllabusList', 'Error loading syllabus');
         }
     }
 
@@ -1109,61 +1079,6 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    function renderSyllabus(syllabusItems) {
-        const startIndex = (currentPageSyllabus - 1) * itemsPerPageSyllabus;
-        const endIndex = startIndex + itemsPerPageSyllabus;
-        const syllabusToRender = filteredSyllabus.slice(startIndex, endIndex);
-
-        if (!syllabusToRender.length) {
-            if (currentPageSyllabus === 1) {
-                showEmptyState('syllabusList', 'No syllabus found matching your criteria');
-            }
-            document.getElementById('loadMoreSyllabusBtn').style.display = 'none';
-            return;
-        }
-
-        if (currentPageSyllabus === 1) {
-            syllabusList.innerHTML = '';
-        }
-
-        syllabusList.insertAdjacentHTML('beforeend', syllabusToRender.map((syllabus, index) => `
-            <li class="syllabus-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
-                <div class="syllabus-info">
-                    <div class="syllabus-icon">
-                        <i class="fas fa-book"></i>
-                    </div>
-                    <div class="syllabus-details">
-                        <h5 class="syllabus-title">${syllabus.title}</h5>
-                        <div class="syllabus-meta">
-                            <span class="meta-tag course">${syllabus.course || 'General'}</span>
-                            <span class="meta-tag semester">${syllabus.semester || 'All Semesters'}</span>
-                            <span class="meta-tag">${syllabus.year || 'Latest'}</span>
-                        </div>
-                        <div class="syllabus-actions">
-                            <button class="btn btn-action btn-preview" onclick="previewPDF('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
-                                <i class="${getPreviewButtonMeta(syllabus.file).icon}"></i> ${getPreviewButtonMeta(syllabus.file).label}
-                            </button>
-                            <button class="btn btn-action btn-share" onclick="shareDocument('${syllabus.file}', '${syllabus.title.replace(/'/g, "\\'")}')">
-                                <i class="fas fa-share-alt"></i> Share
-                            </button>
-                            <button class="btn btn-action btn-bookmark ${isBookmarked('syllabus', syllabus.file) ? 'bookmarked' : ''}" onclick="toggleBookmark('syllabus', '${syllabus.file}')">
-                                <i class="fas fa-bookmark"></i> ${isBookmarked('syllabus', syllabus.file) ? 'Bookmarked' : 'Bookmark'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </li>
-        `).join(''));
-
-        // Show or hide Load More button
-        const loadMoreSyllabusBtn = document.getElementById('loadMoreSyllabusBtn');
-        if (endIndex < filteredSyllabus.length || (syllabusHasMore && !document.getElementById('searchInput').value.trim())) {
-            loadMoreSyllabusBtn.style.display = 'inline-block';
-        } else {
-            loadMoreSyllabusBtn.style.display = 'none';
-        }
-    }
-
     function renderBookmarks(searchTerm = '') {
         const startIndex = (currentPageBookmarks - 1) * itemsPerPageBookmarks;
         const endIndex = startIndex + itemsPerPageBookmarks;
@@ -1174,12 +1089,6 @@ document.addEventListener('DOMContentLoaded', function() {
             const item = allData.pyqs.find(pyq => pyq.file === filePath);
             if (item) {
                 bookmarkedItems.push({ ...item, type: 'pyq' });
-            }
-        });
-        bookmarks.syllabus.forEach(filePath => {
-            const item = allData.syllabus.find(syllabus => syllabus.file === filePath);
-            if (item) {
-                bookmarkedItems.push({ ...item, type: 'syllabus' });
             }
         });
 
@@ -1199,7 +1108,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (!bookmarksToRender.length) {
             if (currentPageBookmarks === 1) {
-                showEmptyState('bookmarksList', 'No bookmarked items yet. Bookmark items from PYQs or Syllabus tabs to see them here.');
+                showEmptyState('bookmarksList', 'No bookmarked items yet. Bookmark items from PYQs to see them here.');
             }
             document.getElementById('loadMoreBookmarksBtn').style.display = 'none';
             return;
@@ -1227,35 +1136,6 @@ document.addEventListener('DOMContentLoaded', function() {
                                         <i class="fas fa-share-alt"></i> Share
                                     </button>
                                     <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${item.file}')">
-                                        <i class="fas fa-bookmark"></i> Bookmarked
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </li>
-                `;
-            } else {
-                return `
-                    <li class="syllabus-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
-                        <div class="syllabus-info">
-                            <div class="syllabus-icon">
-                                <i class="fas fa-book"></i>
-                            </div>
-                            <div class="syllabus-details">
-                                <h5 class="syllabus-title">${item.title}</h5>
-                                <div class="syllabus-meta">
-                                    <span class="meta-tag course">${item.course || 'General'}</span>
-                                    <span class="meta-tag semester">${item.semester || 'All Semesters'}</span>
-                                    <span class="meta-tag">${item.year || 'Latest'}</span>
-                                </div>
-                                <div class="syllabus-actions">
-                                    <button class="btn btn-action btn-preview" onclick="previewPDF('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
-                                        <i class="${getPreviewButtonMeta(item.file).icon}"></i> ${getPreviewButtonMeta(item.file).label}
-                                    </button>
-                                    <button class="btn btn-action btn-share" onclick="shareDocument('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
-                                        <i class="fas fa-share-alt"></i> Share
-                                    </button>
-                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('syllabus', '${item.file}')">
                                         <i class="fas fa-bookmark"></i> Bookmarked
                                     </button>
                                 </div>
@@ -1363,15 +1243,6 @@ document.addEventListener('DOMContentLoaded', function() {
             renderPYQs();
         });
 
-        // Load More button for Syllabus
-        document.getElementById('loadMoreSyllabusBtn').addEventListener('click', async function() {
-            if (syllabusHasMore && !document.getElementById('searchInput').value.trim()) {
-                await loadCollectionPage('syllabus', true);
-            }
-            currentPageSyllabus++;
-            renderSyllabus();
-        });
-
         // Load More button for Bookmarks
         document.getElementById('loadMoreBookmarksBtn').addEventListener('click', function() {
             currentPageBookmarks++;
@@ -1418,10 +1289,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
         const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
 
-        // Helper: perform a server read of an entire collection then filter client-side.
+        // Helper: perform a server read of the collection then filter client-side.
         async function fetchAndFilterCollection(collectionName, filterFn) {
             try {
-                showLoading(collectionName === 'pyqs' ? 'pyqList' : 'syllabusList');
+                showLoading('pyqList');
                 const snap = await db.collection(collectionName).get({ source: 'server' });
                 const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const processed = processAndSortItems(items);
@@ -1446,25 +1317,6 @@ document.addEventListener('DOMContentLoaded', function() {
             filteredPyqs = results;
             currentPage = 1;
             renderPYQs();
-        } else if (activeTab === '#nav-syllabus') {
-            if (!searchTerm.trim()) {
-                filteredSyllabus = [...allData.syllabus];
-                currentPageSyllabus = 1;
-                renderSyllabus();
-                return;
-            }
-
-            // Query server for syllabus and filter across title/course/semester
-            const results = await fetchAndFilterCollection('syllabus', s => {
-                const title = (s.title || '').toLowerCase();
-                const course = (s.course || '').toLowerCase();
-                const semester = (s.semester || '').toLowerCase();
-                return title.includes(searchTerm) || course.includes(searchTerm) || semester.includes(searchTerm);
-            });
-
-            filteredSyllabus = results;
-            currentPageSyllabus = 1;
-            renderSyllabus();
         } else if (activeTab === '#nav-bookmarks') {
             // Bookmarks: filter current bookmarked items (they are sourced from allData)
             currentPageBookmarks = 1;

@@ -1,7 +1,7 @@
 {
   "name": "DSMNRU Academic Archive",
   "short_name": "DSMNRU Archive",
-  "description": "Your gateway to DSMNRU academic resources - PYQs & Syllabus",
+  "description": "Your gateway to DSMNRU academic resources - PYQs",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#1a1a1a",

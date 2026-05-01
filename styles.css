@@ -3464,7 +3464,6 @@ body > * {
 }
 
 .pyq-container,
-.syllabus-container,
 .favorites-container,
 .newsletter-card,
 .upload-section .card,
@@ -3480,14 +3479,12 @@ body > * {
 }
 
 .pyq-container,
-.syllabus-container,
 .favorites-container {
   padding: 1.25rem;
   border-radius: 24px;
 }
 
-.pyq-item,
-.syllabus-item {
+.pyq-item {
   display: grid;
   gap: 1rem;
   padding: 1.1rem 1.15rem;
@@ -3499,24 +3496,17 @@ body > * {
   box-shadow: 0 12px 30px rgba(2, 6, 23, 0.18);
 }
 
-.syllabus-item {
-  border-left-color: var(--color-slate-500);
-}
-
-.pyq-item:hover,
-.syllabus-item:hover {
+.pyq-item:hover {
   transform: translateY(-4px);
   border-color: rgba(110, 231, 216, 0.35);
   box-shadow: 0 18px 38px rgba(2, 6, 23, 0.28);
 }
 
-.pyq-info,
-.syllabus-info {
+.pyq-info {
   gap: 1rem;
 }
 
-.pdf-icon,
-.syllabus-icon {
+.pdf-icon {
   width: 56px;
   height: 56px;
   display: inline-flex;
@@ -3528,14 +3518,7 @@ body > * {
   color: var(--color-teal-300);
 }
 
-.syllabus-icon {
-  background: rgba(96, 165, 250, 0.12);
-  border-color: rgba(96, 165, 250, 0.18);
-  color: #93c5fd;
-}
-
 .pyq-title,
-.syllabus-title,
 .tool-title,
 .newsletter-content h3,
 .footer p,
@@ -3546,7 +3529,6 @@ body > * {
 }
 
 .pyq-actions,
-.syllabus-actions,
 .tool-actions,
 .social-share-buttons,
 .hero-actions {

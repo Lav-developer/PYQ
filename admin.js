@@ -14,7 +14,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
-let allData = { pyqs: [], syllabus: [], users: [], pendingUploads: [], contributors: [] };
+let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [] };
 const ADMIN_EMAIL = 'kush210431@gmail.com';
 
 function isAdminUser(user) {
@@ -135,17 +135,6 @@ document.addEventListener('DOMContentLoaded', function() {
         this.reset();
     });
 
-    // Add Syllabus form
-    document.getElementById('addSyllabusForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const title = document.getElementById('syllabusTitle').value;
-        const file = document.getElementById('syllabusFile').value;
-        const course = document.getElementById('syllabusCourse').value;
-        const semester = document.getElementById('syllabusSemester').value;
-        addItem('syllabus', { title, file, course, semester });
-        this.reset();
-    });
-
     // Edit form
     document.getElementById('editForm').addEventListener('submit', function(e) {
         e.preventDefault();
@@ -188,7 +177,6 @@ function loadData() {
 
 function resetLazyLoadState() {
     pyqsLoaded = false;
-    syllabusLoaded = false;
     pendingLoaded = false;
     usersLoaded = false;
     contributorsLoaded = false;
@@ -206,11 +194,8 @@ function generateSitemap() {
         // Add index.html explicitly
         urls.push({ loc: baseUrl + 'index.html', priority: 0.9, changefreq: 'daily' });
 
-        // Add each pyq and syllabus file URL if present
+        // Add each PYQ file URL if present
         allData.pyqs.forEach(item => {
-            if (item.file) urls.push({ loc: item.file, priority: 0.8, changefreq: 'monthly' });
-        });
-        allData.syllabus.forEach(item => {
             if (item.file) urls.push({ loc: item.file, priority: 0.8, changefreq: 'monthly' });
         });
 
@@ -237,7 +222,7 @@ function generateSitemap() {
         URL.revokeObjectURL(url);
 
         updateSitemapStatus('done', 'sitemap.xml');
-        alert(`✓ Sitemap generated successfully!\n\nGenerated ${urls.length} URLs:\n- Homepage\n- ${allData.pyqs.length} PYQ items\n- ${allData.syllabus.length} Syllabus items\n\nFile downloaded as sitemap.xml`);
+        alert(`✓ Sitemap generated successfully!\n\nGenerated ${urls.length} URLs:\n- Homepage\n- ${allData.pyqs.length} PYQ items\n\nFile downloaded as sitemap.xml`);
     } catch (err) {
         console.error('Error generating sitemap:', err);
         updateSitemapStatus('error');
@@ -283,7 +268,6 @@ function updateSitemapStatus(state, url) {
 
 function renderLists() {
     renderPyqs();
-    renderSyllabus();
     renderUsers();
     updateDashboardStats();
 }
@@ -298,8 +282,6 @@ function updateDashboardStats() {
 
     setCount('pyqsCount', allData.pyqs.length);
     setCount('pyqsHeaderCount', allData.pyqs.length);
-    setCount('syllabusCount', allData.syllabus.length);
-    setCount('syllabusHeaderCount', allData.syllabus.length);
     setCount('usersCount', allData.users.length);
     setCount('usersHeaderCount', allData.users.length);
     setCount('pendingCount', allData.pendingUploads.length);
@@ -374,40 +356,6 @@ function renderPyqs() {
                 </div>
             </div>
             <div class="resource-detail">${escapeHtml(pyq.file)}</div>
-        </article>
-    `).join('');
-
-    updateDashboardStats();
-}
-
-function renderSyllabus() {
-    const list = document.getElementById('syllabusList');
-    if (!list) return;
-
-    if (!allData.syllabus.length) {
-        list.innerHTML = '<div class="resource-empty">No syllabus records added yet.</div>';
-        updateDashboardStats();
-        return;
-    }
-
-    list.innerHTML = allData.syllabus.map((syllabus, index) => `
-        <article class="resource-card">
-            <div class="resource-top">
-                <div>
-                    <div class="resource-kicker">Syllabus ${index + 1}</div>
-                    <h5 class="resource-title">${escapeHtml(syllabus.title)}</h5>
-                    <div class="resource-meta">
-                        ${syllabus.course ? `<span class="resource-pill">${escapeHtml(syllabus.course)}</span>` : ''}
-                        ${syllabus.semester ? `<span class="resource-pill">${escapeHtml(syllabus.semester)}</span>` : ''}
-                    </div>
-                </div>
-                <div class="resource-actions">
-                    <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(syllabus.file || '')})'>Copy URL</button>
-                    <button class="btn btn-sm btn-outline-primary" onclick="editSyllabus(${index})">Edit</button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('syllabus', ${index})">Delete</button>
-                </div>
-            </div>
-            <div class="resource-detail">${escapeHtml(syllabus.file)}${syllabus.course || syllabus.semester ? `<div class="mt-2">Course: ${escapeHtml(syllabus.course || 'N/A')} | Semester: ${escapeHtml(syllabus.semester || 'N/A')}</div>` : ''}</div>
         </article>
     `).join('');
 
@@ -542,19 +490,6 @@ window.editPyq = function(index) {
     document.getElementById('editFile').value = pyq.file;
     document.getElementById('editCourseDiv').style.display = 'none';
     document.getElementById('editSemesterDiv').style.display = 'none';
-    new bootstrap.Modal(document.getElementById('editModal')).show();
-};
-
-window.editSyllabus = function(index) {
-    const syllabus = allData.syllabus[index];
-    document.getElementById('editType').value = 'syllabus';
-    document.getElementById('editIndex').value = index;
-    document.getElementById('editTitle').value = syllabus.title;
-    document.getElementById('editFile').value = syllabus.file;
-    document.getElementById('editCourse').value = syllabus.course || '';
-    document.getElementById('editSemester').value = syllabus.semester || '';
-    document.getElementById('editCourseDiv').style.display = 'block';
-    document.getElementById('editSemesterDiv').style.display = 'block';
     new bootstrap.Modal(document.getElementById('editModal')).show();
 };
 
@@ -755,22 +690,6 @@ window.loadPyqsOnDemand = function() {
         .catch(error => {
             console.error('Error loading PYQs:', error);
             document.getElementById('pyqsList').innerHTML = '<div class="alert alert-danger">Error loading PYQs</div>';
-        });
-};
-
-window.loadSyllabusOnDemand = function() {
-    if (syllabusLoaded) return;
-    syllabusLoaded = true;
-    
-    db.collection('syllabus').get()
-        .then(syllabusSnap => {
-            allData.syllabus = syllabusSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            document.getElementById('syllabusCount').textContent = allData.syllabus.length;
-            renderSyllabus();
-        })
-        .catch(error => {
-            console.error('Error loading Syllabus:', error);
-            document.getElementById('syllabusList').innerHTML = '<div class="alert alert-danger">Error loading Syllabus</div>';
         });
 };
 
