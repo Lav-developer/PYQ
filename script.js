@@ -178,6 +178,16 @@ async function signInWithGoogle(providerEntryPoint) {
         await result.user.reload();
         await ensureUserDocumentSynced(result.user);
 
+        // --- NEW CODE: SEND GOOGLE SIGNUPS TO MAKE.COM ---
+        // Firebase tells us if this is their first time ever logging in
+        const isNewUser = result.additionalUserInfo?.isNewUser || providerEntryPoint === 'signup';
+        
+        if (isNewUser) {
+            const displayName = result.user.displayName || result.user.email.split('@')[0] || 'User';
+            await sendSubscriberToMake(displayName, result.user.email);
+        }
+        // -------------------------------------------------
+
         const loginModal = bootstrap.Modal.getInstance(document.getElementById('loginModal'));
         if (loginModal) loginModal.hide();
         const signupModal = bootstrap.Modal.getInstance(document.getElementById('signupModal'));
