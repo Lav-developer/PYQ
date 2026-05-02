@@ -345,7 +345,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             preferences: {},
             role: 'user'
         }, { merge: true });
-        
+
         (async () => {
             const webhookUrl = "https://hook.us2.make.com/sc9ldu43pg3hnq48y9d6s6fds6j48bqk";
             try {
@@ -359,7 +359,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
                 });
                 console.log('Subscriber sent to Make.com successfully!');
             } catch (err) {
-                console.error('Make.com webhook failed:', err);
+                console.error('Make.com webhook fail:', err);
             }
         })();
 
