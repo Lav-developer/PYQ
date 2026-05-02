@@ -238,6 +238,21 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
     }
 });
 
+// Function to send new users to the beehiiv/Make.com mailing list
+async function sendSubscriberToMake(name, email) {
+    const webhookUrl = "https://hook.us2.make.com/sc9ldu43pg3hnq48y9d6s6fds6j48bqk";
+    try {
+        await fetch(webhookUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name, email: email })
+        });
+        console.log('Subscriber sent to Make.com successfully!');
+    } catch (err) {
+        console.error('Make.com webhook failed:', err);
+    }
+}
+
 // ===== SIGNUP FUNCTIONS =====
 function openSignupModal() {
     document.getElementById('profileDropdown').style.display = 'none';
@@ -296,6 +311,13 @@ function closeSignupModal() {
 
 document.getElementById('signupForm').addEventListener('submit', async function(e) {
     e.preventDefault();
+    
+    // 1. Lock the submit button to prevent double-clicks
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    const originalBtnText = submitBtn.innerHTML;
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Creating...';
+
     const email = document.getElementById('signupEmail').value.trim();
     const password = document.getElementById('signupPassword').value;
     const confirmPassword = document.getElementById('signupConfirmPassword').value;
@@ -304,12 +326,14 @@ document.getElementById('signupForm').addEventListener('submit', async function(
     if (!email || !password || !confirmPassword) {
         errorDiv.textContent = 'Email, password, and password confirmation are required.';
         errorDiv.style.display = 'block';
+        resetButton();
         return;
     }
 
     if (password !== confirmPassword) {
         errorDiv.textContent = 'Passwords do not match';
         errorDiv.style.display = 'block';
+        resetButton();
         return;
     }
 
@@ -320,9 +344,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         const displayName = email.split('@')[0] || 'User';
 
         // Update user profile
-        await user.updateProfile({
-            displayName
-        });
+        await user.updateProfile({ displayName });
 
         // Send verification email only for non-Google password accounts
         if (!isGoogleUser(user)) {
@@ -346,22 +368,8 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             role: 'user'
         }, { merge: true });
 
-        (async () => {
-            const webhookUrl = "https://hook.us2.make.com/sc9ldu43pg3hnq48y9d6s6fds6j48bqk";
-            try {
-                await fetch(webhookUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        name: displayName,
-                        email: email
-                    })
-                });
-                console.log('Subscriber sent to Make.com successfully!');
-            } catch (err) {
-                console.error('Make.com webhook fail:', err);
-            }
-        })();
+        // 2. Safely call the webhook ONLY after Firestore succeeds
+        await sendSubscriberToMake(displayName, email);
 
         closeSignupModal();
         document.getElementById('signupForm').reset();
@@ -378,6 +386,14 @@ document.getElementById('signupForm').addEventListener('submit', async function(
     } catch (error) {
         errorDiv.textContent = error.message;
         errorDiv.style.display = 'block';
+    } finally {
+        // Always unlock the button when finished
+        resetButton();
+    }
+
+    function resetButton() {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = originalBtnText;
     }
 });
 
