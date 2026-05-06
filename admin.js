@@ -150,7 +150,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const course = document.getElementById('editCourse').value;
         const semester = document.getElementById('editSemester').value;
         editItem(type, index, { title, file, course, semester });
-        bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+        const editModalEl = document.getElementById('editModal');
+        window.bootstrap.Modal.getOrCreateInstance(editModalEl).hide();
+        cleanupModalArtifacts();
     });
 });
 
@@ -173,6 +175,15 @@ function setupSectionCollapseBehavior() {
         });
     });
 }
+
+
+function cleanupModalArtifacts() {
+    document.body.classList.remove('modal-open');
+    document.body.style.removeProperty('padding-right');
+    document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+}
+
+document.addEventListener('hidden.bs.modal', cleanupModalArtifacts);
 
 function loadData() {
     // Auto-load pending uploads and registered users so counts and panels show immediately.
