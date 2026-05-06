@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const course = document.getElementById('pyqCourse').value.trim();
         const semester = document.getElementById('pyqSemester').value.trim();
         const subject = document.getElementById('pyqSubject').value.trim();
+        const branch = document.getElementById('pyqBranch').value.trim();
         const session = document.getElementById('pyqSession').value.trim();
         const file = document.getElementById('pyqFile').value;
 
@@ -96,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         let currentSubject = subject;
-        let title = buildPyqTitle(course, semester, currentSubject, session);
+        let title = buildPyqTitle(course, branch, semester, currentSubject, session);
         let duplicateExists = await pyqTitleExists(title);
 
         if (duplicateExists === null) {
@@ -123,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 continue;
             }
 
-            title = buildPyqTitle(course, semester, currentSubject, session);
+            title = buildPyqTitle(course, branch, semester, currentSubject, session);
 
             duplicateExists = await pyqTitleExists(title);
             if (duplicateExists === null) {
@@ -131,9 +132,13 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        addItem('pyqs', { title, file, course, semester, subject: currentSubject, session });
+        addItem('pyqs', { title, file, course, branch, semester, subject: currentSubject, session });
         this.reset();
     });
+
+
+
+    setupAdminModeSwitcher();
 
     // Edit form
     document.getElementById('editForm').addEventListener('submit', function(e) {
@@ -463,8 +468,9 @@ function saveData() {
     console.warn('saveData() called - this project now uses Firestore. Use addItem/editItem/deleteItem instead.');
 }
 
-function buildPyqTitle(course, semester, subject, session) {
-    return `${normalizePyqText(course)} ${normalizePyqText(semester)} Sem ${normalizePyqText(subject)} {${normalizePyqText(session)}}`;
+function buildPyqTitle(course, branch, semester, subject, session) {
+    const branchPart = normalizePyqText(branch);
+    return `${normalizePyqText(course)}${branchPart ? ` ${branchPart}` : ''} ${normalizePyqText(semester)} Sem ${normalizePyqText(subject)} {${normalizePyqText(session)}}`;
 }
 
 function normalizePyqText(value) {
@@ -765,7 +771,7 @@ function renderContributors(contributors) {
                     </div>
                 </div>
                 <div class="resource-actions">
-                    <button class="btn btn-sm btn-outline-primary" onclick="editContributor('${contributor.id}', '${contributor.name}', '${contributor.avatar}', '${contributor.role}')">
+                    <button class="btn btn-sm btn-outline-primary" onclick="editContributor('${contributor.id}', '${contributor.name}', '${contributor.avatar}', '${contributor.role}', ${contributor.showOnWebsite !== false})">
                         <i class="fas fa-edit me-1"></i>Edit
                     </button>
                     <button class="btn btn-sm btn-outline-danger" onclick="deleteContributor('${contributor.id}', '${contributor.name}')">
@@ -816,6 +822,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const name = nameInput.value.trim();
             const avatar = getContributorInitials(name);
             const role = roleInput.value;
+            const showOnWebsite = document.getElementById('contributorShowOnWebsite').value === 'yes';
 
             if (!name || !avatar || !role) {
                 alert('Please fill all fields');
@@ -830,7 +837,8 @@ document.addEventListener('DOMContentLoaded', function() {
             db.collection('contributors').add({
                 name,
                 avatar,
-                role
+                role,
+                showOnWebsite
             })
             .then(() => {
                 addContributorForm.reset();
@@ -847,7 +855,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-window.editContributor = function(id, name, avatar, role) {
+window.editContributor = function(id, name, avatar, role, showOnWebsite) {
     const newName = prompt('Edit name:', name);
     if (newName === null) return;
 
@@ -856,6 +864,9 @@ window.editContributor = function(id, name, avatar, role) {
 
     const trimmedName = newName.trim();
     const trimmedRole = newRole.trim();
+    const showAnswer = prompt('Show on website? (yes/no):', showOnWebsite ? 'yes' : 'no');
+    if (showAnswer === null) return;
+    const newShowOnWebsite = showAnswer.trim().toLowerCase() === 'yes';
     const newAvatar = getContributorInitials(trimmedName);
 
     if (!trimmedName || !newAvatar || !trimmedRole) {
@@ -871,7 +882,8 @@ window.editContributor = function(id, name, avatar, role) {
     db.collection('contributors').doc(id).set({
         name: trimmedName,
         avatar: newAvatar,
-        role: trimmedRole
+        role: trimmedRole,
+        showOnWebsite: newShowOnWebsite
     })
     .then(() => {
         loadContributors();
@@ -894,3 +906,27 @@ window.deleteContributor = function(id, name) {
             });
     }
 };
+
+function setupAdminModeSwitcher() {
+    const addRadio = document.getElementById('modeAdd');
+    const editRadio = document.getElementById('modeEdit');
+    const entity = document.getElementById('adminEntitySelect');
+    if (!addRadio || !editRadio || !entity) return;
+
+    const refresh = () => {
+        const mode = editRadio.checked ? 'edit' : 'add';
+        const target = entity.value;
+        const pyqForm = document.getElementById('addPyqForm');
+        const contributorForm = document.getElementById('addContributorForm');
+        const pyqsCollapse = document.getElementById('pyqsCollapse');
+        const contributorsCollapse = document.getElementById('contributorsCollapse');
+        const usersCollapse = document.getElementById('usersCollapse');
+        if (pyqForm) pyqForm.style.display = mode === 'add' && target === 'pyq' ? 'block' : 'none';
+        if (contributorForm) contributorForm.style.display = mode === 'add' && target === 'contributor' ? 'block' : 'none';
+        if (mode === 'edit' && target === 'pyq') loadPyqsOnDemand();
+        if (mode === 'edit' && target === 'contributor') loadContributorsOnDemand();
+        if (mode === 'edit' && target === 'user') loadUsersOnDemand();
+    };
+    [addRadio, editRadio, entity].forEach(el => el.addEventListener('change', refresh));
+    refresh();
+}

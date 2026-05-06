@@ -1091,7 +1091,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load and render contributors from Firestore
     function loadContributors() {
-        const contributorsQuery = db.collection('contributors').orderBy('name').limit(12);
+        const contributorsQuery = db.collection('contributors').where('showOnWebsite', '==', true).orderBy('name').limit(12);
 
         contributorsQuery.get({ source: 'cache' })
             .then(snapshot => {
@@ -1126,16 +1126,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     contributorsGrid.appendChild(card);
                 });
 
-                // Add the "Join our team" card at the end
-                const joinCard = document.createElement('div');
-                joinCard.className = 'contributor-more';
-                joinCard.innerHTML = `
-                    <div class="more-avatar">+</div>
-                    <h5>Join our team!</h5>
-                    <p class="contributor-role">Become a contributor</p>
-                `;
-                contributorsGrid.appendChild(joinCard);
-    }
+                    }
 
     async function loadAggregatedStats() {
         try {

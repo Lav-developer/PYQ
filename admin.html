@@ -786,7 +786,22 @@
                         </div>
                     </div>
                     <div class="card-body">
-                        <form id="addPyqForm" class="resource-form">
+                        <div class="mb-3">
+                            <label class="form-label d-block">Action Mode</label>
+                            <div class="d-flex gap-3">
+                                <div class="form-check"><input class="form-check-input" type="radio" name="adminMode" id="modeAdd" value="add" checked><label class="form-check-label" for="modeAdd">Add New</label></div>
+                                <div class="form-check"><input class="form-check-input" type="radio" name="adminMode" id="modeEdit" value="edit"><label class="form-check-label" for="modeEdit">Edit Current</label></div>
+                            </div>
+                        </div>
+                        <div class="mb-3" id="entitySelectorWrap">
+                            <label for="adminEntitySelect" class="form-label">Choose section</label>
+                            <select id="adminEntitySelect" class="form-select">
+                                <option value="pyq">PYQ</option>
+                                <option value="contributor">Contributor</option>
+                                <option value="user">User</option>
+                            </select>
+                        </div>
+                        <form id="addPyqForm" class="resource-form admin-form-block">
                             <div class="mb-3">
                                 <label for="pyqCourse" class="form-label">Course</label>
                                 <select class="form-select" id="pyqCourse" required>
@@ -836,6 +851,10 @@
                             <div class="mt-3 mb-3">
                                 <label for="pyqSubject" class="form-label">Subject Name</label>
                                 <input type="text" class="form-control" id="pyqSubject" placeholder="e.g., Effective Tech. Communication" required>
+                            </div>
+                            <div class="mt-3 mb-3">
+                                <label for="pyqBranch" class="form-label">Branch (optional)</label>
+                                <input type="text" class="form-control" id="pyqBranch" placeholder="e.g., CSE">
                             </div>
                             <div class="mb-3">
                                 <label for="pyqFile" class="form-label">File URL</label>
@@ -927,6 +946,13 @@
                                         <option value="PYQs Provider">PYQs Provider</option>
                                         <option value="Syllabus Provider">Syllabus Provider</option>
                                         <option value="PYQs + Syllabus Provider">PYQs + Syllabus Provider</option>
+                                    </select>
+                                </div>
+                                <div class="mb-3">
+                                    <label for="contributorShowOnWebsite" class="form-label">Show on website</label>
+                                    <select class="form-select" id="contributorShowOnWebsite" required>
+                                        <option value="yes" selected>Yes</option>
+                                        <option value="no">No</option>
                                     </select>
                                 </div>
                                 <button type="submit" class="btn btn-primary w-100">
