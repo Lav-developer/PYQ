@@ -838,6 +838,10 @@
                                 <input type="text" class="form-control" id="pyqSubject" placeholder="e.g., Effective Tech. Communication" required>
                             </div>
                             <div class="mb-3">
+                                <label for="pyqBranch" class="form-label">Branch <span style="color: #888;">(Optional)</span></label>
+                                <input type="text" class="form-control" id="pyqBranch" placeholder="e.g., CSE, ECE, Mechanical, Commerce">
+                            </div>
+                            <div class="mb-3">
                                 <label for="pyqFile" class="form-label">File URL</label>
                                 <input type="url" class="form-control" id="pyqFile" required>
                             </div>
@@ -861,7 +865,7 @@
                     </div>
                     <div id="pyqsCollapse" class="collapse">
                         <div class="card-body">
-                            <p class="section-copy mb-3">Review titles, copy file links, edit records, or delete obsolete papers.</p>
+                            <p class="section-copy mb-3">Review titles and copy file links. Content changes are done through the add forms only.</p>
                             <div id="pyqsList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading PYQs...</div>
                             </div>
@@ -970,94 +974,6 @@
             </div>
         </div>
 
-        <!-- Edit Modal -->
-        <div class="modal fade" id="editModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Edit Item</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form id="editForm">
-                            <input type="hidden" id="editType">
-                            <input type="hidden" id="editIndex">
-                            <div class="mb-3">
-                                <label for="editTitle" class="form-label">Title</label>
-                                <input type="text" class="form-control" id="editTitle" required>
-                            </div>
-                            <div class="mb-3">
-                                <label for="editFile" class="form-label">File URL</label>
-                                <input type="url" class="form-control" id="editFile" required>
-                            </div>
-                            <div class="mb-3" id="editCourseDiv" style="display: none;">
-                                <label for="editCourse" class="form-label">Course</label>
-                                <input type="text" class="form-control" id="editCourse">
-                            </div>
-                            <div class="mb-3" id="editSemesterDiv" style="display: none;">
-                                <label for="editSemester" class="form-label">Semester</label>
-                                <input type="text" class="form-control" id="editSemester">
-                            </div>
-                            <button type="submit" class="btn btn-primary">Save Changes</button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- User Edit Modal -->
-        <div class="modal fade" id="userEditModal" tabindex="-1">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Edit User Record</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form id="userEditForm">
-                            <input type="hidden" id="userEditUid">
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="userEditName" class="form-label">Full Name</label>
-                                    <input type="text" class="form-control" id="userEditName" required>
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label for="userEditEmail" class="form-label">Email</label>
-                                    <input type="email" class="form-control" id="userEditEmail" readonly>
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="userEditCourse" class="form-label">Course</label>
-                                    <input type="text" class="form-control" id="userEditCourse" required>
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label for="userEditPhone" class="form-label">Phone</label>
-                                    <input type="tel" class="form-control" id="userEditPhone">
-                                </div>
-                            </div>
-                            <div class="row">
-                                <div class="col-md-6 mb-3">
-                                    <label for="userEditRole" class="form-label">Role</label>
-                                    <select class="form-control" id="userEditRole" required>
-                                        <option value="user">user</option>
-                                        <option value="admin">admin</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-6 mb-3">
-                                    <label for="userEditCreatedAt" class="form-label">Created At</label>
-                                    <input type="text" class="form-control" id="userEditCreatedAt" readonly>
-                                </div>
-                            </div>
-                            <div class="d-flex gap-2">
-                                <button type="submit" class="btn btn-primary">Save User</button>
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
@@ -1070,11 +986,104 @@
         <a id="sitemapUrl" href="#" target="_blank" style="color: #ffd; display:none;"></a>
     </div>
 
-    <!-- Realtime Chat Button (opens external chat) for admin -->
-    <div id="chatWidget" class="chat-widget" aria-hidden="true">
-        <button id="chatToggleBtn" class="chat-toggle" aria-pressed="false" aria-label="Open chat" onclick="toggleChatWidget()">
-            <i class="fas fa-comments"></i>
+    <!-- CSV export shortcut (replaces chat widget) -->
+    <div id="csvWidget" class="chat-widget" aria-hidden="true">
+        <button id="csvDownloadBtn" class="chat-toggle" aria-pressed="false" aria-label="Download CSV backup" onclick="downloadAllCsvBackup()">
+            <i class="fas fa-file-csv"></i>
         </button>
+    </div>
+
+    <!-- Edit Modal -->
+    <div class="modal fade" id="editModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Item</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editForm">
+                        <input type="hidden" id="editType">
+                        <input type="hidden" id="editIndex">
+                        <div class="mb-3">
+                            <label for="editTitle" class="form-label">Title</label>
+                            <input type="text" class="form-control" id="editTitle" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="editFile" class="form-label">File URL</label>
+                            <input type="url" class="form-control" id="editFile" required>
+                        </div>
+                        <div class="mb-3" id="editCourseDiv" style="display: none;">
+                            <label for="editCourse" class="form-label">Course</label>
+                            <input type="text" class="form-control" id="editCourse">
+                        </div>
+                        <div class="mb-3" id="editSemesterDiv" style="display: none;">
+                            <label for="editSemester" class="form-label">Semester</label>
+                            <input type="text" class="form-control" id="editSemester">
+                        </div>
+                        <div class="mb-3" id="editBranchDiv" style="display: none;">
+                            <label for="editBranch" class="form-label">Branch <span style="color: #888;">(Optional)</span></label>
+                            <input type="text" class="form-control" id="editBranch">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- User Edit Modal -->
+    <div class="modal fade" id="userEditModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit User Record</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="userEditForm">
+                        <input type="hidden" id="userEditUid">
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="userEditName" class="form-label">Full Name</label>
+                                <input type="text" class="form-control" id="userEditName" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="userEditEmail" class="form-label">Email</label>
+                                <input type="email" class="form-control" id="userEditEmail" readonly>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="userEditCourse" class="form-label">Course</label>
+                                <input type="text" class="form-control" id="userEditCourse" required>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="userEditPhone" class="form-label">Phone</label>
+                                <input type="tel" class="form-control" id="userEditPhone">
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label for="userEditRole" class="form-label">Role</label>
+                                <select class="form-control" id="userEditRole" required>
+                                    <option value="user">user</option>
+                                    <option value="admin">admin</option>
+                                </select>
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label for="userEditCreatedAt" class="form-label">Created At</label>
+                                <input type="text" class="form-control" id="userEditCreatedAt" readonly>
+                            </div>
+                        </div>
+                        <div class="d-flex gap-2">
+                            <button type="submit" class="btn btn-primary">Save User</button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 </body>
 </html>

@@ -88,6 +88,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const semester = document.getElementById('pyqSemester').value.trim();
         const subject = document.getElementById('pyqSubject').value.trim();
         const session = document.getElementById('pyqSession').value.trim();
+        const branch = document.getElementById('pyqBranch').value.trim();
         const file = document.getElementById('pyqFile').value;
 
         if (!course || !semester || !subject || !session || !file) {
@@ -96,7 +97,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         let currentSubject = subject;
-        let title = buildPyqTitle(course, semester, currentSubject, session);
+        let title = buildPyqTitle(course, semester, currentSubject, session, branch);
         let duplicateExists = await pyqTitleExists(title);
 
         if (duplicateExists === null) {
@@ -123,7 +124,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 continue;
             }
 
-            title = buildPyqTitle(course, semester, currentSubject, session);
+            title = buildPyqTitle(course, semester, currentSubject, session, branch);
 
             duplicateExists = await pyqTitleExists(title);
             if (duplicateExists === null) {
@@ -131,22 +132,36 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        addItem('pyqs', { title, file, course, semester, subject: currentSubject, session });
+        addItem('pyqs', { title, file, course, semester, subject: currentSubject, session, branch: branch || '' });
         this.reset();
     });
 
-    // Edit form
-    document.getElementById('editForm').addEventListener('submit', function(e) {
-        e.preventDefault();
-        const type = document.getElementById('editType').value;
-        const index = parseInt(document.getElementById('editIndex').value);
-        const title = document.getElementById('editTitle').value;
-        const file = document.getElementById('editFile').value;
-        const course = document.getElementById('editCourse').value;
-        const semester = document.getElementById('editSemester').value;
-        editItem(type, index, { title, file, course, semester });
-        bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
-    });
+    // Edit PYQ form submit handler
+    const editForm = document.getElementById('editForm');
+    if (editForm) {
+        editForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const type = document.getElementById('editType').value;
+            const index = parseInt(document.getElementById('editIndex').value);
+            const title = document.getElementById('editTitle').value.trim();
+            const file = document.getElementById('editFile').value.trim();
+            
+            if (!title || !file) {
+                alert('Title and File URL are required.');
+                return;
+            }
+
+            if (type === 'pyqs') {
+                const branch = document.getElementById('editBranch').value.trim();
+                editItem(type, index, { title, file, branch: branch || '' });
+            } else {
+                editItem(type, index, { title, file });
+            }
+            
+            bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
+        });
+    }
+
 });
 
 function setupSectionCollapseBehavior() {
@@ -289,6 +304,106 @@ function updateDashboardStats() {
     setCount('contributorsCount', allData.contributors.length);
     setCount('contributorsHeaderCount', allData.contributors.length);
 }
+
+function buildCsvContent(rows, columns) {
+    const escapeCsv = value => {
+        const text = value === null || value === undefined ? '' : String(value);
+        return `"${text.replace(/"/g, '""')}"`;
+    };
+
+    const header = columns.join(',');
+    const lines = rows.map(row => columns.map(column => escapeCsv(row[column])).join(','));
+    return [header, ...lines].join('\n');
+}
+
+function downloadCsvFile(fileName, csvContent) {
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+}
+
+async function loadCollectionSnapshot(collectionName) {
+    const snapshot = await db.collection(collectionName).get();
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+async function downloadAllCsvBackup() {
+    try {
+        const [pyqs, contributors, users] = await Promise.all([
+            allData.pyqs.length ? Promise.resolve(allData.pyqs) : loadCollectionSnapshot('pyqs'),
+            allData.contributors.length ? Promise.resolve(allData.contributors) : loadCollectionSnapshot('contributors'),
+            allData.users.length ? Promise.resolve(allData.users) : loadCollectionSnapshot('users')
+        ]);
+
+        const allRows = [];
+
+        pyqs.forEach(item => {
+            allRows.push({
+                collection: 'pyqs',
+                id: item.id || '',
+                name: '',
+                title: item.title || '',
+                file: item.file || '',
+                course: item.course || '',
+                semester: item.semester || '',
+                session: item.session || '',
+                email: '',
+                phone: '',
+                role: '',
+                avatar: ''
+            });
+        });
+
+        contributors.forEach(item => {
+            allRows.push({
+                collection: 'contributors',
+                id: item.id || '',
+                name: item.name || '',
+                title: '',
+                file: '',
+                course: '',
+                semester: '',
+                session: '',
+                email: '',
+                phone: '',
+                role: item.role || '',
+                avatar: item.avatar || ''
+            });
+        });
+
+        users.forEach(item => {
+            allRows.push({
+                collection: 'users',
+                id: item.id || item.uid || '',
+                name: item.name || item.signupName || '',
+                title: '',
+                file: '',
+                course: item.course || item.signupCourse || '',
+                semester: '',
+                session: '',
+                email: item.email || item.signupEmail || '',
+                phone: item.phone || '',
+                role: item.role || '',
+                avatar: ''
+            });
+        });
+
+        const csv = buildCsvContent(allRows, ['collection', 'id', 'name', 'title', 'file', 'course', 'semester', 'session', 'email', 'phone', 'role', 'avatar']);
+        downloadCsvFile('database-backup.csv', csv);
+        alert('CSV backup downloaded successfully.');
+    } catch (error) {
+        console.error('Error generating CSV backup:', error);
+        alert('Failed to generate CSV backup: ' + error.message);
+    }
+}
+
+window.downloadAllCsvBackup = downloadAllCsvBackup;
 
 function escapeHtml(value) {
     return (value || '')
@@ -463,8 +578,13 @@ function saveData() {
     console.warn('saveData() called - this project now uses Firestore. Use addItem/editItem/deleteItem instead.');
 }
 
-function buildPyqTitle(course, semester, subject, session) {
-    return `${normalizePyqText(course)} ${normalizePyqText(semester)} Sem ${normalizePyqText(subject)} {${normalizePyqText(session)}}`;
+function buildPyqTitle(course, semester, subject, session, branch) {
+    let title = `${normalizePyqText(course)}`;
+    if (branch) {
+        title += ` ${normalizePyqText(branch)}`;
+    }
+    title += ` ${normalizePyqText(semester)} Sem ${normalizePyqText(subject)} {${normalizePyqText(session)}}`;
+    return title;
 }
 
 function normalizePyqText(value) {
@@ -488,8 +608,10 @@ window.editPyq = function(index) {
     document.getElementById('editIndex').value = index;
     document.getElementById('editTitle').value = pyq.title;
     document.getElementById('editFile').value = pyq.file;
+    document.getElementById('editBranch').value = pyq.branch || '';
     document.getElementById('editCourseDiv').style.display = 'none';
     document.getElementById('editSemesterDiv').style.display = 'none';
+    document.getElementById('editBranchDiv').style.display = 'none';
     new bootstrap.Modal(document.getElementById('editModal')).show();
 };
 
@@ -795,6 +917,54 @@ const allowedContributorRoles = [
     'PYQs + Syllabus Provider'
 ];
 
+window.editContributor = function(id, name, avatar, role) {
+    const newName = prompt('Edit name:', name);
+    if (newName === null) return;
+
+    const newRole = prompt('Edit role (PYQs Provider / Syllabus Provider / PYQs + Syllabus Provider):', role);
+    if (newRole === null) return;
+
+    const trimmedName = newName.trim();
+    const trimmedRole = newRole.trim();
+    const newAvatar = getContributorInitials(trimmedName);
+
+    if (!trimmedName || !newAvatar || !trimmedRole) {
+        alert('All fields are required');
+        return;
+    }
+
+    if (!allowedContributorRoles.includes(trimmedRole)) {
+        alert('Please enter a valid role');
+        return;
+    }
+
+    db.collection('contributors').doc(id).set({
+        name: trimmedName,
+        avatar: newAvatar,
+        role: trimmedRole
+    })
+    .then(() => {
+        loadContributors();
+    })
+    .catch(error => {
+        console.error('Error updating contributor:', error);
+        alert('Error updating contributor: ' + error.message);
+    });
+};
+
+window.deleteContributor = function(id, name) {
+    if (confirm(`Are you sure you want to delete ${name}?`)) {
+        db.collection('contributors').doc(id).delete()
+            .then(() => {
+                loadContributors();
+            })
+            .catch(error => {
+                console.error('Error deleting contributor:', error);
+                alert('Error deleting contributor: ' + error.message);
+            });
+    }
+};
+
 document.addEventListener('DOMContentLoaded', function() {
     // Contributor form submission
     const addContributorForm = document.getElementById('addContributorForm');
@@ -847,50 +1017,4 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-window.editContributor = function(id, name, avatar, role) {
-    const newName = prompt('Edit name:', name);
-    if (newName === null) return;
-
-    const newRole = prompt('Edit role (PYQs Provider / Syllabus Provider / PYQs + Syllabus Provider):', role);
-    if (newRole === null) return;
-
-    const trimmedName = newName.trim();
-    const trimmedRole = newRole.trim();
-    const newAvatar = getContributorInitials(trimmedName);
-
-    if (!trimmedName || !newAvatar || !trimmedRole) {
-        alert('All fields are required');
-        return;
-    }
-
-    if (!allowedContributorRoles.includes(trimmedRole)) {
-        alert('Please enter a valid role');
-        return;
-    }
-
-    db.collection('contributors').doc(id).set({
-        name: trimmedName,
-        avatar: newAvatar,
-        role: trimmedRole
-    })
-    .then(() => {
-        loadContributors();
-    })
-    .catch(error => {
-        console.error('Error updating contributor:', error);
-        alert('Error updating contributor: ' + error.message);
-    });
-};
-
-window.deleteContributor = function(id, name) {
-    if (confirm(`Are you sure you want to delete ${name}?`)) {
-        db.collection('contributors').doc(id).delete()
-            .then(() => {
-                loadContributors();
-            })
-            .catch(error => {
-                console.error('Error deleting contributor:', error);
-                alert('Error deleting contributor: ' + error.message);
-            });
-    }
-};
+// Contributor edits/removals removed from admin panel.
