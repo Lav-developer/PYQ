@@ -58,9 +58,53 @@ async function ensureUserDocumentSynced(user) {
         phone: existingData.phone || '',
         role: existingData.role || 'user',
         emailVerified: !!user.emailVerified || googleAccount,
-        createdAt: existingData.createdAt || firebase.firestore.FieldValue.serverTimestamp(),
-        lastSeenAt: firebase.firestore.FieldValue.serverTimestamp()
+        createdAt: existingData.createdAt || firebase.firestore.FieldValue.serverTimestamp()
     }, { merge: true });
+}
+
+async function sendSubscriberToMakeOnce(uid, name, email, source) {
+    if (!uid || !email) return false;
+
+    const userRef = db.collection('users').doc(uid);
+    const shouldSend = await db.runTransaction(async transaction => {
+        const snapshot = await transaction.get(userRef);
+        const data = snapshot.exists ? snapshot.data() : {};
+
+        if (data.makeSubscriberSynced === true || data.makeSubscriberSyncInProgress === true) {
+            return false;
+        }
+
+        transaction.set(userRef, {
+            makeSubscriberSyncInProgress: true,
+            makeSubscriberSyncSource: source || 'unknown',
+            makeSubscriberSyncRequestedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+
+        return true;
+    });
+
+    if (!shouldSend) {
+        return false;
+    }
+
+    try {
+        await sendSubscriberToMake(name, email);
+        await userRef.set({
+            makeSubscriberSynced: true,
+            makeSubscriberSyncInProgress: false,
+            makeSubscriberSyncedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            makeSubscriberSyncError: ''
+        }, { merge: true });
+        return true;
+    } catch (error) {
+        await userRef.set({
+            makeSubscriberSynced: false,
+            makeSubscriberSyncInProgress: false,
+            makeSubscriberSyncError: error?.message || 'Webhook request failed',
+            makeSubscriberSyncFailedAt: firebase.firestore.FieldValue.serverTimestamp()
+        }, { merge: true });
+        throw error;
+    }
 }
 
 // Update UI based on auth state
@@ -176,7 +220,7 @@ async function signInWithGoogle(providerEntryPoint) {
         
         if (isNewUser) {
             const displayName = result.user.displayName || result.user.email.split('@')[0] || 'User';
-            await sendSubscriberToMake(displayName, result.user.email);
+            await sendSubscriberToMakeOnce(result.user.uid, displayName, result.user.email, 'google-signup');
         }
         // -------------------------------------------------
 
@@ -247,14 +291,20 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
 async function sendSubscriberToMake(name, email) {
     const webhookUrl = "https://hook.us2.make.com/sc9ldu43pg3hnq48y9d6s6fds6j48bqk";
     try {
-        await fetch(webhookUrl, {
+        const response = await fetch(webhookUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: name, email: email })
         });
+
+        if (!response.ok) {
+            throw new Error(`Make.com webhook returned ${response.status}`);
+        }
+
         console.log('Subscriber sent to Make.com successfully!');
     } catch (err) {
         console.error('Make.com webhook failed:', err);
+        throw err;
     }
 }
 
@@ -374,7 +424,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         }, { merge: true });
 
         // 2. Safely call the webhook ONLY after Firestore succeeds
-        await sendSubscriberToMake(displayName, email);
+        await sendSubscriberToMakeOnce(user.uid, displayName, email, 'email-signup');
 
         closeSignupModal();
         document.getElementById('signupForm').reset();
@@ -480,10 +530,7 @@ document.getElementById('profileForm').addEventListener('submit', async function
             course: course,
             phone: phone,
             email: currentUser.email,
-            uid: currentUser.uid,
-            signupName: name,
-            signupEmail: currentUser.email,
-            signupCourse: course
+            uid: currentUser.uid
         }, { merge: true });
 
         successDiv.textContent = 'Profile updated successfully!';
