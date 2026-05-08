@@ -71,20 +71,11 @@ function updateUploadAccessUI() {
     if (!uploadSection || !uploadOverlay || !uploadForm) return;
 
     const formControls = uploadForm.querySelectorAll('input, button');
-
-    if (currentUser && !requiresEmailVerification(currentUser)) {
-        uploadSection.classList.remove('upload-locked');
-        uploadOverlay.style.display = 'none';
-        formControls.forEach(control => {
-            control.disabled = false;
-        });
-    } else {
-        uploadSection.classList.add('upload-locked');
-        uploadOverlay.style.display = 'flex';
-        formControls.forEach(control => {
-            control.disabled = true;
-        });
-    }
+    uploadSection.classList.remove('upload-locked');
+    uploadOverlay.style.display = 'none';
+    formControls.forEach(control => {
+        control.disabled = false;
+    });
 }
 
 // Monitor auth state changes
@@ -92,6 +83,7 @@ auth.onAuthStateChanged(user => {
     currentUser = user;
     updateUserUI();
     updateUploadAccessUI();
+    updatePyqFilterUI();
     if (user) {
         // Check if email is verified
         user.reload()
@@ -201,6 +193,8 @@ async function signInWithGoogle(providerEntryPoint) {
             text: providerEntryPoint === 'signup' ? 'Your Google account was created and signed in.' : 'You are now signed in with your Google account.',
             icon: 'success'
         });
+        // Ensure filter UI updates immediately after sign in
+        try { updatePyqFilterUI(); populateCourseFilter(); } catch (e) { /* ignore */ }
     } catch (error) {
         const message = error.code === 'auth/popup-closed-by-user'
             ? 'Google sign-in was cancelled.'
@@ -234,6 +228,7 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
         
         if (!requiresEmailVerification(result.user)) {
             Swal.fire('Success', 'Logged in successfully!', 'success');
+            try { updatePyqFilterUI(); populateCourseFilter(); } catch (e) {}
         } else {
             Swal.fire({
                 title: 'Welcome Back!',
@@ -393,6 +388,8 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             icon: 'success',
             confirmButtonText: 'OK'
         });
+        // Update filter UI immediately for newly created users
+        try { updatePyqFilterUI(); populateCourseFilter(); } catch (e) {}
     } catch (error) {
         errorDiv.textContent = error.message;
         errorDiv.style.display = 'block';
@@ -822,43 +819,16 @@ function setupUserUploadHandler() {
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
 
-        if (!currentUser) {
-            Swal.fire({
-                icon: 'info',
-                title: 'Sign up to upload',
-                text: 'Only registered users can upload documents and be listed among top contributors.',
-                showCancelButton: true,
-                confirmButtonText: 'Sign Up Now',
-                cancelButtonText: 'Not now'
-            }).then(result => {
-                if (result.isConfirmed) {
-                    openSignupModal();
-                }
-            });
-            return;
-        }
-
-        // Check if email is verified
-        if (requiresEmailVerification(currentUser)) {
-            Swal.fire({
-                icon: 'warning',
-                title: 'Email Not Verified',
-                html: `<p>Please verify your email to upload documents.</p><p>Check your inbox at <strong>${currentUser.email}</strong> and click the verification link.</p>`,
-                showCancelButton: true,
-                confirmButtonText: 'Verify Email',
-                cancelButtonText: 'Later'
-            }).then(result => {
-                if (result.isConfirmed) {
-                    showEmailVerificationPrompt();
-                }
-            });
-            return;
-        }
-
+        const uploadName = document.getElementById('uploadName').value.trim();
         const title = document.getElementById('uploadTitle').value;
         const course = document.getElementById('uploadCourse').value;
         const semester = document.getElementById('uploadSemester').value;
         const file = document.getElementById('uploadFile').files[0];
+
+        if (!uploadName) {
+            alert('Please enter your name');
+            return;
+        }
 
         if (!file) {
             alert('Please select a file');
@@ -888,19 +858,9 @@ function setupUserUploadHandler() {
         progressDiv.style.display = 'block';
 
         try {
-            // Fetch user profile from Firestore to get name and course
-            if (!currentUser) {
-                throw new Error('User not authenticated');
-            }
-
-            const userDoc = await db.collection('users').doc(currentUser.uid).get();
-            if (!userDoc.exists) {
-                throw new Error('User profile not found in database');
-            }
-
-            const userData = userDoc.data();
-            const userName = userData.name || userData.signupName || currentUser.displayName || 'Anonymous';
-            const userCourse = userData.course || userData.signupCourse || course || 'General';
+            const userName = uploadName || (currentUser && (currentUser.displayName || currentUser.email)) || 'Anonymous';
+            const userCourse = course || 'General';
+            const userEmail = currentUser ? currentUser.email || '' : '';
 
             statusMessage.textContent = 'Uploading file to database...';
             // Upload to gofile.io (CORS enabled, unlimited file storage)
@@ -951,7 +911,8 @@ function setupUserUploadHandler() {
                 semester: semester,
                 studentName: userName,
                 studentCourse: userCourse,
-                userId: currentUser.uid,
+                studentEmail: userEmail,
+                userId: currentUser ? currentUser.uid : '',
                 fileName: file.name,
                 downloadUrl: fileUrl,
                 fileSize: file.size,
@@ -1019,6 +980,129 @@ document.addEventListener('DOMContentLoaded', function() {
         })).sort((a, b) => b.year - a.year);
     }
 
+    function getPyqSemesterValue(pyq) {
+        const semesterValue = (pyq && (pyq.semester || pyq.sem || pyq.sessionSemester)) ? String(pyq.semester || pyq.sem || pyq.sessionSemester).trim().toLowerCase() : '';
+        if (semesterValue) return semesterValue;
+
+        const title = (pyq && pyq.title) ? String(pyq.title).toLowerCase() : '';
+        const semesterMatch = title.match(/\b(1st|2nd|3rd|4th|5th|6th|7th|8th)\b/);
+        return semesterMatch ? semesterMatch[1] : '';
+    }
+
+    function getPyqFilterState() {
+        const course = document.getElementById('filterCourse');
+        const year = document.getElementById('filterYear');
+        const session = document.getElementById('filterSession');
+
+        return {
+            course: course ? normalizeForCompare(course.value) : '',
+            year: year ? year.value.trim().toLowerCase() : '',
+            session: session ? session.value.trim().toLowerCase() : ''
+        };
+    }
+
+    // Normalize strings for reliable comparisons (remove dots/spaces/punctuation)
+    function normalizeForCompare(str) {
+        if (!str) return '';
+        try {
+            return String(str).toLowerCase().trim().replace(/[\.\s\-_&\(\),]+/g, '').replace(/[^a-z0-9]/g, '');
+        } catch (e) {
+            return '';
+        }
+    }
+
+    // Populate Course filter options dynamically from loaded PYQs (keeps user options in-sync with data)
+    function populateCourseFilter() {
+        const select = document.getElementById('filterCourse');
+        if (!select || !allData.pyqs || !allData.pyqs.length) return;
+
+        const knownMap = {
+            'bcom': 'B.Com.',
+            'ba': 'B.A.',
+            'bsc': 'B.Sc.',
+            'btech': 'B.Tech',
+            'ma': 'M.A.',
+            'mcom': 'M.Com.',
+            'msc': 'M.Sc.',
+            'mtech': 'M.Tech'
+        };
+
+        const found = new Map();
+        allData.pyqs.forEach(pyq => {
+            const raw = (pyq.course || pyq.category || '').toString().trim();
+            const fromTitle = (pyq.title || '').toString();
+            let key = normalizeForCompare(raw);
+            if (!key) {
+                // attempt to infer from title using knownMap keys
+                const titleLower = fromTitle.toLowerCase();
+                Object.keys(knownMap).some(token => {
+                    if (titleLower.includes(token) || titleLower.includes(token.replace(/([a-z])/g, '$1.'))) {
+                        key = token;
+                        return true;
+                    }
+                    return false;
+                });
+            }
+            if (key) {
+                const display = raw || knownMap[key] || key.toUpperCase();
+                if (!found.has(key)) found.set(key, display);
+            }
+        });
+
+        // Append dynamic options (preserve existing built-in options)
+        // Remove previously appended dynamic options first
+        Array.from(select.querySelectorAll('option[data-generated="true"]')).forEach(o => o.remove());
+
+        const sorted = Array.from(found.entries()).sort((a,b)=> a[1].localeCompare(b[1]));
+        sorted.forEach(([key, display]) => {
+            // Skip if matches the empty placeholder or existing values
+            const exists = Array.from(select.options).some(opt => normalizeForCompare(opt.value) === key);
+            if (exists) return;
+            const opt = document.createElement('option');
+            opt.value = display; // keep human-readable value but we'll normalize when reading
+            opt.textContent = display;
+            opt.setAttribute('data-generated', 'true');
+            select.appendChild(opt);
+        });
+    }
+
+    function hasActivePyqFilters() {
+        const filters = getPyqFilterState();
+        return !!(filters.course || filters.year || filters.session);
+    }
+
+    function clearPyqFilters(resetResults = true) {
+        const course = document.getElementById('filterCourse');
+        const year = document.getElementById('filterYear');
+        const session = document.getElementById('filterSession');
+
+        if (course) course.value = '';
+        if (year) year.value = '';
+        if (session) session.value = '';
+
+        if (resetResults && allData.pyqs.length) {
+            filteredPyqs = [...allData.pyqs];
+            currentPage = 1;
+            renderPYQs();
+        }
+    }
+
+    function updatePyqFilterUI() {
+        const panel = document.getElementById('pyqFilterPanel');
+        if (!panel) return;
+
+        // Keep filter panel visible at all times. Show a small hint for unauthenticated users.
+        panel.style.display = 'block';
+        const hint = document.getElementById('filterHint');
+        if (hint) {
+            hint.style.display = currentUser ? 'none' : 'inline';
+        }
+    }
+
+    window.clearPyqFilters = function() {
+        clearPyqFilters(true);
+    };
+
     async function getInitialPage(collectionName) {
         const baseQuery = db.collection(collectionName).orderBy('title').limit(serverPageSize);
 
@@ -1077,10 +1161,14 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             await loadCollectionPage('pyqs');
 
+            // Populate filter options based on loaded PYQs
+            populateCourseFilter();
+
             loadBookmarks();
             renderPYQs(filteredPyqs);
             setupEventListeners();
             setupUserUploadHandler();
+            updatePyqFilterUI();
         } catch (error) {
             console.error('Error loading data from Firestore:', error);
             showEmptyState('pyqList', 'Error loading question papers');
@@ -1091,7 +1179,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Load and render contributors from Firestore
     function loadContributors() {
-        const contributorsQuery = db.collection('contributors').orderBy('name').limit(12);
+        const contributorsQuery = db.collection('contributors').orderBy('name');
 
         contributorsQuery.get({ source: 'cache' })
             .then(snapshot => {
@@ -1195,7 +1283,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
         // Show or hide Load More button
         const loadMoreBtn = document.getElementById('loadMoreBtn');
-        if (endIndex < filteredPyqs.length || (pyqHasMore && !document.getElementById('searchInput').value.trim())) {
+        const searchTerm = document.getElementById('searchInput').value.trim();
+        const filtersActive = hasActivePyqFilters();
+        if (endIndex < filteredPyqs.length || (!searchTerm && !filtersActive && pyqHasMore)) {
             loadMoreBtn.style.display = 'inline-block';
         } else {
             loadMoreBtn.style.display = 'none';
@@ -1355,11 +1445,27 @@ document.addEventListener('DOMContentLoaded', function() {
 
         if (searchInput) searchInput.addEventListener('input', debouncedSearch);
 
+        const filterCourse = document.getElementById('filterCourse');
+        const filterYear = document.getElementById('filterYear');
+        const filterSession = document.getElementById('filterSession');
+        const triggerFilterSearch = () => {
+            if (currentUser) {
+                performSearch();
+            } else {
+                // Show the same gated signup/search modal as the search box
+                openSearchGateModal();
+            }
+        };
+
+        if (filterCourse) filterCourse.addEventListener('change', triggerFilterSearch);
+        if (filterYear) filterYear.addEventListener('change', triggerFilterSearch);
+        if (filterSession) filterSession.addEventListener('change', triggerFilterSearch);
+
 
 
         // Load More button for PYQs
         document.getElementById('loadMoreBtn').addEventListener('click', async function() {
-            if (pyqHasMore && !document.getElementById('searchInput').value.trim()) {
+            if (pyqHasMore && !document.getElementById('searchInput').value.trim() && !hasActivePyqFilters()) {
                 await loadCollectionPage('pyqs', true);
             }
             currentPage++;
@@ -1402,10 +1508,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Search function — now queries Firestore server when a search term is entered
     window.performSearch = async function() {
-        const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+        const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+        const filters = getPyqFilterState();
+        const filtersActive = hasActivePyqFilters();
 
         // Only gate search for unauthenticated visitors.
-        if (searchTerm.trim() && !currentUser) {
+        if ((searchTerm || filtersActive) && !currentUser) {
             openSearchGateModal();
             return;
         }
@@ -1427,7 +1535,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         if (activeTab === '#nav-pyq') {
-            if (!searchTerm.trim()) {
+            if (!searchTerm && !filtersActive) {
                 // Empty search — show cached/paginated data
                 filteredPyqs = [...allData.pyqs];
                 currentPage = 1;
@@ -1435,8 +1543,24 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
-            // Query server for all PYQs, then filter by substring match (case-insensitive)
-            const results = await fetchAndFilterCollection('pyqs', pyq => (pyq.title || '').toLowerCase().includes(searchTerm));
+            // Query server for all PYQs, then filter by search text and selected filters.
+            const results = await fetchAndFilterCollection('pyqs', pyq => {
+                const title = (pyq.title || '').toLowerCase();
+                const session = (pyq.session || '').toLowerCase();
+                const semester = getPyqSemesterValue(pyq);
+                const year = String(pyq.year || extractYearFromTitle(pyq.title || ''));
+
+                // Normalize course/title for robust matching (handles B.Com vs BCom etc.)
+                const courseNormalized = normalizeForCompare(pyq.course || pyq.category || '');
+                const titleNormalized = normalizeForCompare(pyq.title || '');
+
+                const matchesSearch = !searchTerm || title.includes(searchTerm) || courseNormalized.includes(searchTerm) || session.includes(searchTerm) || year.includes(searchTerm);
+                const matchesCourse = !filters.course || courseNormalized.includes(filters.course) || titleNormalized.includes(filters.course);
+                const matchesYear = !filters.year || semester === filters.year;
+                const matchesSession = !filters.session || session.includes(filters.session);
+
+                return matchesSearch && matchesCourse && matchesYear && matchesSession;
+            });
             filteredPyqs = results;
             currentPage = 1;
             renderPYQs();
