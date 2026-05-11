@@ -90,6 +90,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const session = document.getElementById('pyqSession').value.trim();
         const branch = document.getElementById('pyqBranch').value.trim();
         const file = document.getElementById('pyqFile').value;
+        const file2 = document.getElementById('pyqFile2').value.trim();
 
         if (!course || !semester || !subject || !session || !file) {
             alert('Please fill in course, semester, subject, session, and file URL.');
@@ -132,7 +133,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        addItem('pyqs', { title, file, course, semester, subject: currentSubject, session, branch: branch || '' });
+        addItem('pyqs', { title, file, file2: file2 || '', course, semester, subject: currentSubject, session, branch: branch || '' });
         this.reset();
     });
 
@@ -145,6 +146,7 @@ document.addEventListener('DOMContentLoaded', function() {
             const index = parseInt(document.getElementById('editIndex').value);
             const title = document.getElementById('editTitle').value.trim();
             const file = document.getElementById('editFile').value.trim();
+            const file2 = document.getElementById('editFile2').value.trim();
             
             if (!title || !file) {
                 alert('Title and File URL are required.');
@@ -153,7 +155,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
             if (type === 'pyqs') {
                 const branch = document.getElementById('editBranch').value.trim();
-                editItem(type, index, { title, file, branch: branch || '' });
+                editItem(type, index, { title, file, file2: file2 || '', branch: branch || '' });
             } else {
                 editItem(type, index, { title, file });
             }
@@ -328,6 +330,160 @@ function downloadCsvFile(fileName, csvContent) {
     URL.revokeObjectURL(url);
 }
 
+function normalizeCsvHeader(header) {
+    return (header || '').toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function normalizeCsvValue(value) {
+    if (value === undefined || value === null) {
+        return 'null';
+    }
+
+    const text = String(value).trim();
+    return text ? text : 'null';
+}
+
+function normalizeStoredLink(value) {
+    const text = (value === undefined || value === null) ? '' : String(value).trim();
+    return text && text.toLowerCase() !== 'null' ? text : '';
+}
+
+function parseCsvContent(csvText) {
+    const rows = [];
+    let currentCell = '';
+    let currentRow = [];
+    let inQuotes = false;
+
+    for (let index = 0; index < csvText.length; index += 1) {
+        const character = csvText[index];
+        const nextCharacter = csvText[index + 1];
+
+        if (character === '"') {
+            if (inQuotes && nextCharacter === '"') {
+                currentCell += '"';
+                index += 1;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+
+        if (character === ',' && !inQuotes) {
+            currentRow.push(currentCell);
+            currentCell = '';
+            continue;
+        }
+
+        if ((character === '\n' || character === '\r') && !inQuotes) {
+            if (character === '\r' && nextCharacter === '\n') {
+                index += 1;
+            }
+
+            currentRow.push(currentCell);
+            rows.push(currentRow);
+            currentCell = '';
+            currentRow = [];
+            continue;
+        }
+
+        currentCell += character;
+    }
+
+    currentRow.push(currentCell);
+    rows.push(currentRow);
+
+    return rows
+        .map(row => row.map(cell => cell.trim()))
+        .filter(row => row.some(cell => cell !== ''));
+}
+
+function getCsvRowValue(row, normalizedHeaders, aliases) {
+    for (const alias of aliases) {
+        const key = normalizedHeaders[normalizeCsvHeader(alias)];
+        if (key !== undefined) {
+            return row[key];
+        }
+    }
+
+    return undefined;
+}
+
+async function importPyqCsvFile(file) {
+    const status = document.getElementById('pyqCsvImportStatus');
+
+    if (!file) {
+        alert('Please choose a CSV file first.');
+        return;
+    }
+
+    if (status) {
+        status.textContent = 'Reading CSV file...';
+        status.className = 'small mt-2 text-info';
+    }
+
+    const csvText = await file.text();
+    const rows = parseCsvContent(csvText);
+
+    if (!rows.length) {
+        throw new Error('The CSV file is empty or invalid.');
+    }
+
+    const headers = rows.shift();
+    const normalizedHeaders = {};
+    headers.forEach((header, index) => {
+        normalizedHeaders[normalizeCsvHeader(header)] = index;
+    });
+
+    let importedCount = 0;
+    let skippedCount = 0;
+
+    for (const row of rows) {
+        const collection = normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['collection']));
+        const collectionKey = normalizeCsvHeader(collection);
+
+        if (collectionKey !== 'pyq' && collectionKey !== 'pyqs') {
+            skippedCount += 1;
+            continue;
+        }
+
+        const id = normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['id']));
+        if (id === 'null') {
+            skippedCount += 1;
+            continue;
+        }
+
+        const payload = {
+            title: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['title'])),
+            file: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['server 1', 'server1', 'file'])),
+            file2: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['server 2', 'server2', 'file2'])),
+            course: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['course'])),
+            semester: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['semester'])),
+            session: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['session']))
+        };
+
+        await db.collection('pyqs').doc(id).set(payload, { merge: true });
+
+        const existingIndex = allData.pyqs.findIndex(item => item.id === id);
+        if (existingIndex !== -1) {
+            allData.pyqs[existingIndex] = { ...allData.pyqs[existingIndex], id, ...payload };
+        } else {
+            allData.pyqs.push({ id, ...payload });
+        }
+
+        importedCount += 1;
+    }
+
+    pyqsLoaded = false;
+    if (typeof loadPyqsOnDemand === 'function') {
+        loadPyqsOnDemand();
+    }
+
+    if (status) {
+        status.textContent = `Imported ${importedCount} PYQ row(s). Skipped ${skippedCount}.`;
+        status.className = 'small mt-2 text-success';
+    }
+}
+
 async function loadCollectionSnapshot(collectionName) {
     const snapshot = await db.collection(collectionName).get();
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -349,7 +505,8 @@ async function downloadAllCsvBackup() {
                 id: item.id || '',
                 name: '',
                 title: item.title || '',
-                file: item.file || '',
+                'Server 1': item.file || item.server1 || '',
+                'Server 2': item.file2 || item.server2 || '',
                 course: item.course || '',
                 semester: item.semester || '',
                 session: item.session || '',
@@ -394,7 +551,7 @@ async function downloadAllCsvBackup() {
             });
         });
 
-        const csv = buildCsvContent(allRows, ['collection', 'id', 'name', 'title', 'file', 'course', 'semester', 'session', 'email', 'phone', 'role', 'avatar']);
+        const csv = buildCsvContent(allRows, ['collection', 'id', 'name', 'title', 'Server 1', 'Server 2', 'course', 'semester', 'session', 'email', 'phone', 'role', 'avatar']);
         downloadCsvFile('database-backup.csv', csv);
         alert('CSV backup downloaded successfully.');
     } catch (error) {
@@ -452,7 +609,11 @@ function renderPyqs() {
         return;
     }
 
-    list.innerHTML = allData.pyqs.map((pyq, index) => `
+    list.innerHTML = allData.pyqs.map((pyq, index) => {
+        const primaryFile = normalizeStoredLink(pyq.file || pyq.server1);
+        const secondaryFile = normalizeStoredLink(pyq.file2 || pyq.server2);
+
+        return `
         <article class="resource-card">
             <div class="resource-top">
                 <div>
@@ -465,14 +626,19 @@ function renderPyqs() {
                     </div>
                 </div>
                 <div class="resource-actions">
-                    <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(pyq.file || '')})'>Copy URL</button>
+                    ${primaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(primaryFile)})'>Copy Server 1</button>` : ''}
+                    ${secondaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(secondaryFile)})'>Copy Server 2</button>` : ''}
                     <button class="btn btn-sm btn-outline-primary" onclick="editPyq(${index})">Edit</button>
                     <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('pyqs', ${index})">Delete</button>
                 </div>
             </div>
-            <div class="resource-detail">${escapeHtml(pyq.file)}</div>
+            <div class="resource-detail">
+                <div>Server 1: ${escapeHtml(primaryFile)}</div>
+                <div>Server 2: ${escapeHtml(secondaryFile || 'null')}</div>
+            </div>
         </article>
-    `).join('');
+    `;
+    }).join('');
 
     updateDashboardStats();
 }
@@ -607,7 +773,8 @@ window.editPyq = function(index) {
     document.getElementById('editType').value = 'pyqs';
     document.getElementById('editIndex').value = index;
     document.getElementById('editTitle').value = pyq.title;
-    document.getElementById('editFile').value = pyq.file;
+    document.getElementById('editFile').value = normalizeStoredLink(pyq.file || pyq.server1);
+    document.getElementById('editFile2').value = normalizeStoredLink(pyq.file2 || pyq.server2);
     document.getElementById('editBranch').value = pyq.branch || '';
     document.getElementById('editCourseDiv').style.display = 'none';
     document.getElementById('editSemesterDiv').style.display = 'none';
@@ -1014,6 +1181,39 @@ document.addEventListener('DOMContentLoaded', function() {
         
         // Load contributors on page init
         loadContributors();
+    }
+
+    const csvImportButton = document.getElementById('pyqCsvImportBtn');
+    const csvImportInput = document.getElementById('pyqCsvFile');
+    if (csvImportButton && csvImportInput) {
+        csvImportButton.addEventListener('click', async function() {
+            const file = csvImportInput.files && csvImportInput.files[0];
+            if (!file) {
+                alert('Please choose a CSV file to import.');
+                return;
+            }
+
+            csvImportButton.disabled = true;
+            const status = document.getElementById('pyqCsvImportStatus');
+            if (status) {
+                status.textContent = 'Importing CSV...';
+                status.className = 'small mt-2 text-info';
+            }
+
+            try {
+                await importPyqCsvFile(file);
+                csvImportInput.value = '';
+            } catch (error) {
+                console.error('Error importing CSV:', error);
+                if (status) {
+                    status.textContent = error.message || 'CSV import failed.';
+                    status.className = 'small mt-2 text-danger';
+                }
+                alert('CSV import failed: ' + error.message);
+            } finally {
+                csvImportButton.disabled = false;
+            }
+        });
     }
 });
 

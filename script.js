@@ -1304,7 +1304,13 @@ document.addEventListener('DOMContentLoaded', function() {
             pyqList.innerHTML = '';
         }
 
-        pyqList.insertAdjacentHTML('beforeend', pyqsToRender.map((pyq, index) => `
+        pyqList.insertAdjacentHTML('beforeend', pyqsToRender.map((pyq, index) => {
+            const primaryFile = getPyqPrimaryLink(pyq);
+            const secondaryFile = getPyqSecondaryLink(pyq);
+            const shareTarget = primaryFile || secondaryFile;
+            const safeTitle = escapeJsString(pyq.title || 'Document');
+
+            return `
             <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
                 <div class="pyq-info">
                     <div class="pdf-icon">
@@ -1313,20 +1319,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     <div class="pyq-details">
                         <h5 class="pyq-title">${pyq.title}</h5>
                         <div class="pyq-actions">
-                            <button class="btn btn-action btn-preview" onclick="previewPDF('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
-                                <i class="${getPreviewButtonMeta(pyq.file).icon}"></i> ${getPreviewButtonMeta(pyq.file).label}
-                            </button>
-                            <button class="btn btn-action btn-share" onclick="shareDocument('${pyq.file}', '${pyq.title.replace(/'/g, "\\'")}')">
+                            ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(primaryFile)}', '${safeTitle}')">
+                                <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Preview Server 1
+                            </button>` : ''}
+                            ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(secondaryFile)}', '${safeTitle}')">
+                                <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Preview Server 2
+                            </button>` : ''}
+                            ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
                                 <i class="fas fa-share-alt"></i> Share
                             </button>
-                            <button class="btn btn-action btn-bookmark ${isBookmarked('pyqs', pyq.file) ? 'bookmarked' : ''}" onclick="toggleBookmark('pyqs', '${pyq.file}')">
-                                <i class="fas fa-bookmark"></i> ${isBookmarked('pyqs', pyq.file) ? 'Bookmarked' : 'Bookmark'}
-                            </button>
+                            <button class="btn btn-action btn-bookmark ${isBookmarked('pyqs', shareTarget) ? 'bookmarked' : ''}" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')">
+                                <i class="fas fa-bookmark"></i> ${isBookmarked('pyqs', shareTarget) ? 'Bookmarked' : 'Bookmark'}
+                            </button>` : ''}
                         </div>
                     </div>
                 </div>
             </li>
-        `).join(''));
+        `;
+        }).join(''));
 
         // Show or hide Load More button
         const loadMoreBtn = document.getElementById('loadMoreBtn');
@@ -1346,7 +1356,7 @@ document.addEventListener('DOMContentLoaded', function() {
         // Collect all bookmarked items
         let bookmarkedItems = [];
         bookmarks.pyqs.forEach(filePath => {
-            const item = allData.pyqs.find(pyq => pyq.file === filePath);
+            const item = allData.pyqs.find(pyq => pyq.file === filePath || pyq.file2 === filePath || pyq.server1 === filePath || pyq.server2 === filePath);
             if (item) {
                 bookmarkedItems.push({ ...item, type: 'pyq' });
             }
@@ -1380,6 +1390,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
         document.getElementById('bookmarksList').insertAdjacentHTML('beforeend', bookmarksToRender.map((item, index) => {
             if (item.type === 'pyq') {
+                const primaryFile = getPyqPrimaryLink(item);
+                const secondaryFile = getPyqSecondaryLink(item);
+                const shareTarget = primaryFile || secondaryFile;
+                const safeTitle = escapeJsString(item.title || 'Document');
+
                 return `
                     <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
                         <div class="pyq-info">
@@ -1389,15 +1404,18 @@ document.addEventListener('DOMContentLoaded', function() {
                             <div class="pyq-details">
                                 <h5 class="pyq-title">${item.title}</h5>
                                 <div class="pyq-actions">
-                                    <button class="btn btn-action btn-preview" onclick="previewPDF('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
-                                        <i class="${getPreviewButtonMeta(item.file).icon}"></i> ${getPreviewButtonMeta(item.file).label}
-                                    </button>
-                                    <button class="btn btn-action btn-share" onclick="shareDocument('${item.file}', '${item.title.replace(/'/g, "\\'")}')">
+                                    ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(primaryFile)}', '${safeTitle}')">
+                                        <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Preview Server 1
+                                    </button>` : ''}
+                                    ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(secondaryFile)}', '${safeTitle}')">
+                                        <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Preview Server 2
+                                    </button>` : ''}
+                                    ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
                                         <i class="fas fa-share-alt"></i> Share
                                     </button>
-                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${item.file}')">
+                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')">
                                         <i class="fas fa-bookmark"></i> Bookmarked
-                                    </button>
+                                    </button>` : ''}
                                 </div>
                             </div>
                         </div>
@@ -1413,6 +1431,35 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             loadMoreBookmarksBtn.style.display = 'none';
         }
+    }
+
+    function normalizePyqLink(value) {
+        if (value === undefined || value === null) {
+            return '';
+        }
+
+        const text = String(value).trim();
+        if (!text || text.toLowerCase() === 'null') {
+            return '';
+        }
+
+        return text;
+    }
+
+    function getPyqPrimaryLink(pyq) {
+        return normalizePyqLink(pyq && (pyq.file || pyq.server1));
+    }
+
+    function getPyqSecondaryLink(pyq) {
+        return normalizePyqLink(pyq && (pyq.file2 || pyq.server2));
+    }
+
+    function escapeJsString(value) {
+        return (value || '')
+            .toString()
+            .replace(/\\/g, '\\\\')
+            .replace(/'/g, "\\'")
+            .replace(/\r?\n/g, ' ');
     }
 
     function showEmptyState(containerId, message) {
@@ -1622,7 +1669,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // PDF view function
     window.previewPDF = function(filePath, title) {
-        if (!filePath) {
+        if (!filePath || filePath === 'null') {
             alert('No document link available.');
             return;
         }

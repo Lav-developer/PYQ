@@ -3832,4 +3832,30 @@ body > * {
   .content-section {
     padding-top: 2.25rem;
   }
+
+  /* Improve action button layout on very small screens */
+  .pyq-actions, .syllabus-actions {
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .btn-action {
+    padding: 6px 8px;
+    font-size: 13px;
+    min-width: 0;
+    flex: 0 1 auto;
+    white-space: nowrap;
+  }
+
+  /* Allow icons to remain visible if text is long */
+  .btn-action i { font-size: 14px; display: inline-block; }
+
+  /* On very narrow screens, slightly reduce text and padding again */
+  @media (max-width: 420px) {
+    .btn-action {
+      padding: 6px 6px;
+      font-size: 12px;
+    }
+  }
 }
