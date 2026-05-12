@@ -13,7 +13,6 @@ firebase.initializeApp(firebaseConfig);
 
 // Firebase Storage and Firestore references
 const db = firebase.firestore();
-const storage = firebase.storage();
 const auth = firebase.auth();
 
 db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
@@ -974,13 +973,45 @@ function loadImageElementFromFile(file) {
     });
 }
 
-async function convertImagesToPdfUnderLimit(imageFiles, maxBytes, setStatus) {
-    if (!window.jspdf || !window.jspdf.jsPDF) {
-        throw new Error('PDF conversion library not loaded. Please refresh and try again.');
+let jsPdfLoaderPromise = null;
+
+function loadJsPdfLibrary() {
+    if (window.jspdf && window.jspdf.jsPDF) {
+        return Promise.resolve(window.jspdf);
     }
 
+    if (jsPdfLoaderPromise) {
+        return jsPdfLoaderPromise;
+    }
+
+    jsPdfLoaderPromise = new Promise((resolve, reject) => {
+        const existingScript = document.querySelector('script[data-jspdf-loader="true"]');
+        if (existingScript) {
+            existingScript.addEventListener('load', () => resolve(window.jspdf));
+            existingScript.addEventListener('error', () => reject(new Error('Failed to load PDF converter.')));
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js';
+        script.async = true;
+        script.dataset.jspdfLoader = 'true';
+        script.onload = () => resolve(window.jspdf);
+        script.onerror = () => reject(new Error('Failed to load PDF converter.'));
+        document.head.appendChild(script);
+    }).catch(error => {
+        jsPdfLoaderPromise = null;
+        throw error;
+    });
+
+    return jsPdfLoaderPromise;
+}
+
+async function convertImagesToPdfUnderLimit(imageFiles, maxBytes, setStatus) {
+    const jspdfNamespace = await loadJsPdfLibrary();
+
     const images = await Promise.all(imageFiles.map(file => loadImageElementFromFile(file)));
-    const { jsPDF } = window.jspdf;
+    const { jsPDF } = jspdfNamespace;
     const attempts = [
         { maxDimension: 2000, quality: 0.9 },
         { maxDimension: 1700, quality: 0.82 },
@@ -1422,6 +1453,10 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function bootstrapContent() {
+        if (!document.getElementById('pyqList')) {
+            return;
+        }
+
         try {
             await loadCollectionPage('pyqs');
 
@@ -1431,7 +1466,6 @@ document.addEventListener('DOMContentLoaded', function() {
             loadBookmarks();
             renderPYQs(filteredPyqs);
             setupEventListeners();
-            setupUserUploadHandler();
             updatePyqFilterUI();
         } catch (error) {
             console.error('Error loading data from Firestore:', error);
@@ -1440,6 +1474,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     bootstrapContent();
+
+    setupUserUploadHandler();
 
     // Load and render contributors from Firestore
     function loadContributors() {
@@ -1500,9 +1536,11 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Load contributors when page loads
-    loadContributors();
-    loadAggregatedStats();
+    // Load contributors only on pages that render the contributors grid.
+    if (document.getElementById('contributorsGrid')) {
+        loadContributors();
+        loadAggregatedStats();
+    }
 
     function renderPYQs(pyqs) {
         const startIndex = (currentPage - 1) * itemsPerPage;

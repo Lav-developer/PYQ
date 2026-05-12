@@ -34,28 +34,10 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="DSMNRU Archive">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css"/>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/Swiper/8.4.5/swiper-bundle.min.css"/>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Swiper/8.4.5/swiper-bundle.min.js"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/clipboard.js/2.0.11/clipboard.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment-timezone/0.5.34/moment-timezone-with-data.min.js"></script>
-    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <script src="https://www.google.com/recaptcha/api.js" async defer></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-storage-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-functions-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-remote-config-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-messaging-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-performance-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth.js"></script>
 
 
     <!-- SEO and Social Media Tags -->
@@ -151,10 +133,11 @@
                     </div>
                 </div>
                 <p class="subtitle">Your Gateway to Academic Excellence</p>
-                <div class="hero-highlights" aria-label="Site highlights">
-                    <span class="hero-highlight"><i class="fas fa-layer-group"></i> Curated PYQs</span>
-                    <span class="hero-highlight"><i class="fas fa-bookmark"></i> Smart bookmarks</span>
-                    <span class="hero-highlight"><i class="fas fa-bolt"></i> Fast preview and download</span>
+
+                <div class="page-nav" aria-label="Site sections">
+                    <a class="page-nav-link active" href="index.html"><i class="fas fa-file-alt"></i> PYQs</a>
+                    <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
+                    <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
                 </div>
                 
                 <!-- Search Box -->
@@ -301,110 +284,6 @@
         </div>
     </main>
 
-        <!-- Student Tools Section -->
-    <section class="student-tools-section py-5">
-        <div class="container">
-            <div class="section-header text-center">
-                <h2><i class="fas fa-tools"></i> Student Tools</h2>
-                <p class="section-description">Essential tools to help you excel in your academic journey</p>
-            </div>
-            
-            <div class="tools-grid">
-                <!-- CGPA Calculator Tool -->
-                <div class="tool-card">
-                    <div class="tool-icon">
-                        <i class="fas fa-calculator"></i>
-                    </div>
-                    <div class="tool-content">
-                        <h3 class="tool-title">CGPA Calculator</h3>
-                        <p class="tool-description">
-                            Calculate your Cumulative Grade Point Average (CGPA) and Semester Grade Point Average (SGPA) 
-                            easily with our interactive calculator. Track your academic performance semester by semester.
-                        </p>
-                        <div class="tool-actions">
-                            <button class="btn-tool-primary" id="openCgpaBtn">
-                                <i class="fas fa-calculator"></i> Open CGPA Calculator
-                            </button>
-                            <button class="btn-tool-info" onclick="showToolInfo('cgpa')">
-                                <i class="fas fa-info-circle"></i> Learn More
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Coming Soon Tools -->
-                <div class="tool-card attendance-card">
-                    <div class="tool-icon">
-                        <i class="fas fa-calendar-check"></i>
-                    </div>
-                    <div class="tool-content">
-                        <h3 class="tool-title">Attendance Tracker</h3>
-                        <p class="tool-description">Track attendance per subject, mark present/absent, and see percentage & warnings.</p>
-                        <div class="attendance-summary">
-                            <span id="attendanceSubjects">0 subjects</span>
-                            <span id="attendanceWarn">0 near limit</span>
-                        </div>
-                        <div class="tool-actions">
-                            <button class="btn btn-tool-primary" id="openAttendanceBtn">
-                                <i class="fas fa-user-check"></i> Open Attendance Tracker
-                            </button>
-                            <button class="btn-tool-info" onclick="showToolInfo('attendance')">
-                                <i class="fas fa-info-circle"></i> Learn More
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="tool-card study-planner-card">
-                    <div class="tool-icon">
-                        <i class="fas fa-book-open"></i>
-                    </div>
-                    <div class="tool-content">
-                        <h3 class="tool-title">Study Planner</h3>
-                        <p class="tool-description">Create personalized study schedules, set reminders for assignments and exams, and track your study progress effectively.</p>
-                        <div class="planner-summary">
-                            <div class="planner-stats">
-                                <span id="plannerCount">0 tasks</span>
-                                <span id="plannerCompleted">0 completed</span>
-                            </div>
-                            <div class="planner-progress">
-                                <div class="planner-progress-bar"><div id="plannerProgressFill" style="width:0%"></div></div>
-                            </div>
-                        </div>
-                        <div class="tool-actions">
-                            <button class="btn btn-tool-primary" id="openPlannerBtn">
-                                <i class="fas fa-tasks"></i> Open Study Planner
-                            </button>
-                            <button class="btn-tool-info" onclick="showToolInfo('planner')">
-                                <i class="fas fa-info-circle"></i> Learn More
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Request New Tool -->
-                <div class="tool-card request-tool">
-                    <div class="tool-icon">
-                        <i class="fas fa-plus-circle"></i>
-                    </div>
-                    <div class="tool-content">
-                        <h3 class="tool-title">Request a Tool</h3>
-                        <p class="tool-description">
-                            Have an idea for a tool that would help DSMNRU students? Let us know and we'll 
-                            consider building it for the community.
-                        </p>
-                        <div class="tool-actions">
-                            <a href="https://t.me/dsmnru_bot" target="_blank" class="btn-tool-secondary">
-                                <i class="fab fa-telegram-plane"></i> Suggest Tool
-                            </a>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-
     <!-- Upload Section -->
     <section class="upload-section py-5">
         <div class="container">
@@ -438,8 +317,8 @@
                                     </div>
                                     <div class="mb-3">
                                         <label for="uploadFile" class="form-label">PDF or Images <span class="text-danger">*</span></label>
-                                        <input type="file" class="form-control" id="uploadFile" accept=".pdf,image/*" multiple capture="environment" required>
-                                        <small class="form-text text-muted d-block mt-2">You can upload one PDF directly, or select/click multiple images. Images are auto-converted into one PDF. Final PDF must be 10MB or less.</small>
+                                        <input type="file" class="form-control" id="uploadFile" accept=".pdf,image/*" multiple required>
+                                        <small class="form-text text-muted d-block mt-2">You can upload one PDF directly, or select multiple images from your gallery. Images are auto-converted into one PDF. Final PDF must be 10MB or less.</small>
                                         <div id="uploadFilePreview" class="upload-file-preview" style="display: none;" aria-live="polite">
                                             <div class="upload-file-preview-head">
                                                 <span id="uploadFilePreviewSummary">No files selected</span>
@@ -478,19 +357,6 @@
         </div>
     </section>
 
-    <!-- Contributors Section -->
-    <section class="contributors-section py-5">
-        <div class="container">
-            <div class="section-header">
-                <h2><i class="fas fa-users"></i> The heroes who made this archive possible</h2>
-            </div>
-            <div class="contributors-grid" id="contributorsGrid">
-                <!-- Contributors will be loaded here from Firestore -->
-            </div>
-        </div>
-    </section>
-
-<script async src="https://comments.app/js/widget.js?3" data-comments-app-website="ym_nXfeP" data-limit="5" data-dislikes="1" data-outlined="1" data-colorful="1" data-dark="1"></script>
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-content">
@@ -965,7 +831,6 @@
     <!-- Bootstrap JS -->
      
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <!-- Custom JS -->
     <script src="script.js"></script>
 </body>
