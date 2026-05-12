@@ -21,14 +21,27 @@ function isAdminUser(user) {
     return !!user && user.email === ADMIN_EMAIL;
 }
 
+function updateCsvWidgetVisibility(user) {
+    const csvWidget = document.getElementById('csvWidget');
+    if (!csvWidget) {
+        return;
+    }
+
+    const isAdmin = isAdminUser(user);
+    csvWidget.style.display = isAdmin ? 'flex' : 'none';
+    csvWidget.setAttribute('aria-hidden', isAdmin ? 'false' : 'true');
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     setupSectionCollapseBehavior();
+    updateCsvWidgetVisibility(null);
 
     // Auth state listener
     auth.onAuthStateChanged(user => {
         if (user) {
             if (!isAdminUser(user)) {
                 auth.signOut();
+                updateCsvWidgetVisibility(null);
                 document.getElementById('loginError').textContent = 'You do not have admin access.';
                 document.getElementById('loginError').style.display = 'block';
                 document.getElementById('loginSection').style.display = 'block';
@@ -36,11 +49,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
             // User is signed in
+            updateCsvWidgetVisibility(user);
             document.getElementById('loginSection').style.display = 'none';
             document.getElementById('adminSection').style.display = 'block';
             loadData();
         } else {
             // User is signed out
+            updateCsvWidgetVisibility(null);
             resetLazyLoadState();
             document.getElementById('loginSection').style.display = 'block';
             document.getElementById('adminSection').style.display = 'none';
@@ -330,158 +345,9 @@ function downloadCsvFile(fileName, csvContent) {
     URL.revokeObjectURL(url);
 }
 
-function normalizeCsvHeader(header) {
-    return (header || '').toString().trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function normalizeCsvValue(value) {
-    if (value === undefined || value === null) {
-        return 'null';
-    }
-
-    const text = String(value).trim();
-    return text ? text : 'null';
-}
-
 function normalizeStoredLink(value) {
     const text = (value === undefined || value === null) ? '' : String(value).trim();
     return text && text.toLowerCase() !== 'null' ? text : '';
-}
-
-function parseCsvContent(csvText) {
-    const rows = [];
-    let currentCell = '';
-    let currentRow = [];
-    let inQuotes = false;
-
-    for (let index = 0; index < csvText.length; index += 1) {
-        const character = csvText[index];
-        const nextCharacter = csvText[index + 1];
-
-        if (character === '"') {
-            if (inQuotes && nextCharacter === '"') {
-                currentCell += '"';
-                index += 1;
-            } else {
-                inQuotes = !inQuotes;
-            }
-            continue;
-        }
-
-        if (character === ',' && !inQuotes) {
-            currentRow.push(currentCell);
-            currentCell = '';
-            continue;
-        }
-
-        if ((character === '\n' || character === '\r') && !inQuotes) {
-            if (character === '\r' && nextCharacter === '\n') {
-                index += 1;
-            }
-
-            currentRow.push(currentCell);
-            rows.push(currentRow);
-            currentCell = '';
-            currentRow = [];
-            continue;
-        }
-
-        currentCell += character;
-    }
-
-    currentRow.push(currentCell);
-    rows.push(currentRow);
-
-    return rows
-        .map(row => row.map(cell => cell.trim()))
-        .filter(row => row.some(cell => cell !== ''));
-}
-
-function getCsvRowValue(row, normalizedHeaders, aliases) {
-    for (const alias of aliases) {
-        const key = normalizedHeaders[normalizeCsvHeader(alias)];
-        if (key !== undefined) {
-            return row[key];
-        }
-    }
-
-    return undefined;
-}
-
-async function importPyqCsvFile(file) {
-    const status = document.getElementById('pyqCsvImportStatus');
-
-    if (!file) {
-        alert('Please choose a CSV file first.');
-        return;
-    }
-
-    if (status) {
-        status.textContent = 'Reading CSV file...';
-        status.className = 'small mt-2 text-info';
-    }
-
-    const csvText = await file.text();
-    const rows = parseCsvContent(csvText);
-
-    if (!rows.length) {
-        throw new Error('The CSV file is empty or invalid.');
-    }
-
-    const headers = rows.shift();
-    const normalizedHeaders = {};
-    headers.forEach((header, index) => {
-        normalizedHeaders[normalizeCsvHeader(header)] = index;
-    });
-
-    let importedCount = 0;
-    let skippedCount = 0;
-
-    for (const row of rows) {
-        const collection = normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['collection']));
-        const collectionKey = normalizeCsvHeader(collection);
-
-        if (collectionKey !== 'pyq' && collectionKey !== 'pyqs') {
-            skippedCount += 1;
-            continue;
-        }
-
-        const id = normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['id']));
-        if (id === 'null') {
-            skippedCount += 1;
-            continue;
-        }
-
-        const payload = {
-            title: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['title'])),
-            file: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['server 1', 'server1', 'file'])),
-            file2: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['server 2', 'server2', 'file2'])),
-            course: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['course'])),
-            semester: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['semester'])),
-            session: normalizeCsvValue(getCsvRowValue(row, normalizedHeaders, ['session']))
-        };
-
-        await db.collection('pyqs').doc(id).set(payload, { merge: true });
-
-        const existingIndex = allData.pyqs.findIndex(item => item.id === id);
-        if (existingIndex !== -1) {
-            allData.pyqs[existingIndex] = { ...allData.pyqs[existingIndex], id, ...payload };
-        } else {
-            allData.pyqs.push({ id, ...payload });
-        }
-
-        importedCount += 1;
-    }
-
-    pyqsLoaded = false;
-    if (typeof loadPyqsOnDemand === 'function') {
-        loadPyqsOnDemand();
-    }
-
-    if (status) {
-        status.textContent = `Imported ${importedCount} PYQ row(s). Skipped ${skippedCount}.`;
-        status.className = 'small mt-2 text-success';
-    }
 }
 
 async function loadCollectionSnapshot(collectionName) {
@@ -1183,38 +1049,6 @@ document.addEventListener('DOMContentLoaded', function() {
         loadContributors();
     }
 
-    const csvImportButton = document.getElementById('pyqCsvImportBtn');
-    const csvImportInput = document.getElementById('pyqCsvFile');
-    if (csvImportButton && csvImportInput) {
-        csvImportButton.addEventListener('click', async function() {
-            const file = csvImportInput.files && csvImportInput.files[0];
-            if (!file) {
-                alert('Please choose a CSV file to import.');
-                return;
-            }
-
-            csvImportButton.disabled = true;
-            const status = document.getElementById('pyqCsvImportStatus');
-            if (status) {
-                status.textContent = 'Importing CSV...';
-                status.className = 'small mt-2 text-info';
-            }
-
-            try {
-                await importPyqCsvFile(file);
-                csvImportInput.value = '';
-            } catch (error) {
-                console.error('Error importing CSV:', error);
-                if (status) {
-                    status.textContent = error.message || 'CSV import failed.';
-                    status.className = 'small mt-2 text-danger';
-                }
-                alert('CSV import failed: ' + error.message);
-            } finally {
-                csvImportButton.disabled = false;
-            }
-        });
-    }
 });
 
 // Contributor edits/removals removed from admin panel.

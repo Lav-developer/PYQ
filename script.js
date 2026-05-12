@@ -859,9 +859,197 @@ function openBookmarksModal() {
 }
 
 // User Upload Handler
+function isImageFile(file) {
+    return !!file && typeof file.type === 'string' && file.type.startsWith('image/');
+}
+
+function isPdfFile(file) {
+    return !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name || ''));
+}
+
+function formatFileSize(bytes) {
+    if (!Number.isFinite(bytes) || bytes <= 0) {
+        return '0 B';
+    }
+
+    const units = ['B', 'KB', 'MB', 'GB'];
+    let size = bytes;
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+        size /= 1024;
+        unitIndex += 1;
+    }
+
+    const precision = unitIndex === 0 ? 0 : 1;
+    return `${size.toFixed(precision)} ${units[unitIndex]}`;
+}
+
+function renderSelectedUploadFilesPreview(files) {
+    const previewContainer = document.getElementById('uploadFilePreview');
+    const previewSummary = document.getElementById('uploadFilePreviewSummary');
+    const previewPages = document.getElementById('uploadFilePreviewPages');
+    const previewList = document.getElementById('uploadFilePreviewList');
+
+    if (!previewContainer || !previewSummary || !previewPages || !previewList) {
+        return;
+    }
+
+    const selectedFiles = Array.from(files || []);
+    previewList.innerHTML = '';
+    previewContainer.classList.remove('is-warning');
+
+    if (!selectedFiles.length) {
+        previewContainer.style.display = 'none';
+        previewSummary.textContent = 'No files selected';
+        previewPages.textContent = 'Estimated pages: 0';
+        return;
+    }
+
+    const imageFiles = selectedFiles.filter(isImageFile);
+    const pdfFiles = selectedFiles.filter(isPdfFile);
+    const unsupportedFiles = selectedFiles.filter(file => !isImageFile(file) && !isPdfFile(file));
+    const totalSize = selectedFiles.reduce((sum, file) => sum + (file.size || 0), 0);
+
+    let summaryText = `${selectedFiles.length} file(s) selected (${formatFileSize(totalSize)})`;
+    let pagesText = 'Estimated pages: 0';
+
+    if (imageFiles.length && !pdfFiles.length) {
+        pagesText = `Estimated pages after conversion: ~${imageFiles.length}`;
+    } else if (pdfFiles.length === 1 && !imageFiles.length) {
+        const pdfSize = pdfFiles[0].size || 0;
+        summaryText = `1 PDF selected (${formatFileSize(pdfSize)})`;
+        pagesText = 'Estimated pages: using existing PDF';
+    } else if (pdfFiles.length && imageFiles.length) {
+        previewContainer.classList.add('is-warning');
+        pagesText = `Estimated pages: ~${imageFiles.length} (images only)`;
+        summaryText = 'Mixed selection detected (PDF + images). Please choose one mode.';
+    } else if (unsupportedFiles.length) {
+        previewContainer.classList.add('is-warning');
+        pagesText = 'Estimated pages: unsupported file type selected';
+    }
+
+    if (unsupportedFiles.length) {
+        previewContainer.classList.add('is-warning');
+    }
+
+    previewSummary.textContent = summaryText;
+    previewPages.textContent = pagesText;
+    previewContainer.style.display = 'block';
+
+    selectedFiles.forEach(file => {
+        const item = document.createElement('li');
+        const name = document.createElement('span');
+        const size = document.createElement('span');
+        const typeLabel = document.createElement('span');
+
+        name.className = 'file-name';
+        size.className = 'file-size';
+        typeLabel.className = 'file-size';
+        name.textContent = file.name || 'Unnamed file';
+        size.textContent = formatFileSize(file.size || 0);
+        typeLabel.textContent = isPdfFile(file) ? 'PDF' : (isImageFile(file) ? 'Image' : 'File');
+        typeLabel.title = typeLabel.textContent;
+
+        item.title = file.name || 'Unnamed file';
+
+        item.appendChild(name);
+        item.appendChild(typeLabel);
+        item.appendChild(size);
+        previewList.appendChild(item);
+    });
+}
+
+function loadImageElementFromFile(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function() {
+            const image = new Image();
+            image.onload = () => resolve(image);
+            image.onerror = () => reject(new Error(`Failed to read image: ${file.name}`));
+            image.src = reader.result;
+        };
+        reader.onerror = () => reject(new Error(`Failed to load file: ${file.name}`));
+        reader.readAsDataURL(file);
+    });
+}
+
+async function convertImagesToPdfUnderLimit(imageFiles, maxBytes, setStatus) {
+    if (!window.jspdf || !window.jspdf.jsPDF) {
+        throw new Error('PDF conversion library not loaded. Please refresh and try again.');
+    }
+
+    const images = await Promise.all(imageFiles.map(file => loadImageElementFromFile(file)));
+    const { jsPDF } = window.jspdf;
+    const attempts = [
+        { maxDimension: 2000, quality: 0.9 },
+        { maxDimension: 1700, quality: 0.82 },
+        { maxDimension: 1500, quality: 0.76 },
+        { maxDimension: 1300, quality: 0.7 },
+        { maxDimension: 1100, quality: 0.64 },
+        { maxDimension: 900, quality: 0.58 }
+    ];
+
+    for (let attemptIndex = 0; attemptIndex < attempts.length; attemptIndex += 1) {
+        const attempt = attempts[attemptIndex];
+        setStatus(`Converting images to PDF (attempt ${attemptIndex + 1}/${attempts.length})...`);
+
+        const pdf = new jsPDF({ orientation: 'p', unit: 'pt', format: 'a4', compress: true });
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const margin = 20;
+        const contentWidth = pageWidth - margin * 2;
+        const contentHeight = pageHeight - margin * 2;
+
+        for (let imageIndex = 0; imageIndex < images.length; imageIndex += 1) {
+            const image = images[imageIndex];
+
+            const sourceWidth = image.naturalWidth || image.width;
+            const sourceHeight = image.naturalHeight || image.height;
+            const sourceScale = Math.min(1, attempt.maxDimension / Math.max(sourceWidth, sourceHeight));
+            const canvasWidth = Math.max(1, Math.round(sourceWidth * sourceScale));
+            const canvasHeight = Math.max(1, Math.round(sourceHeight * sourceScale));
+
+            const canvas = document.createElement('canvas');
+            canvas.width = canvasWidth;
+            canvas.height = canvasHeight;
+            const ctx = canvas.getContext('2d', { alpha: false });
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+            ctx.drawImage(image, 0, 0, canvasWidth, canvasHeight);
+
+            const imageDataUrl = canvas.toDataURL('image/jpeg', attempt.quality);
+            const fitScale = Math.min(contentWidth / canvasWidth, contentHeight / canvasHeight);
+            const renderWidth = canvasWidth * fitScale;
+            const renderHeight = canvasHeight * fitScale;
+            const x = (pageWidth - renderWidth) / 2;
+            const y = (pageHeight - renderHeight) / 2;
+
+            if (imageIndex > 0) {
+                pdf.addPage();
+            }
+            pdf.addImage(imageDataUrl, 'JPEG', x, y, renderWidth, renderHeight, undefined, 'FAST');
+        }
+
+        const pdfBlob = pdf.output('blob');
+        if (pdfBlob.size <= maxBytes) {
+            return new File([pdfBlob], `images-${Date.now()}.pdf`, { type: 'application/pdf' });
+        }
+    }
+
+    throw new Error('Could not generate a PDF under 10MB. Please upload fewer or clearer-compressed images.');
+}
+
 function setupUserUploadHandler() {
     const uploadForm = document.getElementById('userUploadForm');
+    const uploadFileInput = document.getElementById('uploadFile');
     if (!uploadForm) return;
+
+    if (uploadFileInput) {
+        uploadFileInput.addEventListener('change', function() {
+            renderSelectedUploadFilesPreview(uploadFileInput.files);
+        });
+    }
 
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -870,28 +1058,35 @@ function setupUserUploadHandler() {
         const title = document.getElementById('uploadTitle').value;
         const course = document.getElementById('uploadCourse').value;
         const semester = document.getElementById('uploadSemester').value;
-        const file = document.getElementById('uploadFile').files[0];
+        const selectedFiles = Array.from(document.getElementById('uploadFile').files || []);
 
         if (!uploadName) {
             alert('Please enter your name');
             return;
         }
 
-        if (!file) {
-            alert('Please select a file');
+        if (!selectedFiles.length) {
+            alert('Please select a PDF or images');
             return;
         }
 
-        // Validate file size (unlimited for gofile, but set reasonable limit)
-        const maxSize = 500 * 1024 * 1024; // 500MB max
-        if (file.size > maxSize) {
-            alert('File size exceeds 500MB limit');
+        const imageFiles = selectedFiles.filter(isImageFile);
+        const pdfFiles = selectedFiles.filter(isPdfFile);
+        const unsupportedFiles = selectedFiles.filter(file => !isImageFile(file) && !isPdfFile(file));
+        const maxFinalPdfSize = 10 * 1024 * 1024;
+
+        if (unsupportedFiles.length) {
+            alert('Only PDF or image files are allowed.');
             return;
         }
 
-        // Validate file type
-        if (file.type !== 'application/pdf') {
-            alert('Only PDF files are allowed');
+        if (pdfFiles.length > 1) {
+            alert('Please select only one PDF file.');
+            return;
+        }
+
+        if (pdfFiles.length === 1 && imageFiles.length > 0) {
+            alert('Please upload either one PDF or multiple images, not both together.');
             return;
         }
 
@@ -903,13 +1098,33 @@ function setupUserUploadHandler() {
         statusDiv.style.display = 'block';
         statusMessage.textContent = 'Fetching your profile...';
         progressDiv.style.display = 'block';
+        progressBar.style.width = '10%';
 
         try {
             const userName = uploadName || (currentUser && (currentUser.displayName || currentUser.email)) || 'Anonymous';
             const userCourse = course || 'General';
             const userEmail = currentUser ? currentUser.email || '' : '';
 
+            let file;
+            if (pdfFiles.length === 1) {
+                file = pdfFiles[0];
+                if (file.size > maxFinalPdfSize) {
+                    throw new Error('PDF size exceeds 10MB. Please upload a smaller PDF.');
+                }
+            } else {
+                if (!imageFiles.length) {
+                    throw new Error('Please select one PDF or one or more images.');
+                }
+
+                statusMessage.textContent = 'Preparing images for PDF conversion...';
+                progressBar.style.width = '30%';
+                file = await convertImagesToPdfUnderLimit(imageFiles, maxFinalPdfSize, message => {
+                    statusMessage.textContent = message;
+                });
+            }
+
             statusMessage.textContent = 'Uploading file to database...';
+            progressBar.style.width = '60%';
             // Upload to gofile.io (CORS enabled, unlimited file storage)
             // First, get an available server
             const serverResponse = await fetch('https://api.gofile.io/servers');
@@ -948,7 +1163,7 @@ function setupUserUploadHandler() {
             // gofile.io returns downloadPage URL directly
             const fileUrl = result.data.downloadPage;
 
-            progressBar.style.width = '100%';
+            progressBar.style.width = '90%';
             statusMessage.textContent = 'File uploaded successfully! Saving metadata...';
 
             // Save metadata to Firestore pendingUploads collection
@@ -967,9 +1182,11 @@ function setupUserUploadHandler() {
                 status: 'pending'
             });
 
+            progressBar.style.width = '100%';
             statusMessage.innerHTML = '<strong class="text-success">✓ File uploaded successfully! Our team will review it soon.</strong>';
             progressDiv.style.display = 'none';
             uploadForm.reset();
+            renderSelectedUploadFilesPreview([]);
 
             // Hide success message after 5 seconds
             setTimeout(() => {

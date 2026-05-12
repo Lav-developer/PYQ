@@ -1300,6 +1300,81 @@ body {
   font-weight: var(--font-weight-semibold);
 }
 
+.upload-file-preview {
+  margin-top: var(--space-10);
+  border: 1px solid rgba(var(--color-teal-300-rgb), 0.42);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(180deg, rgba(var(--color-slate-900-rgb), 0.9), rgba(var(--color-charcoal-700), 0.82));
+  padding: var(--space-12);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 10px 24px rgba(0, 0, 0, 0.12);
+}
+
+.upload-file-preview-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-10);
+  color: rgba(241, 245, 249, 0.96);
+  font-size: var(--font-size-sm);
+  margin-bottom: var(--space-8);
+  flex-wrap: wrap;
+}
+
+.upload-file-preview-head span:first-child {
+  font-weight: var(--font-weight-semibold);
+}
+
+.upload-file-preview-head span:last-child {
+  color: var(--color-teal-300);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+}
+
+.upload-file-preview-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-6);
+}
+
+.upload-file-preview-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-10);
+  padding: var(--space-8) var(--space-10);
+  border-radius: var(--radius-xs);
+  background: rgba(var(--color-slate-800-rgb), 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  color: rgba(248, 250, 252, 0.96);
+  font-size: var(--font-size-sm);
+}
+
+.upload-file-preview-list .file-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  color: rgba(248, 250, 252, 0.98);
+}
+
+.upload-file-preview-list .file-size {
+  color: rgba(148, 163, 184, 0.95);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.upload-file-preview.is-warning {
+  border-color: rgba(var(--color-warning-rgb), 0.45);
+}
+
+.upload-file-preview.is-warning .upload-file-preview-head {
+  color: var(--color-warning);
+}
+
 .upload-section .row {
   gap: var(--space-16);
 }
@@ -1323,6 +1398,25 @@ body {
   background: linear-gradient(135deg, var(--color-teal-400), var(--color-primary));
   transform: translateY(-2px);
   box-shadow: 0 8px 16px rgba(50, 168, 160, 0.3);
+}
+
+@media (max-width: 576px) {
+  .upload-file-preview {
+    padding: var(--space-10);
+  }
+
+  .upload-file-preview-head {
+    align-items: flex-start;
+  }
+
+  .upload-file-preview-list li {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .upload-file-preview-list .file-size {
+    margin-left: auto;
+  }
 }
 
 .upload-section .btn-primary:active {

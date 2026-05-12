@@ -437,9 +437,16 @@
                                         </div>
                                     </div>
                                     <div class="mb-3">
-                                        <label for="uploadFile" class="form-label">PDF File <span class="text-danger">*</span></label>
-                                        <input type="file" class="form-control" id="uploadFile" accept=".pdf" required>
-                                        <small class="form-text text-muted d-block mt-2">Max size: 500MB. PDF files only.</small>
+                                        <label for="uploadFile" class="form-label">PDF or Images <span class="text-danger">*</span></label>
+                                        <input type="file" class="form-control" id="uploadFile" accept=".pdf,image/*" multiple capture="environment" required>
+                                        <small class="form-text text-muted d-block mt-2">You can upload one PDF directly, or select/click multiple images. Images are auto-converted into one PDF. Final PDF must be 10MB or less.</small>
+                                        <div id="uploadFilePreview" class="upload-file-preview" style="display: none;" aria-live="polite">
+                                            <div class="upload-file-preview-head">
+                                                <span id="uploadFilePreviewSummary">No files selected</span>
+                                                <span id="uploadFilePreviewPages">Estimated pages: 0</span>
+                                            </div>
+                                            <ul id="uploadFilePreviewList" class="upload-file-preview-list"></ul>
+                                        </div>
                                     </div>
                                     <button type="submit" class="btn btn-primary w-100">
                                         <i class="fas fa-upload"></i> Upload File
@@ -958,6 +965,7 @@
     <!-- Bootstrap JS -->
      
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
     <!-- Custom JS -->
     <script src="script.js"></script>
 </body>
