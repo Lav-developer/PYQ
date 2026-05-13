@@ -36,6 +36,9 @@ document.addEventListener('DOMContentLoaded', function() {
     setupSectionCollapseBehavior();
     updateCsvWidgetVisibility(null);
 
+    // Load courses.json and populate admin selects
+    fetchAdminCoursesJson();
+
     // Auth state listener
     auth.onAuthStateChanged(user => {
         if (user) {
@@ -152,6 +155,91 @@ document.addEventListener('DOMContentLoaded', function() {
         this.reset();
     });
 
+    const csvImportForm = document.getElementById('csvImportForm');
+    if (csvImportForm) {
+        csvImportForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const collectionSelect = document.getElementById('csvImportCollection');
+            const fileInput = document.getElementById('csvImportFile');
+            const selectedCollection = collectionSelect ? collectionSelect.value.trim() : '';
+            const csvFile = fileInput && fileInput.files ? fileInput.files[0] : null;
+
+            if (!selectedCollection) {
+                alert('Please select a collection to import into.');
+                return;
+            }
+
+            if (!csvFile) {
+                alert('Please choose a CSV file.');
+                return;
+            }
+
+            if (!window.Papa) {
+                alert('CSV parser is not available right now. Please reload the page and try again.');
+                return;
+            }
+
+            try {
+                const csvText = await readFileAsText(csvFile);
+                const parsed = window.Papa.parse(csvText, {
+                    header: true,
+                    skipEmptyLines: true,
+                    transformHeader: header => header.trim()
+                });
+
+                if (parsed.errors && parsed.errors.length) {
+                    throw new Error(parsed.errors[0].message || 'Unable to parse CSV.');
+                }
+
+                const rows = Array.isArray(parsed.data) ? parsed.data : [];
+                if (!rows.length) {
+                    alert('No rows found in the CSV file.');
+                    return;
+                }
+
+                let addedCount = 0;
+                let updatedCount = 0;
+                let skippedCount = 0;
+
+                for (const row of rows) {
+                    const normalizedRow = normalizeCsvRow(row);
+                    const rowCollection = normalizeCsvText(normalizedRow.collection) || selectedCollection;
+                    const docId = normalizeCsvText(normalizedRow.id);
+
+                    if (!rowCollection) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    const payload = buildCsvImportPayload(normalizedRow);
+                    delete payload.collection;
+                    delete payload.id;
+
+                    if (!Object.keys(payload).length) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    if (docId) {
+                        await db.collection(rowCollection).doc(docId).set(payload, { merge: true });
+                        updatedCount++;
+                    } else {
+                        await db.collection(rowCollection).add(payload);
+                        addedCount++;
+                    }
+                }
+
+                await refreshCollectionAfterCsvImport(selectedCollection);
+                csvImportForm.reset();
+                alert(`CSV import complete. Added ${addedCount}, updated ${updatedCount}, skipped ${skippedCount}.`);
+            } catch (error) {
+                console.error('Error importing CSV:', error);
+                alert('Error importing CSV: ' + (error && error.message ? error.message : 'Please try again.'));
+            }
+        });
+    }
+
     // Edit PYQ form submit handler
     const editForm = document.getElementById('editForm');
     if (editForm) {
@@ -180,6 +268,54 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
 });
+
+// Admin: load courses.json and populate course select(s)
+let adminCoursesList = [];
+function fetchAdminCoursesJson() {
+    fetch('courses.json')
+        .then(res => {
+            if (!res.ok) throw new Error('Unable to load courses.json');
+            return res.json();
+        })
+        .then(data => {
+            // courses.json has structure { courses: [...] }
+            if (data && Array.isArray(data.courses)) {
+                adminCoursesList = data.courses;
+                populateAdminCourseSelects();
+            }
+        })
+        .catch(err => {
+            console.warn('admin: courses.json not loaded:', err.message);
+        });
+}
+
+function populateAdminCourseSelects() {
+    const select = document.getElementById('pyqCourse');
+    if (!select) return;
+
+    if (!adminCoursesList || !adminCoursesList.length) return;
+    
+    // Clear and rebuild options
+    select.innerHTML = '';
+    
+    // Add placeholder option
+    const placeholderOption = document.createElement('option');
+    placeholderOption.value = '';
+    placeholderOption.disabled = true;
+    placeholderOption.selected = true;
+    placeholderOption.textContent = 'Select course';
+    select.appendChild(placeholderOption);
+    
+    // Add courses from courses.json
+    adminCoursesList.forEach(course => {
+        const label = typeof course === 'string' ? course : (course.name || course.label || '');
+        if (!label) return;
+        const opt = document.createElement('option');
+        opt.value = label;
+        opt.textContent = label;
+        select.appendChild(opt);
+    });
+}
 
 function setupSectionCollapseBehavior() {
     const adminSection = document.getElementById('adminSection');
@@ -331,6 +467,110 @@ function buildCsvContent(rows, columns) {
     const header = columns.join(',');
     const lines = rows.map(row => columns.map(column => escapeCsv(row[column])).join(','));
     return [header, ...lines].join('\n');
+}
+
+function normalizeCsvText(value) {
+    return (value === undefined || value === null ? '' : String(value)).trim();
+}
+
+function normalizeCsvRow(row) {
+    const normalized = {};
+    Object.entries(row || {}).forEach(([key, value]) => {
+        const normalizedKey = key.toLowerCase().trim().replace(/[^a-z0-9]+/g, '');
+        normalized[normalizedKey] = normalizeCsvText(value);
+    });
+    return normalized;
+}
+
+function buildCsvImportPayload(row) {
+    const payload = {};
+    const aliases = {
+        title: 'title',
+        server1: 'file',
+        file: 'file',
+        fileurl: 'file',
+        file1: 'file',
+        server2: 'file2',
+        file2: 'file2',
+        file2url: 'file2',
+        course: 'course',
+        semester: 'semester',
+        session: 'session',
+        subject: 'subject',
+        branch: 'branch',
+        name: 'name',
+        role: 'role',
+        avatar: 'avatar',
+        email: 'email',
+        phone: 'phone',
+        uid: 'uid',
+        status: 'status',
+        downloadurl: 'downloadUrl',
+        studentname: 'studentName',
+        filename: 'fileName',
+        createdat: 'createdAt',
+        uploadedat: 'uploadedAt',
+        signupname: 'signupName',
+        signupemail: 'signupEmail',
+        signupcourse: 'signupCourse'
+    };
+
+    Object.entries(row || {}).forEach(([key, value]) => {
+        if (!value) {
+            return;
+        }
+
+        const mappedKey = aliases[key] || key;
+        if (mappedKey === 'collection' || mappedKey === 'id') {
+            return;
+        }
+
+        payload[mappedKey] = value;
+    });
+
+    return payload;
+}
+
+function readFileAsText(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = function() {
+            resolve(reader.result || '');
+        };
+        reader.onerror = function() {
+            reject(new Error('Unable to read the CSV file.'));
+        };
+        reader.readAsText(file);
+    });
+}
+
+async function refreshCollectionAfterCsvImport(collectionName) {
+    if (collectionName === 'pyqs') {
+        const snapshot = await db.collection('pyqs').get();
+        allData.pyqs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderLists();
+        return;
+    }
+
+    if (collectionName === 'contributors') {
+        const snapshot = await db.collection('contributors').orderBy('name').get();
+        allData.contributors = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderLists();
+        return;
+    }
+
+    if (collectionName === 'users') {
+        const snapshot = await db.collection('users').orderBy('createdAt', 'desc').get();
+        allData.users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderLists();
+        return;
+    }
+
+    if (collectionName === 'pendingUploads') {
+        const snapshot = await db.collection('pendingUploads').where('status', '==', 'pending').get();
+        allData.pendingUploads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        renderLists();
+    }
 }
 
 function downloadCsvFile(fileName, csvContent) {

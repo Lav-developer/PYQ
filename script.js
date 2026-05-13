@@ -22,6 +22,62 @@ db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
     }
 });
 
+// Courses loaded from local courses.json (used to populate course selects)
+let coursesList = [];
+
+// Fetch courses.json and populate course filters on the homepage
+function fetchCoursesJson() {
+    fetch('courses.json')
+        .then(res => {
+            if (!res.ok) throw new Error('Unable to load courses.json');
+            return res.json();
+        })
+        .then(data => {
+            // courses.json has structure { courses: [...] }
+            if (data && Array.isArray(data.courses)) {
+                coursesList = data.courses;
+                try { populateCourseFilter(); } catch (e) { /* ignore */ }
+            }
+        })
+        .catch(err => {
+            console.warn('courses.json not loaded:', err.message);
+        });
+}
+
+// Populate the course select used for filtering on the homepage
+function populateCourseFilter() {
+    const select = document.getElementById('filterCourse');
+    if (!select) return;
+
+    if (!coursesList || !coursesList.length) return;
+
+    // Clear all options and rebuild
+    select.innerHTML = '';
+    
+    // Add "All Courses" option first
+    const allOption = document.createElement('option');
+    allOption.value = '';
+    allOption.textContent = 'All Courses';
+    select.appendChild(allOption);
+
+    // Add courses from courses.json
+    coursesList.forEach(course => {
+        const label = typeof course === 'string' ? course : (course.name || course.label || '');
+        if (!label) return;
+        const opt = document.createElement('option');
+        opt.value = label;
+        opt.textContent = label;
+        select.appendChild(opt);
+    });
+}
+
+// Kick off load on script initialization (ensure DOM is ready)
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', fetchCoursesJson);
+} else {
+    fetchCoursesJson();
+}
+
 // ===== USER AUTHENTICATION & PROFILE MANAGEMENT =====
 
 // Global user state

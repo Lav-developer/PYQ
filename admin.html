@@ -13,6 +13,7 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-storage-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
     <style>
         /* Admin Panel Dark Theme - Matching Website */
         :root {
@@ -775,6 +776,43 @@
             </div>
 
             <div class="dashboard-grid">
+                <div class="card section-card">
+                    <div class="card-header">
+                        <div class="section-header-button mb-0">
+                            <span>
+                                <span class="section-chip"><i class="fas fa-file-import"></i> Bulk import</span>
+                                <span class="d-block mt-2">Upload CSV to add or update records</span>
+                            </span>
+                            <span class="section-header-copy">If a row has an <strong>id</strong>, that document is updated. If id is empty, a new document is created.</span>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <form id="csvImportForm" class="resource-form">
+                            <div class="mb-3">
+                                <label for="csvImportCollection" class="form-label">Target Collection</label>
+                                <select class="form-select" id="csvImportCollection" required>
+                                    <option value="" selected disabled>Select collection</option>
+                                    <option value="pyqs">pyqs</option>
+                                    <option value="syllabus">syllabus</option>
+                                    <option value="contributors">contributors</option>
+                                    <option value="users">users</option>
+                                    <option value="pendingUploads">pendingUploads</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label for="csvImportFile" class="form-label">CSV File</label>
+                                <input type="file" class="form-control" id="csvImportFile" accept=".csv,text/csv" required>
+                            </div>
+                            <div class="alert alert-info">
+                                Expected columns can include <strong>collection</strong>, <strong>id</strong>, <strong>title</strong>, <strong>Server 1</strong>, <strong>Server 2</strong>, <strong>course</strong>, <strong>semester</strong>, and <strong>session</strong>.
+                            </div>
+                            <button type="submit" class="btn btn-primary w-100">
+                                <i class="fas fa-upload me-2"></i> Import CSV
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
                 <div class="card section-card">
                     <div class="card-header">
                         <div class="section-header-button mb-0">
