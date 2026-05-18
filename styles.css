@@ -2393,6 +2393,7 @@ select:-ms-input-placeholder,
   align-items: center;
   width: 100%;
   margin-bottom: 1rem;
+  overflow: visible;
 }
 
 .header-top h1 {
@@ -2405,6 +2406,7 @@ select:-ms-input-placeholder,
   position: relative;
   display: flex;
   align-items: center;
+  z-index: 20;
 }
 
 /* User profile button */
@@ -2489,7 +2491,7 @@ select:-ms-input-placeholder,
   border-radius: 0.5rem;
   min-width: 280px;
   box-shadow: 0 15px 40px rgba(var(--color-teal-500-rgb), 0.25), 0 5px 15px rgba(0, 0, 0, 0.3);
-  z-index: 1000;
+  z-index: 2000;
   margin-top: 0.8rem;
   animation: slideDown 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   backdrop-filter: blur(10px);
@@ -3564,6 +3566,52 @@ body > * {
   color: #05121d;
   border-color: transparent;
   box-shadow: 0 12px 24px rgba(56, 189, 248, 0.24);
+}
+
+.homepage-search-panel {
+  max-width: 960px;
+  margin: 1.5rem auto 0;
+  padding: 1.25rem;
+  border-radius: 24px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.54), rgba(15, 23, 42, 0.34));
+  box-shadow: 0 18px 50px rgba(2, 6, 23, 0.22);
+}
+
+.homepage-search-panel .search-box {
+  max-width: none;
+  margin-bottom: 0;
+}
+
+.homepage-search-panel #pyqFilterPanel {
+  margin-top: 1rem !important;
+}
+
+.homepage-search-panel #pyqFilterPanel .card {
+  background: rgba(15, 23, 42, 0.54);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  border-radius: 20px;
+}
+
+.homepage-search-panel #pyqFilterPanel .card-body {
+  padding: 1.25rem !important;
+}
+
+section[id] {
+  scroll-margin-top: 110px;
+}
+
+.content-section {
+  padding: 3rem 0 1.25rem;
+}
+
+.section-header {
+  max-width: 760px;
+  margin: 0 auto 1.75rem;
+}
+
+.section-description {
+  margin-bottom: 0;
 }
 
 .content-section {

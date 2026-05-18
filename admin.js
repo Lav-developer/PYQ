@@ -342,6 +342,12 @@ function loadData() {
     loadPendingOnDemand();
     loadUsersOnDemand();
 }
+        // Also load feedback count for stats
+        db.collection('feedback').get().then(snap => {
+            document.getElementById('feedbackCount').textContent = snap.size;
+        }).catch(() => {
+            document.getElementById('feedbackCount').textContent = '0';
+        });
 
 function resetLazyLoadState() {
     pyqsLoaded = false;
@@ -1292,3 +1298,143 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Contributor edits/removals removed from admin panel.
+
+// ===================== FEEDBACK MANAGEMENT =====================
+
+let allFeedback = [];
+let feedbackLoaded = false;
+let feedbackFilter = 'all';
+
+function loadFeedbackOnDemand() {
+    if (feedbackLoaded) return;
+    feedbackLoaded = true;
+    loadFeedback();
+}
+
+function loadFeedback() {
+    db.collection('feedback')
+        .orderBy('createdAt', 'desc')
+        .get()
+        .then(snap => {
+            allFeedback = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            updateFeedbackCount();
+            renderFeedback();
+        })
+        .catch(error => {
+            console.error('Error loading feedback:', error);
+            document.getElementById('feedbackList').innerHTML = '<div class="resource-empty">Error loading feedback.</div>';
+        });
+}
+
+function updateFeedbackCount() {
+    const newCount = allFeedback.filter(f => f.status === 'new').length;
+    document.getElementById('feedbackHeaderCount').textContent = allFeedback.length;
+}
+
+function filterFeedback(type) {
+    feedbackFilter = type;
+    renderFeedback();
+}
+
+function renderFeedback() {
+    const list = document.getElementById('feedbackList');
+    if (!list) return;
+
+    let filtered = allFeedback;
+    
+    if (feedbackFilter === 'broken_link') {
+        filtered = allFeedback.filter(f => f.type === 'broken_link');
+    } else if (feedbackFilter === 'pyq_request') {
+        filtered = allFeedback.filter(f => f.type === 'pyq_request');
+    } else if (feedbackFilter === 'new') {
+        filtered = allFeedback.filter(f => f.status === 'new');
+    }
+
+    if (!filtered.length) {
+        list.innerHTML = '<div class="resource-empty">No feedback items to display.</div>';
+        return;
+    }
+
+    list.innerHTML = filtered.map(feedback => {
+        const createdDate = feedback.createdAt ? new Date(feedback.createdAt.toDate()).toLocaleString() : 'Unknown';
+        const isNew = feedback.status === 'new';
+        const isBroken = feedback.type === 'broken_link';
+
+        let content = '';
+        if (isBroken) {
+            content = `
+                <div class="resource-kicker">BROKEN LINK REPORT</div>
+                <p class="resource-title"><strong>Document:</strong> ${escapeHtml(feedback.title || 'N/A')}</p>
+                <p class="resource-detail"><strong>Course:</strong> ${escapeHtml(feedback.course || 'N/A')}</p>
+                <p class="resource-detail"><strong>Issue:</strong> ${escapeHtml(feedback.details || '')}</p>
+                ${feedback.email ? `<p class="resource-detail"><strong>Reporter Email:</strong> <code>${escapeHtml(feedback.email)}</code></p>` : ''}
+            `;
+        } else {
+            content = `
+                <div class="resource-kicker">PYQ REQUEST</div>
+                <p class="resource-title"><strong>Subject:</strong> ${escapeHtml(feedback.subject || 'N/A')}</p>
+                <p class="resource-detail"><strong>Course:</strong> ${escapeHtml(feedback.course || 'N/A')}</p>
+                <p class="resource-detail"><strong>Semester:</strong> ${escapeHtml(feedback.semester || 'N/A')}</p>
+                <p class="resource-detail"><strong>Session:</strong> ${escapeHtml(feedback.session || 'N/A')}</p>
+                ${feedback.email ? `<p class="resource-detail"><strong>Requester Email:</strong> <code>${escapeHtml(feedback.email)}</code></p>` : ''}
+            `;
+        }
+
+        return `
+            <div class="resource-card">
+                <div class="resource-top">
+                    <div>
+                        ${content}
+                    </div>
+                    <div class="resource-actions">
+                        ${isNew ? `<span class="badge bg-warning">New</span>` : ''}
+                    </div>
+                </div>
+                <div class="resource-meta mt-2">
+                    <span class="resource-pill"><i class="fas fa-calendar"></i> ${createdDate}</span>
+                    ${feedback.userEmail ? `<span class="resource-pill"><i class="fas fa-envelope"></i> ${escapeHtml(feedback.userEmail)}</span>` : ''}
+                    <span class="resource-pill"><i class="fas fa-tag"></i> ${feedback.status || 'unknown'}</span>
+                </div>
+                <div class="resource-actions mt-3">
+                    ${isNew ? `<button class="btn btn-sm btn-outline-primary" onclick="markFeedbackAsResolved('${feedback.id}')"><i class="fas fa-check"></i> Mark Resolved</button>` : ''}
+                    <button class="btn btn-sm btn-outline-danger" onclick="deleteFeedback('${feedback.id}')"><i class="fas fa-trash"></i> Delete</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function markFeedbackAsResolved(feedbackId) {
+    if (confirm('Mark this feedback as resolved?')) {
+        db.collection('feedback').doc(feedbackId).update({
+            status: 'resolved'
+        }).then(() => {
+            loadFeedback();
+        }).catch(error => {
+            console.error('Error updating feedback:', error);
+            alert('Error updating feedback status.');
+        });
+    }
+}
+
+function deleteFeedback(feedbackId) {
+    if (confirm('Delete this feedback item?')) {
+        db.collection('feedback').doc(feedbackId).delete().then(() => {
+            loadFeedback();
+        }).catch(error => {
+            console.error('Error deleting feedback:', error);
+            alert('Error deleting feedback.');
+        });
+    }
+}
+
+function escapeHtml(str) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return String(str).replace(/[&<>"']/g, m => map[m]);
+}

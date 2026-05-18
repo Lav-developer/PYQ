@@ -2789,3 +2789,129 @@ function toggleChatWidget() {
         document.addEventListener('DOMContentLoaded', function(){ const openBtn = document.getElementById('openAttendanceBtn'); if(openBtn) openBtn.addEventListener('click', ()=> renderAttendanceModal()); loadAttendance(); });
 
 })();
+
+/* ======================== FEEDBACK MODULE (Report Broken Links & Request PYQs) ======================== */
+
+// Function to open Report Broken Link modal
+window.openReportBrokenLinkModal = function(title = '', course = '') {
+    const modal = new bootstrap.Modal(document.getElementById('reportBrokenLinkModal'));
+    if (title) document.getElementById('reportTitle').value = title;
+    if (course) document.getElementById('reportCourse').value = course;
+    modal.show();
+};
+
+// Function to open Request PYQ modal
+window.openRequestPyqModal = function() {
+    const modal = new bootstrap.Modal(document.getElementById('requestPyqModal'));
+    modal.show();
+};
+
+// Handle Report Broken Link form submission
+document.addEventListener('DOMContentLoaded', function() {
+    const reportForm = document.getElementById('reportBrokenLinkForm');
+    if (reportForm) {
+        reportForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const title = document.getElementById('reportTitle').value.trim();
+            const course = document.getElementById('reportCourse').value.trim();
+            const details = document.getElementById('reportDetails').value.trim();
+            const email = document.getElementById('reportEmail').value.trim();
+            
+            if (!title || !course || !details) {
+                showFeedbackError('reportBrokenLinkError', 'Please fill in all required fields');
+                return;
+            }
+            
+            try {
+                // Submit to Firestore
+                await db.collection('feedback').add({
+                    type: 'broken_link',
+                    title: title,
+                    course: course,
+                    details: details,
+                    email: email || null,
+                    userId: currentUser ? currentUser.uid : null,
+                    userEmail: currentUser ? currentUser.email : null,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    status: 'new'
+                });
+                
+                showFeedbackSuccess('reportBrokenLinkSuccess', 'Thank you! We\'ll look into this issue.');
+                reportForm.reset();
+                setTimeout(() => {
+                    document.getElementById('reportBrokenLinkSuccess').style.display = 'none';
+                    bootstrap.Modal.getInstance(document.getElementById('reportBrokenLinkModal')).hide();
+                }, 2000);
+            } catch (error) {
+                console.error('Error submitting report:', error);
+                showFeedbackError('reportBrokenLinkError', 'Failed to submit report. Please try again.');
+            }
+        });
+    }
+    
+    // Handle Request PYQ form submission
+    const requestForm = document.getElementById('requestPyqForm');
+    if (requestForm) {
+        requestForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const course = document.getElementById('requestCourseField').value.trim();
+            const subject = document.getElementById('requestSubject').value.trim();
+            const semester = document.getElementById('requestSemester').value.trim();
+            const session = document.getElementById('requestSession').value.trim();
+            const email = document.getElementById('requestEmail2').value.trim();
+            
+            if (!course || !subject || !semester) {
+                showFeedbackError('requestPyqError', 'Please fill in all required fields');
+                return;
+            }
+            
+            try {
+                // Submit to Firestore
+                await db.collection('feedback').add({
+                    type: 'pyq_request',
+                    course: course,
+                    subject: subject,
+                    semester: semester,
+                    session: session || null,
+                    email: email || null,
+                    userId: currentUser ? currentUser.uid : null,
+                    userEmail: currentUser ? currentUser.email : null,
+                    createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                    status: 'new'
+                });
+                
+                showFeedbackSuccess('requestPyqSuccess', 'Thank you! We\'ll try to find this PYQ for you.');
+                requestForm.reset();
+                setTimeout(() => {
+                    document.getElementById('requestPyqSuccess').style.display = 'none';
+                    bootstrap.Modal.getInstance(document.getElementById('requestPyqModal')).hide();
+                }, 2000);
+            } catch (error) {
+                console.error('Error submitting request:', error);
+                showFeedbackError('requestPyqError', 'Failed to submit request. Please try again.');
+            }
+        });
+    }
+});
+
+// Helper functions for feedback forms
+function showFeedbackError(elementId, message) {
+    const errorEl = document.getElementById(elementId);
+    if (errorEl) {
+        errorEl.textContent = message;
+        errorEl.style.display = 'block';
+        setTimeout(() => {
+            errorEl.style.display = 'none';
+        }, 5000);
+    }
+}
+
+function showFeedbackSuccess(elementId, message) {
+    const successEl = document.getElementById(elementId);
+    if (successEl) {
+        successEl.textContent = message;
+        successEl.style.display = 'block';
+    }
+}

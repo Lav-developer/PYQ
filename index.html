@@ -121,9 +121,6 @@
                                 <button class="dropdown-item" onclick="openSettingsModal()">
                                     <i class="fas fa-cog"></i> Settings
                                 </button>
-                                <button class="dropdown-item" onclick="openBookmarksModal()">
-                                    <i class="fas fa-bookmark"></i> My Bookmarks
-                                </button>
                                 <hr class="dropdown-divider">
                                 <button class="dropdown-item text-danger" onclick="logout()">
                                     <i class="fas fa-sign-out-alt"></i> Logout
@@ -135,77 +132,77 @@
                 <p class="subtitle">Your Gateway to Academic Excellence</p>
 
                 <div class="page-nav" aria-label="Site sections">
-                    <a class="page-nav-link active" href="index.html"><i class="fas fa-file-alt"></i> PYQs</a>
+                    <a class="page-nav-link active" href="index.html"><i class="fas fa-file-alt"></i> PYQs Home</a>
                     <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
                     <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
                 </div>
-                
-                <!-- Search Box -->
-                <div class="search-box">
-                    <input type="text" id="searchInput" placeholder="Search question papers..." aria-label="Search">
-                    <button type="button" onclick="performSearch()">
-                        <i class="fas fa-search"></i>
-                    </button>
-                </div>
+                <div class="homepage-search-panel">
+                    <!-- Search Box -->
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Search question papers..." aria-label="Search">
+                        <button type="button" onclick="performSearch()">
+                            <i class="fas fa-search"></i>
+                        </button>
+                    </div>
 
-                <div id="pyqFilterPanel" class="mt-3">
-                    <div class="card border-0 shadow-sm">
-                        <div class="card-body p-3 p-md-4">
-                            <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
-                                <div>
-                                    <h6 class="mb-1">Filter PYQs</h6>
-                                    <small id="filterHint" class="text-muted">Sign in to apply filters</small>
+                    <div id="pyqFilterPanel" class="mt-3">
+                        <div class="card border-0 shadow-sm">
+                            <div class="card-body p-3 p-md-4">
+                                <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+                                    <div>
+                                        <h6 class="mb-1">Filter PYQs</h6>
+                                        <small id="filterHint" class="text-muted">Sign in to apply filters</small>
+                                    </div>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPyqFilters()">
+                                        Clear Filters
+                                    </button>
                                 </div>
-                                <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPyqFilters()">
-                                    Clear Filters
-                                </button>
-                            </div>
-                            <div class="row g-3">
-                                <div class="col-md-4">
-                                    <label for="filterCourse" class="form-label">Course</label>
-                                    <select id="filterCourse" class="form-select">
-                                        <option value="">All Courses</option>
-                                        <option value="b.a">B.A.</option>
-                                        <option value="b.com">B.Com.</option>
-                                        <option value="b.sc">B.Sc.</option>
-                                        <option value="b.tech">B.Tech</option>
-                                        <option value="m.a">M.A.</option>
-                                        <option value="m.com">M.Com.</option>
-                                        <option value="m.sc">M.Sc.</option>
-                                        <option value="m.tech">M.Tech</option>
-                                        <option value="other">Other</option>
-                                    </select>
+                                <div class="row g-3">
+                                    <div class="col-md-4">
+                                        <label for="filterCourse" class="form-label">Course</label>
+                                        <select id="filterCourse" class="form-select">
+                                            <option value="">All Courses</option>
+                                            <option value="b.a">B.A.</option>
+                                            <option value="b.com">B.Com.</option>
+                                            <option value="b.sc">B.Sc.</option>
+                                            <option value="b.tech">B.Tech</option>
+                                            <option value="m.a">M.A.</option>
+                                            <option value="m.com">M.Com.</option>
+                                            <option value="m.sc">M.Sc.</option>
+                                            <option value="m.tech">M.Tech</option>
+                                            <option value="other">Other</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="filterYear" class="form-label">Semester</label>
+                                        <select id="filterYear" class="form-select">
+                                            <option value="">All Semesters</option>
+                                            <option value="1st">1st Semester</option>
+                                            <option value="2nd">2nd Semester</option>
+                                            <option value="3rd">3rd Semester</option>
+                                            <option value="4th">4th Semester</option>
+                                            <option value="5th">5th Semester</option>
+                                            <option value="6th">6th Semester</option>
+                                            <option value="7th">7th Semester</option>
+                                            <option value="8th">8th Semester</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="filterSession" class="form-label">Session</label>
+                                        <select id="filterSession" class="form-select">
+                                            <option value="">All Sessions</option>
+                                            <option value="2026-27">2026-27</option>
+                                            <option value="2025-26">2025-26</option>
+                                            <option value="2024-25">2024-25</option>
+                                            <option value="2023-24">2023-24</option>
+                                            <option value="2022-23">2022-23</option>
+                                            <option value="2021-22">2021-22</option>
+                                            <option value="2020-21">2020-21</option>
+                                            <option value="2019-20">2019-20</option>
+                                            <option value="2018-19">2018-19</option>
+                                        </select>
+                                    </div>
                                 </div>
-                                <div class="col-md-4">
-                                    <label for="filterYear" class="form-label">Semester</label>
-                                    <select id="filterYear" class="form-select">
-                                        <option value="">All Semesters</option>
-                                        <option value="1st">1st Semester</option>
-                                        <option value="2nd">2nd Semester</option>
-                                        <option value="3rd">3rd Semester</option>
-                                        <option value="4th">4th Semester</option>
-                                        <option value="5th">5th Semester</option>
-                                        <option value="6th">6th Semester</option>
-                                        <option value="7th">7th Semester</option>
-                                        <option value="8th">8th Semester</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label for="filterSession" class="form-label">Session</label>
-                                    <select id="filterSession" class="form-select">
-                                        <option value="">All Sessions</option>
-                                        <option value="2026-27">2026-27</option>
-                                        <option value="2025-26">2025-26</option>
-                                        <option value="2024-25">2024-25</option>
-                                        <option value="2023-24">2023-24</option>
-                                        <option value="2022-23">2022-23</option>
-                                        <option value="2021-22">2021-22</option>
-                                        <option value="2020-21">2020-21</option>
-                                        <option value="2019-20">2019-20</option>
-                                        <option value="2018-19">2018-19</option>
-                                    </select>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
@@ -242,7 +239,7 @@
         <div class="tab-content" id="nav-tabContent">
             <!-- PYQ Tab -->
             <div class="tab-pane fade show active" id="nav-pyq" role="tabpanel" aria-labelledby="nav-pyq-tab">
-                <section class="content-section">
+                <section class="content-section" id="pyqs-section">
                     <div class="section-header">
                         <h2><i class="fas fa-file-alt"></i> Previous Year Question Papers</h2>
                         <p class="section-description">Browse and download question papers from various semesters</p>
@@ -263,7 +260,7 @@
             
             <!-- Bookmarks Tab -->
             <div class="tab-pane fade" id="nav-bookmarks" role="tabpanel" aria-labelledby="nav-bookmarks-tab">
-                <section class="content-section">
+                <section class="content-section" id="bookmarks-section">
                     <div class="section-header">
                         <h2><i class="fas fa-bookmark"></i> My Bookmarks</h2>
                         <p class="section-description">Quick access to your saved question papers</p>
@@ -285,7 +282,7 @@
     </main>
 
     <!-- Upload Section -->
-    <section class="upload-section py-5">
+    <section class="upload-section py-5" id="upload-section">
         <div class="container">
             <div class="row justify-content-center">
                 <div class="col-md-8">
