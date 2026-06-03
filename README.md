@@ -1,6 +1,42 @@
-# DSMNRU Academic Archive (PYQ + Syllabus)
+<div align="center">
+  <img src="img/Logo.png" alt="DSMNRU Archive Logo" width="120" />
+  <h1>🎓 DSMNRU Academic Archive</h1>
+  <p><i>A modern, feature-rich platform for browsing and downloading Previous Year Question Papers (PYQs), syllabi, and academic resources for DSMNRU students.</i></p>
+  
+  <a href="https://dsmnru-pyq.netlify.app/"><strong>Explore the Live App »</strong></a>
+  <br />
+  <br />
 
-A modern, feature-rich platform for browsing and downloading Previous Year Question Papers (PYQs), syllabi, and academic resources for DSMNRU students.
+  [![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
+  [![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
+  [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
+  [![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com/)
+  [![PWA Ready](https://img.shields.io/badge/PWA-Ready-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](https://web.dev/progressive-web-apps/)
+</div>
+
+<hr />
+
+<details>
+<summary>📖 <strong>Table of Contents</strong> (Click to expand)</summary>
+
+- [🌟 Features](#-features)
+- [📂 Project Structure](#-project-structure)
+- [🚀 Quick Start](#-quick-start)
+- [📡 Data & Firebase](#-data--firebase)
+- [📤 Student Upload System](#-student-upload-system)
+- [👨‍💼 Admin Features](#-admin-features)
+- [🎨 Styling & Theme](#-styling--theme)
+- [🔐 Firestore Security Rules](#-firestore-security-rules)
+- [📱 Progressive Web App (PWA)](#-progressive-web-app-pwa)
+- [🔍 SEO](#-seo)
+- [🛠️ Development Workflow](#-development-workflow)
+- [🚨 Common Issues & Fixes](#-common-issues--fixes)
+- [🎯 Future Enhancements](#-future-enhancements)
+- [💡 Tips for Best Results](#-tips-for-best-results)
+
+</details>
+
+<hr />
 
 ## 🌟 Features
 
@@ -28,6 +64,9 @@ A modern, feature-rich platform for browsing and downloading Previous Year Quest
 ---
 
 ## 📂 Project Structure
+
+<details>
+<summary>Click to view folder structure</summary>
 
 ```
 .
