@@ -1,24 +1,14 @@
 {
     "courses": [
+        "B.A.",
+        "B.Com",
         "B.Tech",
-        "M.Tech",
+        "B.Ed.",
+        "B.Tech (Hons.)",
+        "B.V.A.",
+        "BPO",
         "MBA",
         "MCA",
-        "B.Com",
-        "B.A.",
-        "B.Ed.",
-        "B.Sc.",
-        "BBA",
-        "BCA",
-        "B.Pharm",
-        "B.Voc",
-        "M.Com",
-        "M.A.",
-        "M.Ed.",
-        "M.Sc.",
-        "M.Pharm",
-        "M.Voc",
-        "B.Tech (Hons.)",
-        "Other"
+        "null" 
     ]
 }
