@@ -721,19 +721,19 @@
                     <div class="col-lg-8 hero-copy">
                         <div class="eyebrow"><i class="fas fa-chart-line"></i> Live Firebase Admin</div>
                         <h1 class="hero-title">DSMNRU content dashboard</h1>
-                        <p class="hero-description">
+                        <!-- <p class="hero-description">
                             Manage PYQs, syllabus files, contributors, student uploads, and users from a cleaner card-based workspace built for fast moderation.
-                        </p>
+                        </p> -->
                         <div class="hero-actions">
-                            <button id="generateSitemapBtn" class="btn btn-outline-light">
+                            <!-- <button id="generateSitemapBtn" class="btn btn-outline-light">
                                 <i class="fas fa-sitemap me-2"></i> Generate Sitemap
-                            </button>
+                            </button> -->
                             <button id="logoutBtn" class="btn btn-light">
                                 <i class="fas fa-right-from-bracket me-2"></i> Logout
                             </button>
                         </div>
                     </div>
-                    <div class="col-lg-4 hero-panel">
+                    <!-- <div class="col-lg-4 hero-panel">
                         <div class="hero-panel-item">
                             <span>Signed in as</span>
                             <strong>Admin</strong>
@@ -748,7 +748,7 @@
                                 <strong>Firestore live</strong>
                             </div>
                         </div>
-                    </div>
+                    </div> -->
                 </div>
             </div>
 
@@ -782,8 +782,8 @@
                             <span>
                                 <span class="section-chip"><i class="fas fa-file-import"></i> Bulk import</span>
                                 <span class="d-block mt-2">Upload CSV to add or update records</span>
-                            </span>
-                            <span class="section-header-copy">If a row has an <strong>id</strong>, that document is updated. If id is empty, a new document is created.</span>
+                            <!-- </span>
+                            <span class="section-header-copy">If a row has an <strong>id</strong>, that document is updated. If id is empty, a new document is created.</span> -->
                         </div>
                     </div>
                     <div class="card-body">
@@ -793,10 +793,10 @@
                                 <select class="form-select" id="csvImportCollection" required>
                                     <option value="" selected disabled>Select collection</option>
                                     <option value="pyqs">pyqs</option>
-                                    <option value="syllabus">syllabus</option>
+                                    <!-- <option value="syllabus">syllabus</option> -->
                                     <option value="contributors">contributors</option>
-                                    <option value="users">users</option>
-                                    <option value="pendingUploads">pendingUploads</option>
+                                    <!-- <option value="users">users</option>
+                                    <option value="pendingUploads">pendingUploads</option> -->
                                 </select>
                             </div>
                             <div class="mb-3">
@@ -820,7 +820,7 @@
                                 <span class="section-chip"><i class="fas fa-plus-circle"></i> Quick create</span>
                                 <span class="d-block mt-2">Add a new PYQ</span>
                             </span>
-                            <span class="section-header-copy">Keep the paper title, course, semester, and file URL in sync.</span>
+                            <!-- <span class="section-header-copy">Keep the paper title, course, semester, and file URL in sync.</span> -->
                         </div>
                     </div>
                     <div class="card-body">
@@ -828,7 +828,7 @@
                             <div class="mb-3">
                                 <label for="pyqCourse" class="form-label">Course</label>
                                 <select class="form-select" id="pyqCourse" required>
-                                    <option value="" selected disabled>Select course</option>
+                                    <!-- <option value="" selected disabled>Select course</option>
                                     <option value="B.A.">B.A.</option>
                                     <option value="B.Com.">B.Com.</option>
                                     <option value="B.Sc.">B.Sc.</option>
@@ -837,7 +837,7 @@
                                     <option value="M.Com.">M.Com.</option>
                                     <option value="M.Sc.">M.Sc.</option>
                                     <option value="M.Tech">M.Tech</option>
-                                    <option value="Other">Other</option>
+                                    <option value="Other">Other</option> -->
                                 </select>
                             </div>
                             <div class="row g-3">
@@ -867,7 +867,7 @@
                                         <option value="2021-22">2021-22</option>
                                         <option value="2020-21">2020-21</option>
                                         <option value="2019-20">2019-20</option>
-                                        <option value="2018-19">2018-19</option>
+                                        <!-- <option value="2018-19">2018-19</option> -->
                                     </select>
                                 </div>
                             </div>
@@ -907,7 +907,7 @@
                     </div>
                     <div id="pyqsCollapse" class="collapse">
                         <div class="card-body">
-                            <p class="section-copy mb-3">Review titles and copy file links. Content changes are done through the add forms only.</p>
+                            <!-- <p class="section-copy mb-3">Review titles and copy file links. Content changes are done through the add forms only.</p> -->
                             <div id="pyqsList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading PYQs...</div>
                             </div>
@@ -920,7 +920,7 @@
                         <button class="section-header-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#pendingCollapse" aria-expanded="false" aria-controls="pendingCollapse" onclick="loadPendingOnDemand()">
                             <span>
                                 <span class="section-chip"><i class="fas fa-hourglass-half"></i> Review queue</span>
-                                <span class="d-block mt-2">Pending user uploads</span>
+                                <span class="d-block mt-2">Pending pyqs to upload</span>
                             </span>
                             <span class="d-inline-flex align-items-center">
                                 <span class="section-chip"><span id="pendingHeaderCount">0</span> waiting</span>
@@ -930,7 +930,7 @@
                     </div>
                     <div id="pendingCollapse" class="collapse">
                         <div class="card-body">
-                            <p class="section-copy mb-3">Download or remove uploads before they are pushed into the main content collections.</p>
+                            <!-- <p class="section-copy mb-3">Download or remove uploads before they are pushed into the main content collections.</p> -->
                             <div id="pendingUploadsList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading pending uploads...</div>
                             </div>
@@ -963,16 +963,16 @@
                                 </div>
                                 <div class="mb-3">
                                     <label for="contributorAvatar" class="form-label">Avatar <span class="text-danger">*</span></label>
-                                    <input type="text" class="form-control" id="contributorAvatar" placeholder="Auto-generated" maxlength="4" readonly required>
-                                    <small class="form-text text-muted">Auto-generated from name (e.g., Lav Kush → LK)</small>
+                                    <input type="text" class="form-control" id="contributorAvatar" placeholder="Auto-generated" maxlength="4" required>
+                                    <small class="form-text text-muted">Auto-generated from name (e.g., Demo Kumar → DK)</small>
                                 </div>
                                 <div class="mb-3">
                                     <label for="contributorRole" class="form-label">Role <span class="text-danger">*</span></label>
                                     <select class="form-select" id="contributorRole" required>
-                                        <option value="" disabled selected>Select role</option>
+                                        <!-- <option value="PYQs Provider" disabled selected>Select role</option> -->
                                         <option value="PYQs Provider">PYQs Provider</option>
-                                        <option value="Syllabus Provider">Syllabus Provider</option>
-                                        <option value="PYQs + Syllabus Provider">PYQs + Syllabus Provider</option>
+                                        <!-- <option value="Syllabus Provider">Syllabus Provider</option>
+                                        <option value="PYQs + Syllabus Provider">PYQs + Syllabus Provider</option> -->
                                     </select>
                                 </div>
                                 <button type="submit" class="btn btn-primary w-100">
@@ -1005,7 +1005,7 @@
                     </div>
                     <div id="usersCollapse" class="collapse">
                         <div class="card-body">
-                            <p class="section-copy mb-3">This list comes from the Firestore <strong>users</strong> collection. Firebase Authentication can have extra accounts that never created/synced a profile document.</p>
+                            <!-- <p class="section-copy mb-3">This list comes from the Firestore <strong>users</strong> collection. Firebase Authentication can have extra accounts that never created/synced a profile document.</p> -->
                             <div id="usersList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading users...</div>
                             </div>

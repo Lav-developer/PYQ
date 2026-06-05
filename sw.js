@@ -3,9 +3,11 @@ const CACHE_NAME = 'dsmnru-archive-v1';
 const urlsToCache = [
   '/',
   '/index.html',
+  '/contributors.html',
+  '/tools.html',
   '/styles.css',
   '/script.js',
-  '/data.json',
+  '/courses.json',
   '/manifest.json'
 ];
 

@@ -2399,6 +2399,7 @@ select:-ms-input-placeholder,
 .header-top h1 {
   margin: 0;
   flex: 1;
+  color: rgba(50, 184,198, 1);
 }
 
 /* User profile section */

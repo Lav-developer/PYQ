@@ -88,16 +88,16 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 
     // Generate sitemap button
-    const genBtn = document.getElementById('generateSitemapBtn');
-    if (genBtn) {
-        genBtn.addEventListener('click', function() {
-            if (!auth.currentUser) {
-                alert('You must be signed in to generate the sitemap.');
-                return;
-            }
-            generateSitemap();
-        });
-    }
+    // const genBtn = document.getElementById('generateSitemapBtn');
+    // if (genBtn) {
+    //     genBtn.addEventListener('click', function() {
+    //         if (!auth.currentUser) {
+    //             alert('You must be signed in to generate the sitemap.');
+    //             return;
+    //         }
+    //         generateSitemap();
+    //     });
+    // }
 
     // Add PYQ form
     document.getElementById('addPyqForm').addEventListener('submit', async function(e) {
@@ -116,7 +116,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         let currentSubject = subject;
-        let title = buildPyqTitle(course, semester, currentSubject, session, branch);
+        let title = buildPyqTitle(course, branch, semester, currentSubject, session);
         let duplicateExists = await pyqTitleExists(title);
 
         if (duplicateExists === null) {
@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 continue;
             }
 
-            title = buildPyqTitle(course, semester, currentSubject, session, branch);
+            title = buildPyqTitle(course, branch, semester, currentSubject, session);
 
             duplicateExists = await pyqTitleExists(title);
             if (duplicateExists === null) {
@@ -356,53 +356,53 @@ function resetLazyLoadState() {
     contributorsLoaded = false;
 }
 
-function generateSitemap() {
-    // Build sitemap XML from allData
-    try {
-        const baseUrl = 'https://dsmnru-pyq.netlify.app/';
-        const urls = [];
+// function generateSitemap() {
+//     // Build sitemap XML from allData
+//     try {
+//         const baseUrl = 'https://dsmnru-pyq.netlify.app/';
+//         const urls = [];
 
-        // Add homepage
-        urls.push({ loc: baseUrl, priority: 1.0, changefreq: 'daily' });
+//         // Add homepage
+//         urls.push({ loc: baseUrl, priority: 1.0, changefreq: 'daily' });
 
-        // Add index.html explicitly
-        urls.push({ loc: baseUrl + 'index.html', priority: 0.9, changefreq: 'daily' });
+//         // Add index.html explicitly
+//         urls.push({ loc: baseUrl + 'index.html', priority: 0.9, changefreq: 'daily' });
 
-        // Add each PYQ file URL if present
-        allData.pyqs.forEach(item => {
-            if (item.file) urls.push({ loc: item.file, priority: 0.8, changefreq: 'monthly' });
-        });
+//         // Add each PYQ file URL if present
+//         allData.pyqs.forEach(item => {
+//             if (item.file) urls.push({ loc: item.file, priority: 0.8, changefreq: 'monthly' });
+//         });
 
-        const xmlParts = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'];
-        urls.forEach(u => {
-            xmlParts.push('  <url>');
-            xmlParts.push(`    <loc>${escapeXml(u.loc)}</loc>`);
-            if (u.changefreq) xmlParts.push(`    <changefreq>${u.changefreq}</changefreq>`);
-            if (u.priority !== undefined) xmlParts.push(`    <priority>${u.priority.toFixed(2)}</priority>`);
-            xmlParts.push('  </url>');
-        });
-        xmlParts.push('</urlset>');
-        const sitemapXml = xmlParts.join('\n');
+//         const xmlParts = ['<?xml version="1.0" encoding="UTF-8"?>', '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'];
+//         urls.forEach(u => {
+//             xmlParts.push('  <url>');
+//             xmlParts.push(`    <loc>${escapeXml(u.loc)}</loc>`);
+//             if (u.changefreq) xmlParts.push(`    <changefreq>${u.changefreq}</changefreq>`);
+//             if (u.priority !== undefined) xmlParts.push(`    <priority>${u.priority.toFixed(2)}</priority>`);
+//             xmlParts.push('  </url>');
+//         });
+//         xmlParts.push('</urlset>');
+//         const sitemapXml = xmlParts.join('\n');
 
-        // Download as file instead of uploading to Firebase
-        const blob = new Blob([sitemapXml], { type: 'application/xml' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = 'sitemap.xml';
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
+//         // Download as file instead of uploading to Firebase
+//         const blob = new Blob([sitemapXml], { type: 'application/xml' });
+//         const url = URL.createObjectURL(blob);
+//         const link = document.createElement('a');
+//         link.href = url;
+//         link.download = 'sitemap.xml';
+//         document.body.appendChild(link);
+//         link.click();
+//         document.body.removeChild(link);
+//         URL.revokeObjectURL(url);
 
-        updateSitemapStatus('done', 'sitemap.xml');
-        alert(`✓ Sitemap generated successfully!\n\nGenerated ${urls.length} URLs:\n- Homepage\n- ${allData.pyqs.length} PYQ items\n\nFile downloaded as sitemap.xml`);
-    } catch (err) {
-        console.error('Error generating sitemap:', err);
-        updateSitemapStatus('error');
-        alert('Error generating sitemap: ' + err.message);
-    }
-}
+//         updateSitemapStatus('done', 'sitemap.xml');
+//         alert(`✓ Sitemap generated successfully!\n\nGenerated ${urls.length} URLs:\n- Homepage\n- ${allData.pyqs.length} PYQ items\n\nFile downloaded as sitemap.xml`);
+//     } catch (err) {
+//         console.error('Error generating sitemap:', err);
+//         updateSitemapStatus('error');
+//         alert('Error generating sitemap: ' + err.message);
+//     }
+// }
 
 function escapeXml(unsafe) {
     return (unsafe || '').replace(/[<>&'\"]/g, function(c) {
@@ -416,29 +416,29 @@ function escapeXml(unsafe) {
     });
 }
 
-function updateSitemapStatus(state, url) {
-    const container = document.getElementById('sitemapStatus');
-    const msg = document.getElementById('sitemapMessage');
-    const link = document.getElementById('sitemapUrl');
-    if (!container || !msg || !link) return;
-    if (state === 'ready') {
-        container.style.display = 'none';
-    } else if (state === 'uploading') {
-        container.style.display = 'block';
-        msg.textContent = 'Generating sitemap and uploading...';
-        link.style.display = 'none';
-    } else if (state === 'done') {
-        container.style.display = 'block';
-        msg.textContent = 'Sitemap uploaded. Public URL:';
-        link.href = url;
-        link.textContent = url;
-        link.style.display = 'block';
-    } else if (state === 'error') {
-        container.style.display = 'block';
-        msg.textContent = 'Error generating sitemap. See console.';
-        link.style.display = 'none';
-    }
-}
+// function updateSitemapStatus(state, url) {
+//     const container = document.getElementById('sitemapStatus');
+//     const msg = document.getElementById('sitemapMessage');
+//     const link = document.getElementById('sitemapUrl');
+//     if (!container || !msg || !link) return;
+//     if (state === 'ready') {
+//         container.style.display = 'none';
+//     } else if (state === 'uploading') {
+//         container.style.display = 'block';
+//         msg.textContent = 'Generating sitemap and uploading...';
+//         link.style.display = 'none';
+//     } else if (state === 'done') {
+//         container.style.display = 'block';
+//         msg.textContent = 'Sitemap uploaded. Public URL:';
+//         link.href = url;
+//         link.textContent = url;
+//         link.style.display = 'block';
+//     } else if (state === 'error') {
+//         container.style.display = 'block';
+//         msg.textContent = 'Error generating sitemap. See console.';
+//         link.style.display = 'none';
+//     }
+// }
 
 function renderLists() {
     renderPyqs();
@@ -733,7 +733,7 @@ function renderPyqs() {
                     <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
                     <div class="resource-meta">
                         ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
-                        ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} semester</span>` : ''}
+                        ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} sem</span>` : ''}
                         ${pyq.session ? `<span class="resource-pill">${escapeHtml(pyq.session)} session</span>` : ''}
                     </div>
                 </div>
@@ -773,7 +773,6 @@ function renderUsers() {
                 <div class="d-flex align-items-start gap-3">
                     <div class="contributor-avatar-small">${escapeHtml((user.name || user.signupName || 'U').slice(0, 2).toUpperCase())}</div>
                     <div>
-                        <div class="resource-kicker">Registered user ${index + 1}</div>
                         <h5 class="resource-title">${escapeHtml(user.name || user.signupName || 'Unnamed User')}</h5>
                         <div class="resource-meta">
                             <span class="resource-pill">${escapeHtml(user.role || 'user')}</span>
@@ -790,7 +789,6 @@ function renderUsers() {
                 <div>Email: ${escapeHtml(user.email || user.signupEmail || 'No email')}</div>
                 <div>Phone: ${escapeHtml(user.phone || 'N/A')}</div>
                 <div>Created: ${escapeHtml(createdAt)}</div>
-                <div>UID: ${escapeHtml(user.uid || 'N/A')}</div>
             </div>
         </article>
     `;
@@ -856,7 +854,7 @@ function saveData() {
     console.warn('saveData() called - this project now uses Firestore. Use addItem/editItem/deleteItem instead.');
 }
 
-function buildPyqTitle(course, semester, subject, session, branch) {
+function buildPyqTitle(course,branch, semester, subject, session) {
     let title = `${normalizePyqText(course)}`;
     if (branch) {
         title += ` ${normalizePyqText(branch)}`;
