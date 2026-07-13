@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Important Links - DSMNRU Academic Archive</title>
+    <meta name="description" content="A collection of important and helpful links for students of DSMNRU, including portals for students, administration, admissions, and scholarships.">
+    <link rel="icon" href="img/Logo.png" type="image/png">
+    <link rel="shortcut icon" href="img/Logo.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+    <link rel="stylesheet" href="styles.css">
+    <meta name="theme-color" content="#0f172a">
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-performance-compat.js"></script>
+</head>
+<body>
+    <header class="header-container">
+        <div class="container">
+            <div class="header-content">
+                <div class="header-top">
+                    <h1><i class="fas fa-graduation-cap"></i> DSMNRU Archive</h1>
+                    <div class="user-profile-section">
+                        <button id="profileBtn" class="btn-user-profile" onclick="toggleProfileDropdown()">
+                            <i class="fas fa-user-circle"></i>
+                            <span id="userDisplayName">Login</span>
+                            <i class="fas fa-chevron-down"></i>
+                        </button>
+                        <div id="profileDropdown" class="profile-dropdown" style="display: none;">
+                            <div id="userLoggedOutMenu" style="display: none;">
+                                <button class="dropdown-item" onclick="openLoginModal()"><i class="fas fa-sign-in-alt"></i> Login</button>
+                                <button class="dropdown-item" onclick="openSignupModal()"><i class="fas fa-user-plus"></i> Sign Up</button>
+                            </div>
+                            <div id="userLoggedInMenu" style="display: none;">
+                                <div class="dropdown-header">
+                                    <div class="user-profile-info">
+                                        <div class="user-avatar"><i class="fas fa-user-circle"></i></div>
+                                        <div class="user-info">
+                                            <div id="userNameDisplay"></div>
+                                            <small id="userEmailDisplay"></small>
+                                        </div>
+                                    </div>
+                                </div>
+                                <hr class="dropdown-divider">
+                                <button class="dropdown-item" onclick="openProfileModal()"><i class="fas fa-user"></i> My Profile</button>
+                                <button class="dropdown-item" onclick="openSettingsModal()"><i class="fas fa-cog"></i> Settings</button>
+                                <hr class="dropdown-divider">
+                                <button class="dropdown-item text-danger" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p class="subtitle">A curated collection of essential links for students</p>
+                <div class="page-nav" aria-label="Site sections">
+                    <a class="page-nav-link" href="/"><i class="fas fa-file-alt"></i> PYQs</a>
+                    <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
+                    <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mt-4">
+        <section class="content-section py-5">
+            <div class="container">
+                <div class="section-header">
+                    <h2><i class="fas fa-link"></i> Important Links</h2>
+                    <p class="section-description">Quick access to all essential university and government portals.</p>
+                </div>
+
+                <!-- Student & Academic Portals -->
+                <div class="link-category">
+                    <h3 class="category-title"><i class="fas fa-user-graduate"></i> Student & Academic Portals</h3>
+                    <div class="tools-grid" id="studentLinksGrid"></div>
+                </div>
+
+                <!-- Admissions & University Life -->
+                <div class="link-category mt-5">
+                    <h3 class="category-title"><i class="fas fa-university"></i> Admissions & University Life</h3>
+                    <div class="tools-grid" id="admissionsLinksGrid"></div>
+                </div>
+
+                <!-- Financial Aid & Scholarships -->
+                <div class="link-category mt-5">
+                    <h3 class="category-title"><i class="fas fa-hand-holding-usd"></i> Financial Aid & Scholarships</h3>
+                    <div class="tools-grid" id="scholarshipLinksGrid"></div>
+                </div>
+
+                <!-- Administrative & Other Portals -->
+                <div class="link-category mt-5">
+                    <h3 class="category-title"><i class="fas fa-cogs"></i> Administrative & Other Portals</h3>
+                    <div class="tools-grid" id="adminLinksGrid"></div>
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for students.</p>
+            <div class="social-links">
+                <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp"><i class="fab fa-whatsapp"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Common Modals -->
+    <div class="modal fade" id="loginModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Login</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="loginForm"><div class="mb-3"><label class="form-label" for="loginEmail">Email</label><input id="loginEmail" class="form-control" type="email" required></div><div class="mb-3"><label class="form-label" for="loginPassword">Password</label><input id="loginPassword" class="form-control" type="password" required></div><div id="loginError" class="alert alert-danger" style="display:none;"></div><button type="submit" class="btn btn-primary w-100">Login</button></form></div></div></div></div>
+    <div class="modal fade" id="signupModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Sign Up</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="signupForm"><div class="mb-3"><label class="form-label" for="signupEmail">Email</label><input id="signupEmail" class="form-control" type="email" required></div><div class="mb-3"><label class="form-label" for="signupPassword">Password</label><input id="signupPassword" class="form-control" type="password" required></div><div class="mb-3"><label class="form-label" for="signupConfirmPassword">Confirm Password</label><input id="signupConfirmPassword" class="form-control" type="password" required></div><div id="signupError" class="alert alert-danger" style="display:none;"></div><button type="submit" class="btn btn-primary w-100">Create Account</button></form></div></div></div></div>
+    <div class="modal fade" id="profileModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="fas fa-user"></i> My Profile</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="profileForm"><div class="mb-3"><label class="form-label" for="profileName">Full Name</label><input id="profileName" class="form-control" required></div><div class="mb-3"><label class="form-label" for="profileEmail">Email Address</label><input id="profileEmail" class="form-control" type="email" readonly></div><div class="mb-3"><label class="form-label" for="profileCourse">Course</label><input id="profileCourse" class="form-control" required></div><div class="mb-3"><label class="form-label" for="profilePhone">Phone Number</label><input id="profilePhone" class="form-control" type="tel" required></div><div class="mb-3"><label class="form-label">Created</label><p id="profileCreatedDate" class="form-control-plaintext"></p></div><div id="profileError" class="alert alert-danger" style="display:none;"></div><div id="profileSuccess" class="alert alert-success" style="display:none;"></div><button type="submit" class="btn btn-primary w-100">Save Profile</button></form></div></div></div></div>
+    <div class="modal fade" id="settingsModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="fas fa-cog"></i> Settings</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><div class="d-grid gap-2"><button type="button" class="btn btn-outline-light" onclick="openChangePasswordModal()">Change Password</button></div></div></div></div></div>
+    <div class="modal fade" id="changePasswordModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Change Password</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><form id="changePasswordForm"><div class="mb-3"><label class="form-label" for="currentPassword">Current Password</label><input id="currentPassword" class="form-control" type="password" required></div><div class="mb-3"><label class="form-label" for="newPassword">New Password</label><input id="newPassword" class="form-control" type="password" required></div><div class="mb-3"><label class="form-label" for="confirmNewPassword">Confirm New Password</label><input id="confirmNewPassword" class="form-control" type="password" required></div><div id="passwordError" class="alert alert-danger" style="display:none;"></div><div id="passwordSuccess" class="alert alert-success" style="display:none;"></div><button type="submit" class="btn btn-primary w-100">Update Password</button></form></div></div></div></div>
+    <div class="modal fade" id="emailVerificationModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title">Verify Email</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p>We sent a verification link to <strong id="verificationEmail"></strong>.</p><div class="d-grid gap-2"><button type="button" class="btn btn-primary" id="resendVerificationBtn" onclick="resendVerificationEmail()">Resend verification email</button><button type="button" class="btn btn-outline-light" onclick="logoutAndChangeEmail()">Use a different email</button></div></div></div></div></div>
+    <div class="modal fade" id="profileCompletionModal" tabindex="-1" aria-hidden="true"><div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h5 class="modal-title"><i class="fas fa-user-check"></i> Complete Your Profile</h5><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div><div class="modal-body"><p>Your profile is incomplete. Completing it unlocks uploads and keeps your account organized.</p><div class="d-flex gap-2 justify-content-end"><button type="button" class="btn btn-outline-secondary" onclick="dismissProfileCompletionReminder()">Later</button><button type="button" class="btn btn-primary" onclick="openProfileModalFromReminder()">Complete profile</button></div></div></div></div></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="script.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const linkCategories = {
+                student: [
+                    { title: "Samarth Student Portal", url: "https://dsmru.samarth.edu.in/index.php/site/login", icon: "fa-user-graduate", description: "Access your student profile, courses, and academic records." },
+                    { title: "Result Portal", url: "https://dsmru.up.nic.in/main/User/results.aspx", icon: "fa-poll", description: "Check your semester and examination results." },
+                    { title: "Notice Portal", url: "https://dsmru.up.nic.in/main/User/Notices.aspx", icon: "fa-bell", description: "Official notices, circulars, and announcements." },
+                    { title: "DSMNRU ERP Portal", url: "https://dsmnruerp.in/", icon: "fa-cogs", description: "University's Enterprise Resource Planning system." },
+                ],
+                admissions: [
+                    { title: "Admission Portal", url: "https://dsmnru.ac.in/", icon: "fa-door-open", description: "Main portal for new student admissions and information." },
+                    { title: "Merit/Counselling Notices", url: "https://dsmnru.ac.in/AdmissionResult", icon: "fa-list-ol", description: "Merit lists and counselling schedules for admissions." },
+                    { title: "Convocation Portal", url: "https://dsmru.samarth.edu.in/convocation", icon: "fa-graduation-cap", description: "Information and registration for convocation ceremonies." },
+                    { title: "Alumni Portal", url: "https://dsmru.samarth.edu.in/alumni", icon: "fa-users", description: "Connect with fellow alumni and stay updated with the university." },
+                ],
+                scholarships: [
+                    { title: "UP Scholarship Portal", url: "https://scholarship.up.gov.in/", icon: "fa-rupee-sign", description: "Apply for state-level scholarships from the UP Government." },
+                    { title: "National Scholarship Portal", url: "https://scholarships.gov.in/", icon: "fa-award", description: "Centralized portal for various national-level scholarships." },
+                ],
+                admin: [
+                    { title: "Samarth Administration Portal", url: "https://dsmru.samarth.ac.in/index.php/site/login", icon: "fa-university", description: "Portal for university administrative staff and services." },
+                    { title: "Grievance Portal", url: "https://dsmru.samarth.ac.in/index.php/pgportal/grievance-public/public", icon: "fa-bullhorn", description: "Submit and track grievances and complaints." },
+                    { title: "Company Registration", url: "https://dsmru.samarth.ac.in/index.php/training/company-profile-requests/register", icon: "fa-building", description: "For companies to register for campus placements and training." },
+                ]
+            };
+
+            function renderLinks(gridId, links) {
+                const grid = document.getElementById(gridId);
+                if (!grid) return;
+
+                if (links.length === 0) {
+                    grid.innerHTML = '<p>No links in this category.</p>';
+                    return;
+                }
+
+                grid.innerHTML = links.map(link => `
+                    <div class="tool-card">
+                        <div class="tool-icon">
+                            <i class="fas ${link.icon}"></i>
+                        </div>
+                        <div class="tool-content">
+                            <h3 class="tool-title">${link.title}</h3>
+                            <p class="tool-description">${link.description}</p>
+                            <div class="tool-actions">
+                                <a href="${link.url}" target="_blank" rel="noopener noreferrer" class="btn-tool-primary">
+                                    <i class="fas fa-external-link-alt"></i> Visit Site
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            }
+
+            renderLinks('studentLinksGrid', linkCategories.student);
+            renderLinks('admissionsLinksGrid', linkCategories.admissions);
+            renderLinks('scholarshipLinksGrid', linkCategories.scholarships);
+            renderLinks('adminLinksGrid', linkCategories.admin);
+        });
+    </script>
+</body>
+</html>

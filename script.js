@@ -1287,6 +1287,19 @@ function setupUserUploadHandler() {
     });
 }
 
+// Update UI for PYQ filters based on auth state
+function updatePyqFilterUI() {
+    const panel = document.getElementById('pyqFilterPanel');
+    if (!panel) return;
+
+    // Keep filter panel visible at all times. Show a small hint for unauthenticated users.
+    panel.style.display = 'block';
+    const hint = document.getElementById('filterHint');
+    if (hint) {
+        hint.style.display = currentUser ? 'none' : 'inline';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize modals
     const pdfModal = new bootstrap.Modal(document.getElementById('pdfModal'));
@@ -1435,18 +1448,6 @@ document.addEventListener('DOMContentLoaded', function() {
             filteredPyqs = [...allData.pyqs];
             currentPage = 1;
             renderPYQs();
-        }
-    }
-
-    function updatePyqFilterUI() {
-        const panel = document.getElementById('pyqFilterPanel');
-        if (!panel) return;
-
-        // Keep filter panel visible at all times. Show a small hint for unauthenticated users.
-        panel.style.display = 'block';
-        const hint = document.getElementById('filterHint');
-        if (hint) {
-            hint.style.display = currentUser ? 'none' : 'inline';
         }
     }
 
