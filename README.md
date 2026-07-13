@@ -41,25 +41,33 @@
 ## 🌟 Features
 
 ### **For Students**
-- 📚 **Browse PYQs & Syllabus** - Search, filter, and download academic materials
-- 🔖 **Bookmarks** - Save your favorite papers for quick access
+- � **User Authentication** - Secure sign-up and login with email/password and Google.
+- 👤 **User Profiles** - Manage your name, course, and phone number.
+- 📚 **Browse PYQs** - Search, filter, and download academic materials.
+-  **Bookmarks** - Save your favorite papers for quick access
 - 🔍 **Smart Search** - Find papers by course, year, and semester
 - 📖 **PDF Viewer** - Preview papers inline
 - 📤 **Share Documents** - Easy sharing via social media & links
 - 📤 **Upload Papers** - Contribute your own question papers and notes
-- 🧮 **SGPA Calculator** - Calculate semester GPA with subject-wise grades
-- 📅 **Study Planner** - Plan and track your study schedule
-- ✓ **Attendance Tracker** - Monitor attendance records
-- 🌐 **Progressive Web App** - Works offline with service worker support
-- 💬 **Live Chat** - Real-time support for students
+- ️ **Student Tools** - A suite of utilities to help with academics:
+  - **SGPA Calculator**: Calculate semester GPA with subject-wise grades.
+  - **Study Planner**: Plan and track your study schedule.
+  - **Attendance Tracker**: Monitor attendance records.
+- 📝 **Feedback System** - Report broken links or request missing PYQs.
+- 🌐 **Progressive Web App (PWA)** - Installable with offline access to cached content.
+- 💬 **Live Chat** - Get real-time support.
 
 ### **For Admins**
+- 🔑 **Secure Admin Login** - Role-based access control for the admin panel.
 - ➕ **Add/Edit/Delete Content** - Manage PYQs and Syllabus easily
 - 👥 **User Submissions** - Review and approve student-uploaded content
 - 📊 **Lazy Loading UI** - Fast admin panel with on-demand data loading
 - 🗂️ **Collapsible Sections** - Organize with accordion interface
 - 📁 **Pending Uploads** - Queue system for student submissions
 - 🗺️ **Sitemap Generation** - Auto-generate sitemaps for SEO
+
+---
+
 
 ---
 
@@ -72,13 +80,13 @@
 .
 ├── index.html                 # Public homepage & student UI
 ├── admin.html                 # Admin dashboard (Firebase auth required)
-├── script.js                  # Frontend logic (data loading, search, bookmarks, uploads)
+├── script.js                  # Frontend logic (auth, data loading, search, tools, uploads)
 ├── admin.js                   # Admin functions (auth, CRUD, lazy loading, submissions)
 ├── styles.css                 # Dark theme styling
 ├── sw.js                      # Service worker (offline support)
 ├── manifest.json              # PWA manifest
 ├── offline.html               # Offline fallback page
-├── robots.txt                 # SEO robots configuration
+├── robots.txt                 # SEO crawler configuration
 ├── sitemap.xml                # SEO sitemap
 ├── cors.json                  # CORS configuration
 └── img/                       # Images and assets
@@ -116,24 +124,24 @@ npx serve .
 ## 📡 Data & Firebase
 
 ### **Collections**
-- **`pyqs`** - Previous Year Question Papers
-  - Fields: `title`, `file` (URL), `id`, `year`
-  
-- **`syllabus`** - Course Syllabus
-  - Fields: `title`, `file` (URL), `course`, `semester`, `id`
-
-- **`pendingUploads`** - Student Submissions (awaiting review)
-  - Fields: `title`, `downloadUrl`, `studentName`, `course`, `semester`, `fileName`, `uploadedAt`, `status`
+- **`pyqs`**: Stores Previous Year Question Papers.
+  - Fields: `title`, `file` (Server 1 URL), `file2` (Server 2 URL), `course`, `semester`, `session`, `branch`.
+- **`users`**: Stores registered user profiles.
+  - Fields: `uid`, `email`, `name`, `course`, `phone`, `role`, `createdAt`.
+- **`contributors`**: Manages the list of content contributors.
+  - Fields: `name`, `avatar`, `role`.
+- **`pendingUploads`**: A queue for student-submitted files awaiting admin review.
+  - Fields: `title`, `downloadUrl`, `studentName`, `course`, `semester`, `fileName`, `uploadedAt`, `status`.
+- **`feedback`**: Collects user feedback, including broken link reports and PYQ requests.
+  - Fields: `type`, `title`, `details`, `status`, `createdAt`.
 
 ### **Local Storage Keys**
-- `dsmnruBookmarks` - Saved paper URLs
-- `dsmnruStudyPlanner` - Study schedule entries
-- `dsmnruAttendance` - Attendance records
-- `dsmnruCgpaLast` - Last CGPA calculation
-- `quickPyq` - Quick access toggle
-- `quickSyllabus` - Quick access toggle
-- `quickSearch` - Quick access toggle
-- `quickUpload` - Quick access toggle
+- `dsmnruBookmarks`: Saved paper URLs.
+- `dsmnruStudyPlanner`: Study schedule tasks.
+- `dsmnruAttendance`: Attendance records for subjects.
+- `dsmnruCgpaLast`: Last CGPA calculation result.
+- `profileCompletionDismissed`: Timestamp for dismissing the profile completion reminder.
+- `dashboardTheme`, `dashboardLayout`: Admin dashboard UI preferences.
 
 ---
 
@@ -141,93 +149,75 @@ npx serve .
 
 ### How Students Upload
 
-1. **Access Upload Form** - Scroll to "Help us grow the collection" section on homepage
-2. **Fill Form:**
-   - **Title** (required) - e.g., "CSE 301 {2023}"
-   - **Course** (optional) - e.g., "CSE 301"
-   - **Semester** (optional) - e.g., "6th"
-   - **PDF File** (required) - Select PDF (max 50MB)
-   - **Your Name** (required) - Enter your full name
-3. **Submit** - File uploads to temporary storage
-4. **Confirmation** - Get success message with contribution credit
+1.  **Access Upload Form**: Navigate to the "Help us grow the collection" section on the homepage.
+2.  **Fill Form**:
+    -   **Your Name** (required)
+    -   **Title** (e.g., "Effective Technical Communication")
+    -   **Course**, **Semester**
+    -   **Select Files**: Choose a single PDF or multiple images (JPG, PNG).
+3.  **Submit**: Images are automatically converted into a single, optimized PDF. The final PDF is uploaded to a temporary file-hosting service.
+4.  **Confirmation**: A success message confirms the submission is sent for admin review.
 
 ### How It Works Behind the Scenes
 
-1. PDF file → uploaded to **tmpfiles.org** (temporary storage, auto-expires)
-2. Metadata saved to Firestore `pendingUploads` collection
-3. Admin reviews in dashboard
-4. Admin downloads and uploads to personal cloud storage
-5. Admin adds external link to main collection
-6. Student contribution is credited
+1.  The final PDF (either uploaded directly or converted from images) is sent to **gofile.io**, a free and CORS-enabled file hosting service.
+2.  The file's metadata and its `downloadUrl` are saved to the `pendingUploads` collection in Firestore.
+3.  The admin reviews the submission in the dashboard's "Review Queue".
+4.  The admin can download the file, verify its quality, and add it to the main `pyqs` collection.
+5.  The student's name is credited for their contribution.
 
 ### Why This Approach?
 
-✅ **Zero Firebase Storage cost** - No quota consumption  
-✅ **No space limitations** - Unlimited submissions  
-✅ **Quality control** - Admin reviews before publishing  
-✅ **Student crediting** - Contributor name displayed  
-✅ **Temporary staging** - Clean workflow for admin  
-✅ **Auto-cleanup** - Files auto-expire after retention period  
+✅ **Zero Firebase Storage Cost**: Avoids using Firebase Storage quotas.  
+✅ **Flexible Uploads**: Supports both direct PDF and image-to-PDF conversion.  
+✅ **Quality Control**: All submissions are reviewed by an admin before being published.  
+✅ **Student Crediting**: The contributor's name is recorded with each submission.  
+✅ **Clean Workflow**: A dedicated queue keeps submissions organized for the admin.
 
 ---
 
 ## 👨‍💼 Admin Features
 
 ### Login & Authentication
-1. Go to `admin.html`
-2. Sign in with Firebase email/password (admin account required)
-3. Dashboard loads with lazy-loading sections
+1.  Go to `admin.html`.
+2.  Sign in with the designated admin email and password. Non-admin accounts are automatically logged out.
+3.  The dashboard loads with live stats and collapsible management sections.
 
 ### Managing Content
 
 **Add New PYQ:**
-- Click "Add New PYQ" accordion
-- Enter title (e.g., "CSE 301 {2023}")
-- Paste file URL (from Google Drive, OneDrive, etc.)
-- Click "Add PYQ"
+- Use the "Quick Create" form to add a new PYQ.
+- The title is auto-generated from course, semester, subject, and session fields to ensure consistency.
+- Provide up to two server URLs for the file.
 
-**Add New Syllabus:**
-- Click "Add New Syllabus" accordion
-- Enter title, file URL
-- Optionally add course & semester
-- Click "Add Syllabus"
+**Bulk Import:**
+- Upload a CSV file to add or update records in the `pyqs` or `contributors` collections.
+- If a row has an `id`, the corresponding document is updated; otherwise, a new document is created.
 
-**Edit Content:**
-- Expand "Manage PYQs" or "Manage Syllabus"
-- Click "Edit" button on any item
-- Update and save changes
-
-**Delete Content:**
-- Click "Delete" button on any item
-- Confirm deletion
+**Edit & Delete:**
+- Expand the "Content Library" to view all PYQs.
+- Click "Edit" or "Delete" on any item to manage it.
 
 ### Processing Student Uploads
 
 **Workflow:**
-1. Student uploads PDF from homepage with name & metadata
-2. File stored temporarily on **tmpfiles.org** (available for hours)
-3. Admin sees upload in "Pending User Uploads" section with student name
-4. Admin clicks "Download" to save PDF locally
-5. Admin uploads PDF to personal cloud storage (Google Drive, OneDrive, etc.)
-6. Admin adds the external link to main PYQ/Syllabus collection
-7. Admin clicks "Delete" to remove from pending queue
-8. Student sees their contribution credited on homepage
+1.  Expand the "Review Queue" section in the admin panel.
+2.  New submissions appear with the student's name, file details, and a download link.
+3.  Click "Download" to get the file.
+4.  After verifying, manually add it to the library using the "Quick Create" form.
+5.  Click "Delete" to remove the submission from the queue.
 
 ---
 
 ## 🎨 Styling & Theme
 
-**Dark Theme Colors:**
-- Primary: Teal/Cyan (`#32b8c6`, `#2da6b2`)
-- Background: Charcoal (`#1f2121`, `#262828`)
-- Text: Light Gray (`#f5f5f5`)
-- Accent: Teal gradient
+The project features a modern, glassmorphism-inspired dark theme.
 
 **CSS Variables** defined in `styles.css` for easy customization:
-- `--color-primary` - Primary color
-- `--color-background` - Page background
-- `--color-surface` - Card/section background
-- `--color-text` - Text color
+- `--color-primary`: The main accent color (teal).
+- `--color-background`: The main page background.
+- `--color-surface`: The background for cards and modals.
+- `--color-text`: The primary text color.
 
 ---
 
@@ -241,28 +231,38 @@ service cloud.firestore {
     
     // Helper: Check if user is admin
     function isAdminByEmail() {
-      return request.auth != null
-             && request.auth.token.email == "your-email@gmail.com";
+      return request.auth != null && request.auth.token.email == "kush210431@gmail.com";
     }
 
-    // Public read, admin write only
-    match /pyqs/{doc} {
+    // Public collections are world-readable, admin-writable.
+    match /pyqs/{docId} {
+      allow read: if true;
+      allow write: if isAdminByEmail();
+    }
+    match /contributors/{docId} {
       allow read: if true;
       allow write: if isAdminByEmail();
     }
 
-    match /syllabus/{doc} {
-      allow read: if true;
-      allow write: if isAdminByEmail();
+    // Users can read/write their own data. Admins have full access.
+    match /users/{userId} {
+      allow read, update: if request.auth.uid == userId || isAdminByEmail();
+      allow create: if request.auth.uid == userId;
+      allow delete: if isAdminByEmail();
     }
 
-    // Public submissions, admin review only
-    match /pendingUploads/{doc} {
+    // Anyone can submit to pendingUploads and feedback. Only admins can read/delete.
+    match /pendingUploads/{docId} {
       allow read: if isAdminByEmail();
       allow create: if request.resource.data.title is string
                     && request.resource.data.studentName is string
                     && request.resource.data.downloadUrl is string;
-      allow update, delete: if isAdminByEmail();
+      allow delete: if isAdminByEmail();
+    }
+    match /feedback/{docId} {
+      allow read, update: if isAdminByEmail();
+      allow create: if request.resource.data.type is string;
+      allow delete: if isAdminByEmail();
     }
 
     // Deny all other access
@@ -280,13 +280,13 @@ service cloud.firestore {
 
 The site works offline with service worker support:
 - `sw.js` - Caches assets for offline access
-- `manifest.json` - PWA configuration
+- `manifest.json` - PWA metadata
 - `offline.html` - Fallback offline page
 
 **To install:**
-- Open on mobile/desktop
-- "Add to Home Screen" option appears
-- Works offline with cached content
+- On a supported browser (like Chrome on desktop or mobile), an "Install" button will appear in the address bar.
+- Once installed, the app can be launched from the home screen or app drawer.
+- Cached content remains available even when offline.
 
 ---
 
@@ -294,7 +294,7 @@ The site works offline with service worker support:
 
 - Auto-generated `sitemap.xml` from admin panel
 - SEO metadata in `index.html` (title, description, OG tags)
-- Structured data (JSON-LD) for schema.org
+- Structured data (JSON-LD) for rich search results
 - `robots.txt` for search engine crawling
 
 ---
@@ -321,13 +321,13 @@ The site works offline with service worker support:
 ## 🚨 Common Issues & Fixes
 
 ### Issue: Admin can't log in
-**Solution:** Ensure Firebase config is correct in `admin.html` and email is registered as admin
+**Solution:** Ensure the Firebase config is correct in `admin.html` and the email is hardcoded as the admin email in `admin.js`.
 
 ### Issue: Changes not showing
 **Solution:** Clear browser cache (Ctrl+Shift+Delete) and refresh
 
 ### Issue: Uploads not appearing
-**Solution:** Check Firestore rules allow unauthenticated creates to `pendingUploads`
+**Solution:** Check that Firestore rules allow `create` operations on the `pendingUploads` collection.
 
 ### Issue: Offline features not working
 **Solution:** Service worker needs HTTPS in production (works on localhost)
@@ -342,8 +342,8 @@ The site works offline with service worker support:
 1. Create Firebase project
 2. Enable Firestore Database
 3. Copy config to `script.js`, `admin.js`, `admin.html`
-4. Create two collections: `pyqs` and `syllabus`
-5. Create admin user account
+4. Create initial collections: `pyqs`, `users`, `contributors`, `pendingUploads`, `feedback`.
+5. Create an admin user account in Firebase Authentication.
 6. Apply security rules from above
 7. Deploy or run locally
 
@@ -376,15 +376,13 @@ The heroes who made this archive possible! See homepage "Contributors" section. 
 
 ## 📞 Support
 
-- 💬 **Live Chat** - Click chat button on site for instant support
-- 📧 **Email** - Contact via website contact form
-- 🐛 **Report Issues** - Use feedback form or contact admin
+- 💬 **Live Chat**: Click the chat button on the site for instant support.
+- 📝 **Feedback Forms**: Use the "Report Broken Link" or "Request PYQ" modals on the site.
 
 ---
 
 ## 🎯 Future Enhancements
 
-- [ ] User accounts & profiles
 - [ ] Rating & reviews for papers
 - [ ] Paper difficulty levels
 - [ ] Discussion forums
@@ -400,18 +398,17 @@ The heroes who made this archive possible! See homepage "Contributors" section. 
 ## 💡 Tips for Best Results
 
 **For Students:**
-- Use the SGPA calculator regularly to track performance
-- Bookmark important papers for quick access
-- Use the study planner to organize preparation
-- Contribute quality notes and papers
-- Share with classmates using the share feature
+- Use the SGPA calculator to track your academic performance.
+- Bookmark important papers for quick access before exams.
+- Use the study planner to organize your preparation schedule.
+- Contribute high-quality notes and papers to help the community.
+- Share useful resources with classmates using the share feature.
 
 **For Admins:**
-- Review submissions regularly to keep platform updated
-- Organize PDFs logically in personal cloud storage
-- Use consistent naming conventions for PDFs
-- Delete processed uploads to keep pending list clean
-- Generate sitemap monthly for SEO benefits
+- Review submissions regularly to keep the platform up-to-date.
+- Organize PDFs logically in your cloud storage before linking them.
+- Use consistent naming conventions for files and titles.
+- Clear the pending queue after processing uploads.
 
 ---
 
