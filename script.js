@@ -1632,10 +1632,10 @@ document.addEventListener('DOMContentLoaded', function() {
                         <h5 class="pyq-title">${pyq.title}</h5>
                         <div class="pyq-actions">
                             ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(primaryFile)}', '${safeTitle}')">
-                                <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Preview Server 1
+                                <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
                             </button>` : ''}
                             ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(secondaryFile)}', '${safeTitle}')">
-                                <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Preview Server 2
+                                <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
                             </button>` : ''}
                             ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
                                 <i class="fas fa-share-alt"></i> Share
@@ -1717,10 +1717,10 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <h5 class="pyq-title">${item.title}</h5>
                                 <div class="pyq-actions">
                                     ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(primaryFile)}', '${safeTitle}')">
-                                        <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Preview Server 1
+                                        <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
                                     </button>` : ''}
                                     ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(secondaryFile)}', '${safeTitle}')">
-                                        <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Preview Server 2
+                                        <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
                                     </button>` : ''}
                                     ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
                                         <i class="fas fa-share-alt"></i> Share
