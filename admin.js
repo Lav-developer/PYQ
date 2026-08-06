@@ -151,7 +151,19 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
 
-        addItem('pyqs', { title, file, file2: file2 || '', course, semester, subject: currentSubject, session, branch: branch || '' });
+        addItem('pyqs', {
+            title,
+            file,
+            file2: file2 || '',
+            course,
+            semester,
+            subject: currentSubject,
+            session,
+            branch: branch || '',
+            description: buildPyqDescription(title),
+            views: 0,
+            createdAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
         this.reset();
     });
 
@@ -443,6 +455,7 @@ function escapeXml(unsafe) {
 function renderLists() {
     renderPyqs();
     renderUsers();
+    renderAdminAnalytics();
     updateDashboardStats();
 }
 
@@ -462,6 +475,104 @@ function updateDashboardStats() {
     setCount('pendingHeaderCount', allData.pendingUploads.length);
     setCount('contributorsCount', allData.contributors.length);
     setCount('contributorsHeaderCount', allData.contributors.length);
+}
+
+function getPyqTimestampValue(pyq) {
+    const candidate = pyq && (pyq.createdAt || pyq.uploadedAt || pyq.addedAt);
+    if (!candidate) {
+        return 0;
+    }
+
+    if (typeof candidate.toDate === 'function') {
+        return candidate.toDate().getTime();
+    }
+
+    const parsed = Date.parse(candidate);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getCourseLabel(pyq) {
+    return String(pyq && (pyq.course || pyq.category || ''))
+        .trim()
+        .replace(/\s+/g, ' ');
+}
+
+function renderAdminAnalytics() {
+    const pyqs = Array.isArray(allData.pyqs) ? allData.pyqs : [];
+    const totalViews = pyqs.reduce((sum, item) => sum + (Number(item.views) || 0), 0);
+    const averageViews = pyqs.length ? (totalViews / pyqs.length) : 0;
+
+    const courseCounts = new Map();
+    pyqs.forEach(pyq => {
+        const courseLabel = getCourseLabel(pyq);
+        if (!courseLabel) {
+            return;
+        }
+
+        const current = courseCounts.get(courseLabel) || 0;
+        courseCounts.set(courseLabel, current + 1);
+    });
+
+    const topCourseEntry = Array.from(courseCounts.entries()).sort((a, b) => b[1] - a[1])[0];
+    const newestPyq = [...pyqs].sort((a, b) => getPyqTimestampValue(b) - getPyqTimestampValue(a))[0];
+    const topViewedPyqs = [...pyqs]
+        .sort((a, b) => {
+            const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
+            if (viewDiff !== 0) {
+                return viewDiff;
+            }
+
+            return getPyqTimestampValue(b) - getPyqTimestampValue(a);
+        })
+        .slice(0, 5);
+
+    const uploadCountsList = document.getElementById('adminUploadCountsList');
+    const topPapersList = document.getElementById('adminTopPapersList');
+
+    const setText = (id, value) => {
+        const element = document.getElementById(id);
+        if (element) {
+            element.textContent = value;
+        }
+    };
+
+    setText('adminTotalViews', totalViews.toLocaleString());
+    setText('adminAverageViews', pyqs.length ? averageViews.toFixed(1) : '0');
+    setText('adminTopCourse', topCourseEntry ? topCourseEntry[0] : '-');
+    setText('adminNewestPyq', newestPyq ? newestPyq.title : '-');
+
+    if (topPapersList) {
+        topPapersList.innerHTML = topViewedPyqs.length ? topViewedPyqs.map(pyq => `
+            <article class="resource-card">
+                <div class="resource-top">
+                    <div>
+                        <div class="resource-kicker">${escapeHtml(String(Number(pyq.views) || 0))} views</div>
+                        <h5 class="resource-title">${escapeHtml(pyq.title || 'Untitled')}</h5>
+                        <div class="resource-meta">
+                            ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
+                            ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} sem</span>` : ''}
+                        </div>
+                    </div>
+                </div>
+            </article>
+        `).join('') : '<div class="resource-empty">No PYQ views yet.</div>';
+    }
+
+    if (uploadCountsList) {
+        const courseEntries = Array.from(courseCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
+        uploadCountsList.innerHTML = courseEntries.length ? courseEntries.map(([course, count]) => `
+            <article class="resource-card">
+                <div class="resource-top">
+                    <div>
+                        <h5 class="resource-title">${escapeHtml(course)}</h5>
+                        <div class="resource-meta">
+                            <span class="resource-pill">${count} upload${count === 1 ? '' : 's'}</span>
+                        </div>
+                    </div>
+                </div>
+            </article>
+        `).join('') : '<div class="resource-empty">No course uploads yet.</div>';
+    }
 }
 
 function buildCsvContent(rows, columns) {
@@ -865,6 +976,11 @@ function buildPyqTitle(course,branch, semester, subject, session) {
 
 function normalizePyqText(value) {
     return (value || '').toString().replace(/\s+/g, ' ').trim();
+}
+
+function buildPyqDescription(title) {
+    const normalizedTitle = normalizePyqText(title) || 'Document';
+    return `${normalizedTitle} for DSMNRU`;
 }
 
 function pyqTitleExists(title) {

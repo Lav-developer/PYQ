@@ -936,6 +936,197 @@ body {
   font-style: italic;
 }
 
+.section-header-left {
+  text-align: left;
+}
+
+.home-quick-links {
+  padding-top: var(--space-16);
+}
+
+.course-card-grid,
+.compact-resource-list {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.course-card-grid {
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+}
+
+.course-card {
+  width: 100%;
+  border: 1px solid rgba(var(--color-teal-300-rgb), 0.18);
+  background: linear-gradient(180deg, rgba(var(--color-slate-900-rgb), 0.92), rgba(var(--color-slate-900-rgb), 0.78));
+  color: var(--color-text);
+  border-radius: 18px;
+  padding: var(--space-20) var(--space-16);
+  text-align: left;
+  transition: transform var(--duration-normal) var(--ease-standard), border-color var(--duration-normal) var(--ease-standard), box-shadow var(--duration-normal) var(--ease-standard);
+  box-shadow: var(--shadow-sm);
+}
+
+.course-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--color-teal-300-rgb), 0.42);
+  box-shadow: var(--shadow-md);
+}
+
+.course-card-label {
+  display: block;
+  margin-bottom: var(--space-8);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+
+.course-card strong {
+  display: block;
+  font-size: var(--font-size-3xl);
+  color: var(--secondary-color);
+  line-height: 1;
+}
+
+.course-card small {
+  display: block;
+  margin-top: var(--space-4);
+  color: rgba(245, 245, 245, 0.72);
+}
+
+.highlights-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-20);
+}
+
+.highlight-panel {
+  background-color: rgba(var(--color-slate-900-rgb), 0.7);
+  border-radius: 22px;
+  padding: var(--space-24);
+  box-shadow: var(--shadow-lg);
+}
+
+.compact-resource-list {
+  gap: var(--space-10);
+}
+
+.mini-pyq-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-12);
+  padding: var(--space-16);
+  border-radius: 16px;
+  background-color: rgba(var(--color-slate-900-rgb), 0.76);
+  border: 1px solid rgba(var(--color-teal-300-rgb), 0.12);
+}
+
+.mini-pyq-copy h4 {
+  margin: 0 0 var(--space-6);
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+}
+
+.mini-pyq-copy p {
+  margin: 0;
+  color: rgba(245, 245, 245, 0.72);
+  font-size: var(--font-size-sm);
+}
+
+.mini-pyq-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-10);
+  flex-shrink: 0;
+}
+
+.mini-pyq-views {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-6);
+  color: rgba(245, 245, 245, 0.8);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.empty-state-compact {
+  padding: var(--space-20) var(--space-16);
+}
+
+.loading-skeleton {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-12);
+}
+
+.skeleton-card,
+.skeleton-line {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+}
+
+.skeleton-card {
+  height: 122px;
+}
+
+.skeleton-line {
+  height: 16px;
+}
+
+.skeleton-line-lg {
+  height: 22px;
+}
+
+.skeleton-line-sm {
+  width: 68%;
+}
+
+.skeleton-card::after,
+.skeleton-line::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  animation: skeleton-shimmer 1.35s infinite;
+}
+
+@keyframes skeleton-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (max-width: 767.98px) {
+  .content-section {
+    padding: var(--space-24) 0;
+  }
+
+  .course-card-grid,
+  .highlights-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .highlight-panel {
+    padding: var(--space-16);
+  }
+
+  .mini-pyq-card {
+    flex-direction: column;
+  }
+
+  .mini-pyq-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
 /* Filter Container */
 .filter-container {
   background-color: rgba(var(--color-slate-900-rgb), 0.6);
@@ -1704,9 +1895,12 @@ body {
 /* Empty State */
 .empty-state {
   text-align: center;
-  padding: var(--space-32) var(--space-16);
+  padding: var(--space-32) var(--space-20);
   color: var(--accent-color);
-  opacity: 0.7;
+  opacity: 0.9;
+  border-radius: 18px;
+  background: rgba(var(--color-slate-900-rgb), 0.55);
+  border: 1px solid rgba(var(--color-teal-300-rgb), 0.12);
 }
 
 .empty-state i {
@@ -1719,6 +1913,9 @@ body {
 .loading {
   text-align: center;
   padding: var(--space-32);
+  border-radius: 18px;
+  background: rgba(var(--color-slate-900-rgb), 0.4);
+  border: 1px solid rgba(var(--color-teal-300-rgb), 0.12);
 }
 
 .spinner-border {

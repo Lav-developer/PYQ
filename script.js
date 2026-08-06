@@ -1338,10 +1338,19 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function processAndSortItems(items) {
-        return items.map(item => ({
+        return items.map(item => normalizePyqMetadata({
             ...item,
             year: extractYearFromTitle(item.title || '')
         })).sort((a, b) => b.year - a.year);
+    }
+
+    function normalizePyqMetadata(pyq) {
+        const parsedViews = Number(pyq && pyq.views);
+
+        return {
+            ...pyq,
+            views: Number.isFinite(parsedViews) && parsedViews >= 0 ? Math.floor(parsedViews) : 0
+        };
     }
 
     function getPyqSemesterValue(pyq) {
@@ -1516,6 +1525,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             await loadCollectionPage('pyqs');
+            loadHomepageSections();
 
             // Populate filter options based on loaded PYQs
             populateCourseFilter();
@@ -1593,6 +1603,249 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    function escapeHtml(value) {
+        return String(value || '').replace(/[&<>"']/g, function(char) {
+            const entities = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#39;'
+            };
+
+            return entities[char] || char;
+        });
+    }
+
+    function getPyqTimestampValue(pyq) {
+        const candidate = pyq && (pyq.createdAt || pyq.uploadedAt || pyq.addedAt);
+        if (!candidate) {
+            return 0;
+        }
+
+        if (typeof candidate.toDate === 'function') {
+            return candidate.toDate().getTime();
+        }
+
+        const parsed = Date.parse(candidate);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function getRecentSortValue(pyq) {
+        const timestamp = getPyqTimestampValue(pyq);
+        if (timestamp) {
+            return timestamp;
+        }
+
+        const sessionMatch = String(pyq && pyq.session ? pyq.session : '').match(/(\d{4})/);
+        if (sessionMatch) {
+            return parseInt(sessionMatch[1], 10);
+        }
+
+        return extractYearFromTitle((pyq && pyq.title) || '');
+    }
+
+    async function fetchCourseCatalog() {
+        try {
+            const response = await fetch('courses.json', { cache: 'no-store' });
+            if (!response.ok) {
+                throw new Error('Unable to load course catalog');
+            }
+
+            const data = await response.json();
+            return Array.isArray(data.courses) ? data.courses : [];
+        } catch (error) {
+            console.warn('Course catalog unavailable:', error.message);
+            return ['B.A.', 'B.Com', 'B.Tech', 'B.Ed.', 'B.V.A.', 'BPO', 'D.Pharm', 'MBA', 'MCA', 'M.Tech'];
+        }
+    }
+
+    function renderCourseCards(courseNames, items) {
+        const container = document.getElementById('courseCards');
+        if (!container) {
+            return;
+        }
+
+        const counts = new Map();
+        (items || []).forEach(pyq => {
+            const courseName = String(pyq.course || pyq.category || '').trim();
+            if (!courseName) {
+                return;
+            }
+
+            const key = normalizeForCompare(courseName);
+            if (!key) {
+                return;
+            }
+
+            const current = counts.get(key) || { label: courseName, count: 0 };
+            current.count += 1;
+            if (!current.label) {
+                current.label = courseName;
+            }
+            counts.set(key, current);
+        });
+
+        const uniqueCourses = Array.from(new Set((courseNames || []).filter(Boolean).map(course => String(course).trim())))
+            .map(label => {
+                const key = normalizeForCompare(label);
+                const match = counts.get(key);
+                return {
+                    label,
+                    count: match ? match.count : 0
+                };
+            })
+            .filter(course => course.label)
+            .sort((a, b) => a.label.localeCompare(b.label));
+
+        container.innerHTML = uniqueCourses.map(course => `
+            <button type="button" class="course-card" data-course="${escapeJsString(course.label)}">
+                <span class="course-card-label">${escapeHtml(course.label)}</span>
+                <strong>${course.count}</strong>
+                <small>question paper${course.count === 1 ? '' : 's'}</small>
+            </button>
+        `).join('');
+
+        container.querySelectorAll('.course-card').forEach(button => {
+            button.addEventListener('click', function() {
+                window.jumpToCourse(this.getAttribute('data-course') || '');
+            });
+        });
+    }
+
+    function renderCompactPyqList(containerId, items, emptyMessage) {
+        const container = document.getElementById(containerId);
+        if (!container) {
+            return;
+        }
+
+        const list = Array.isArray(items) ? items : [];
+        if (!list.length) {
+            container.innerHTML = `
+                <div class="empty-state empty-state-compact">
+                    <i class="fas fa-folder-open"></i>
+                    <p>${escapeHtml(emptyMessage)}</p>
+                </div>
+            `;
+            return;
+        }
+
+        container.innerHTML = list.map(item => {
+            const primaryFile = getPyqPrimaryLink(item);
+            const secondaryFile = getPyqSecondaryLink(item);
+            const targetFile = primaryFile || secondaryFile;
+            const safeTitle = escapeJsString(item.title || 'Document');
+            const safeId = escapeJsString(item.id || '');
+            const views = Number.isFinite(Number(item.views)) ? Number(item.views) : 0;
+            const metaParts = [item.course, item.semester ? `${item.semester} sem` : '', item.session].filter(Boolean);
+
+            return `
+                <article class="mini-pyq-card">
+                    <div class="mini-pyq-copy">
+                        <h4>${escapeHtml(item.title || 'Document')}</h4>
+                        <p>${escapeHtml(metaParts.join(' • ') || 'No course metadata')}</p>
+                    </div>
+                    <div class="mini-pyq-actions">
+                        <span class="mini-pyq-views"><i class="fas fa-eye"></i> ${views}</span>
+                        ${targetFile ? `<button type="button" class="btn btn-sm btn-outline-info" onclick="openPyqDocument('${safeId}', '${escapeJsString(targetFile)}', '${safeTitle}')">Open</button>` : ''}
+                    </div>
+                </article>
+            `;
+        }).join('');
+    }
+
+    async function loadHomepageSections() {
+        const courseCardsContainer = document.getElementById('courseCards');
+        const recentContainer = document.getElementById('recentlyAddedList');
+        const trendingContainer = document.getElementById('trendingList');
+
+        if (!courseCardsContainer && !recentContainer && !trendingContainer) {
+            return;
+        }
+
+        if (courseCardsContainer) {
+            courseCardsContainer.innerHTML = `
+                <div class="skeleton-grid">
+                    <div class="skeleton-card"></div>
+                    <div class="skeleton-card"></div>
+                    <div class="skeleton-card"></div>
+                    <div class="skeleton-card"></div>
+                </div>
+            `;
+        }
+
+        if (recentContainer) {
+            showLoading('recentlyAddedList');
+        }
+
+        if (trendingContainer) {
+            showLoading('trendingList');
+        }
+
+        try {
+            const [courseNames, snapshot] = await Promise.all([
+                fetchCourseCatalog(),
+                db.collection('pyqs').get({ source: 'server' })
+            ]);
+
+            const allPyqs = snapshot.docs.map(doc => normalizePyqMetadata({ id: doc.id, ...doc.data() }));
+
+            if (courseCardsContainer) {
+                renderCourseCards(courseNames, allPyqs);
+            }
+
+            if (recentContainer) {
+                const recentItems = [...allPyqs]
+                    .sort((a, b) => getRecentSortValue(b) - getRecentSortValue(a))
+                    .slice(0, 6);
+                renderCompactPyqList('recentlyAddedList', recentItems, 'No recently added question papers yet.');
+            }
+
+            if (trendingContainer) {
+                const trendingItems = [...allPyqs]
+                    .sort((a, b) => {
+                        const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
+                        if (viewDiff !== 0) {
+                            return viewDiff;
+                        }
+
+                        return getRecentSortValue(b) - getRecentSortValue(a);
+                    })
+                    .slice(0, 6);
+                renderCompactPyqList('trendingList', trendingItems, 'No trending papers yet.');
+            }
+        } catch (error) {
+            console.error('Unable to load homepage sections:', error);
+            if (courseCardsContainer) {
+                courseCardsContainer.innerHTML = '<div class="empty-state empty-state-compact"><i class="fas fa-graduation-cap"></i><p>Course cards are unavailable right now.</p></div>';
+            }
+            if (recentContainer) {
+                showEmptyState('recentlyAddedList', 'Recently added papers are unavailable right now.');
+            }
+            if (trendingContainer) {
+                showEmptyState('trendingList', 'Trending papers are unavailable right now.');
+            }
+        }
+    }
+
+    window.jumpToCourse = function(courseLabel) {
+        const courseSelect = document.getElementById('filterCourse');
+        if (courseSelect) {
+            courseSelect.value = courseLabel || '';
+        }
+
+        const pyqTab = document.getElementById('nav-pyq-tab');
+        if (pyqTab) {
+            pyqTab.click();
+        }
+
+        if (currentUser) {
+            performSearch();
+        } else {
+            openSearchGateModal();
+        }
+    };
+
     // Load contributors only on pages that render the contributors grid.
     if (document.getElementById('contributorsGrid')) {
         loadContributors();
@@ -1621,6 +1874,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const secondaryFile = getPyqSecondaryLink(pyq);
             const shareTarget = primaryFile || secondaryFile;
             const safeTitle = escapeJsString(pyq.title || 'Document');
+            const safeId = escapeJsString(pyq.id || '');
+            const viewCount = Number.isFinite(Number(pyq.views)) ? Number(pyq.views) : 0;
 
             return `
             <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
@@ -1630,11 +1885,12 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div class="pyq-details">
                         <h5 class="pyq-title">${pyq.title}</h5>
+                        <div class="pyq-meta"><i class="fas fa-eye"></i> ${viewCount} views</div>
                         <div class="pyq-actions">
-                            ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(primaryFile)}', '${safeTitle}')">
+                            ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(primaryFile)}', '${safeTitle}')">
                                 <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
                             </button>` : ''}
-                            ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(secondaryFile)}', '${safeTitle}')">
+                            ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(secondaryFile)}', '${safeTitle}')">
                                 <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
                             </button>` : ''}
                             ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
@@ -1706,6 +1962,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 const secondaryFile = getPyqSecondaryLink(item);
                 const shareTarget = primaryFile || secondaryFile;
                 const safeTitle = escapeJsString(item.title || 'Document');
+                const safeId = escapeJsString(item.id || '');
+                const viewCount = Number.isFinite(Number(item.views)) ? Number(item.views) : 0;
 
                 return `
                     <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
@@ -1715,11 +1973,12 @@ document.addEventListener('DOMContentLoaded', function() {
                             </div>
                             <div class="pyq-details">
                                 <h5 class="pyq-title">${item.title}</h5>
+                                <div class="pyq-meta"><i class="fas fa-eye"></i> ${viewCount} views</div>
                                 <div class="pyq-actions">
-                                    ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(primaryFile)}', '${safeTitle}')">
+                                    ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(primaryFile)}', '${safeTitle}')">
                                         <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
                                     </button>` : ''}
-                                    ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="previewPDF('${escapeJsString(secondaryFile)}', '${safeTitle}')">
+                                    ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(secondaryFile)}', '${safeTitle}')">
                                         <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
                                     </button>` : ''}
                                     ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
@@ -1996,6 +2255,45 @@ document.addEventListener('DOMContentLoaded', function() {
         window.open(filePath, '_blank', 'noopener,noreferrer');
     };
 
+    function incrementPyqViews(pyqId) {
+        if (!pyqId) {
+            return;
+        }
+
+        const incrementValue = firebase.firestore.FieldValue.increment(1);
+        db.collection('pyqs').doc(pyqId).set({ views: incrementValue }, { merge: true })
+            .catch(error => {
+                console.warn('Unable to increment views:', error.message);
+            });
+
+        allData.pyqs = allData.pyqs.map(item => {
+            if (item.id !== pyqId) {
+                return item;
+            }
+
+            return {
+                ...item,
+                views: (Number(item.views) || 0) + 1
+            };
+        });
+
+        filteredPyqs = filteredPyqs.map(item => {
+            if (item.id !== pyqId) {
+                return item;
+            }
+
+            return {
+                ...item,
+                views: (Number(item.views) || 0) + 1
+            };
+        });
+    }
+
+    window.openPyqDocument = function(pyqId, filePath, title) {
+        incrementPyqViews(pyqId);
+        previewPDF(filePath, title);
+    };
+
     // Share function
     window.shareDocument = function(filePath, title) {
         const currentUrl = window.location.origin + window.location.pathname;
@@ -2038,11 +2336,11 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add loading states
     function showLoading(containerId) {
         document.getElementById(containerId).innerHTML = `
-            <div class="loading">
-                <div class="spinner-border" role="status">
-                    <span class="visually-hidden">Loading...</span>
-                </div>
-                <p class="mt-2">Loading content...</p>
+            <div class="loading loading-skeleton">
+                <div class="skeleton-line skeleton-line-lg"></div>
+                <div class="skeleton-line"></div>
+                <div class="skeleton-line skeleton-line-sm"></div>
+                <div class="skeleton-line skeleton-line-sm"></div>
             </div>
         `;
     }
