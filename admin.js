@@ -15,10 +15,32 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
 let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [] };
-const ADMIN_EMAIL = 'kush210431@gmail.com';
 
-function isAdminUser(user) {
-    return !!user && user.email === ADMIN_EMAIL;
+/**
+ * Checks if a user is an admin by attempting to read a document
+ * that only admins have access to, based on Firestore security rules.
+ * This avoids exposing the admin email on the client-side.
+ * @param {firebase.User} user The user to check.
+ * @returns {Promise<boolean>} A promise that resolves to true if the user is an admin, false otherwise.
+ */
+async function isAdminUser(user) {
+    if (!user) {
+        return false;
+    }
+    try {
+        // Attempt to read a document that is admin-only according to security rules.
+        // We use a non-existent doc to minimize data transfer.
+        await db.collection('pendingUploads').limit(1).get(); // Check read permission on the collection
+        return true; // Read succeeded, user is an admin.
+    } catch (error) {
+        // A "permission-denied" error is expected for non-admins.
+        if (error.code === 'permission-denied') {
+            return false; // Read failed, user is not an admin.
+        }
+        // For other errors (e.g., network), log it and deny access.
+        console.error('Admin check failed with unexpected error:', error);
+        return false;
+    }
 }
 
 function updateCsvWidgetVisibility(user) {
@@ -27,9 +49,11 @@ function updateCsvWidgetVisibility(user) {
         return;
     }
 
-    const isAdmin = isAdminUser(user);
-    csvWidget.style.display = isAdmin ? 'flex' : 'none';
-    csvWidget.setAttribute('aria-hidden', isAdmin ? 'false' : 'true');
+    // This function is now async, so we need to handle the promise.
+    isAdminUser(user).then(isAdmin => {
+        csvWidget.style.display = isAdmin ? 'flex' : 'none';
+        csvWidget.setAttribute('aria-hidden', isAdmin ? 'false' : 'true');
+    });
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -40,16 +64,17 @@ document.addEventListener('DOMContentLoaded', function() {
     fetchAdminCoursesJson();
 
     // Auth state listener
-    auth.onAuthStateChanged(user => {
+    auth.onAuthStateChanged(async (user) => {
         if (user) {
-            if (!isAdminUser(user)) {
+            const isUserAdmin = await isAdminUser(user);
+            if (!isUserAdmin) {
                 auth.signOut();
                 updateCsvWidgetVisibility(null);
                 document.getElementById('loginError').textContent = 'You do not have admin access.';
                 document.getElementById('loginError').style.display = 'block';
                 document.getElementById('loginSection').style.display = 'block';
                 document.getElementById('adminSection').style.display = 'none';
-                return;
+                return; // Stop execution for non-admins
             }
             // User is signed in
             updateCsvWidgetVisibility(user);
@@ -475,6 +500,12 @@ function updateDashboardStats() {
     setCount('pendingHeaderCount', allData.pendingUploads.length);
     setCount('contributorsCount', allData.contributors.length);
     setCount('contributorsHeaderCount', allData.contributors.length);
+
+    // Update feedback count if available
+    const feedbackCountElement = document.getElementById('feedbackCount');
+    if (feedbackCountElement) {
+        feedbackCountElement.textContent = allData.feedback ? allData.feedback.length : '0';
+    }
 }
 
 function getPyqTimestampValue(pyq) {
