@@ -154,6 +154,13 @@
         .paper-preview-wrap {
             padding: 1.25rem 1.75rem 1.75rem;
         }
+        /* Inline PDF preview is desktop-only — mobile browsers often fail embeds
+           and can navigate the whole tab to the storage host. */
+        @media (max-width: 991.98px) {
+            .paper-preview-wrap {
+                display: none !important;
+            }
+        }
         .paper-preview-label {
             display: flex; align-items: center; justify-content: space-between;
             margin-bottom: 12px; color: rgba(226,232,240,0.85); font-weight: 700; font-size: 14px;
