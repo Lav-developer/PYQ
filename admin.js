@@ -14,7 +14,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
-let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [] };
+let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedback: [] };
 
 /**
  * Checks if a user is an admin by attempting to read a document
@@ -375,22 +375,51 @@ function setupSectionCollapseBehavior() {
 }
 
 function loadData() {
-    // Auto-load pending uploads and registered users so counts and panels show immediately.
+    // Auto-load counts for hero stats (light queries)
     loadPendingOnDemand();
     loadUsersOnDemand();
+    loadFeedbackCount();
+    // Also load pyqs count for analytics without full list
+    db.collection('pyqs').get().then(snap => {
+        allData.pyqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        updateDashboardStats();
+        renderAdminAnalytics();
+    }).catch(()=>{});
 }
-        // Also load feedback count for stats
-        db.collection('feedback').get().then(snap => {
-            document.getElementById('feedbackCount').textContent = snap.size;
-        }).catch(() => {
-            document.getElementById('feedbackCount').textContent = '0';
+function loadFeedbackCount() {
+    db.collection('feedback').get().then(snap => {
+        allData.feedback = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const el = document.getElementById('feedbackCount');
+        if (el) el.textContent = snap.size;
+        const hdr = document.getElementById('feedbackHeaderCount');
+        if (hdr) hdr.textContent = snap.size;
+        updateDashboardStats();
+    }).catch(() => {
+        const el = document.getElementById('feedbackCount');
+        if (el) el.textContent = '0';
+    });
+    // Real-time badge for new feedback (listen for changes)
+    try {
+        db.collection('feedback').where('status','==','new').onSnapshot(snap => {
+            const newCount = snap.size;
+            const hdr = document.getElementById('feedbackHeaderCount');
+            if (hdr) hdr.textContent = allData.feedback.length || snap.size;
+            // pulse effect if new items
+            const card = document.querySelector('#feedbackHeaderCount')?.closest('.section-chip');
+            if (card && newCount > 0) {
+                card.style.background = 'rgba(251, 146, 60, 0.22)';
+                card.style.borderColor = 'rgba(251, 146, 60, 0.35)';
+            }
         });
+    } catch(e){}
+}
 
 function resetLazyLoadState() {
     pyqsLoaded = false;
     pendingLoaded = false;
     usersLoaded = false;
     contributorsLoaded = false;
+    feedbackLoaded = false;
 }
 
 // function generateSitemap() {
@@ -1462,6 +1491,8 @@ function loadFeedback() {
         .get()
         .then(snap => {
             allFeedback = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            allData.feedback = allFeedback;
+            updateDashboardStats();
             updateFeedbackCount();
             renderFeedback();
         })
@@ -1478,7 +1509,62 @@ function updateFeedbackCount() {
 
 function filterFeedback(type) {
     feedbackFilter = type;
+    // update active button UI
+    document.querySelectorAll('.feedback-filter-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-filter') === type;
+        btn.classList.toggle('active', isActive);
+        btn.classList.toggle('btn-primary', isActive);
+        btn.classList.toggle('btn-outline-warning', !isActive && btn.getAttribute('data-filter')==='broken_link');
+        btn.classList.toggle('btn-outline-info', !isActive && btn.getAttribute('data-filter')==='pyq_request');
+        btn.classList.toggle('btn-outline-light', !isActive && (btn.getAttribute('data-filter')==='all' || btn.getAttribute('data-filter')==='new'));
+    });
     renderFeedback();
+}
+window.filterFeedback = filterFeedback;
+window.loadFeedback = loadFeedback;
+window.loadFeedbackOnDemand = loadFeedbackOnDemand;
+window.markFeedbackAsResolved = markFeedbackAsResolved;
+window.deleteFeedback = deleteFeedback;
+
+function clearResolvedFeedback() {
+    const resolved = allFeedback.filter(f => f.status === 'resolved');
+    if (!resolved.length) { alert('No resolved items to clear.'); return; }
+    if (!confirm(`Delete ${resolved.length} resolved feedback items?`)) return;
+    const batch = db.batch();
+    resolved.forEach(f => batch.delete(db.collection('feedback').doc(f.id)));
+    batch.commit().then(() => {
+        allFeedback = allFeedback.filter(f => f.status !== 'resolved');
+        allData.feedback = allFeedback;
+        updateDashboardStats();
+        renderFeedback();
+        loadFeedbackCount();
+        alert('Resolved feedback cleared.');
+    }).catch(e => alert('Error: '+e.message));
+}
+window.clearResolvedFeedback = clearResolvedFeedback;
+
+// ── Admin Content Library Search ──
+function setupAdminPyqSearch() {
+    const input = document.getElementById('adminPyqSearch');
+    if (!input) return;
+    input.addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        if (!q) { renderPyqs(); return; }
+        const filtered = allData.pyqs.filter(p => 
+            String(p.title||'').toLowerCase().includes(q) ||
+            String(p.course||'').toLowerCase().includes(q) ||
+            String(p.semester||'').toLowerCase().includes(q) ||
+            String(p.session||'').toLowerCase().includes(q)
+        );
+        const list = document.getElementById('pyqsList');
+        if (!list) return;
+        if (!filtered.length) { list.innerHTML = '<div class="resource-empty">No matches for “'+escapeHtml(q)+'”.</div>'; return; }
+        // reuse render but with filtered subset
+        const orig = allData.pyqs;
+        allData.pyqs = filtered;
+        renderPyqs();
+        allData.pyqs = orig;
+    });
 }
 
 function renderFeedback() {
@@ -1583,3 +1669,12 @@ function escapeHtml(str) {
     };
     return String(str).replace(/[&<>"']/g, m => map[m]);
 }
+// auto-init admin search after DOM ready
+document.addEventListener('DOMContentLoaded', function(){ 
+    try { setupAdminPyqSearch(); } catch(e){}
+    // also init feedback filter active state
+    try { 
+        const firstBtn = document.querySelector('.feedback-filter-btn[data-filter="all"]');
+        if (firstBtn) firstBtn.classList.add('active');
+    } catch(e){}
+});
