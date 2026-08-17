@@ -1882,7 +1882,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div class="mini-pyq-actions">
                         <span class="mini-pyq-views"><i class="fas fa-eye"></i> ${views}</span>
-                        ${targetFile ? `<button type="button" class="btn btn-sm btn-outline-info" onclick="openPyqDocument('${safeId}', '${escapeJsString(targetFile)}', '${safeTitle}')">Open</button>` : ''}
+                        <a href="paper.html?id=${encodeURIComponent(item.id)}" class="btn btn-sm btn-outline-info"><i class="fas fa-eye me-1"></i> View Details</a>
                     </div>
                 </article>
             `;
@@ -2078,24 +2078,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         <div class="pyq-meta" style="margin-bottom:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:13px; color: var(--color-text-secondary);">
                             <span><i class="fas fa-eye"></i> ${viewCount} views</span>
                             ${pyq.branch ? `<span><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>` : ''}
-                            <a href="paper.html?id=${encodeURIComponent(pyq.id)}" class="small" style="color: var(--color-teal-300);"><i class="fas fa-external-link-alt"></i> View details</a>
                         </div>
                         <div class="pyq-actions">
-                            ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(primaryFile)}', '${safeTitle}')">
-                                <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
-                            </button>` : ''}
-                            ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(secondaryFile)}', '${safeTitle}')">
-                                <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup
-                            </button>` : ''}
-                            ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
-                                <i class="fas fa-share-alt"></i> Share
-                            </button>
-                            <button class="btn btn-action btn-bookmark ${isBookmarked('pyqs', shareTarget) ? 'bookmarked' : ''}" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')">
-                                <i class="fas fa-bookmark"></i> ${isBookmarked('pyqs', shareTarget) ? 'Saved' : 'Save'}
-                            </button>` : ''}
-                            <button class="btn btn-action btn-share" style="opacity:0.9;" onclick="openReportBrokenLinkModal('${safeTitle}', '${escapeJsString(pyq.course||'')}' )" title="Report broken link">
-                                <i class="fas fa-flag"></i> Report
-                            </button>
+                            <a href="paper.html?id=${encodeURIComponent(pyq.id)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
                         </div>
                     </div>
                 </div>
@@ -2173,18 +2158,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <h5 class="pyq-title">${item.title}</h5>
                                 <div class="pyq-meta"><i class="fas fa-eye"></i> ${viewCount} views</div>
                                 <div class="pyq-actions">
-                                    ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(primaryFile)}', '${safeTitle}')">
-                                        <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
-                                    </button>` : ''}
-                                    ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(secondaryFile)}', '${safeTitle}')">
-                                        <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
-                                    </button>` : ''}
-                                    ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
-                                        <i class="fas fa-share-alt"></i> Share
-                                    </button>
-                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')">
-                                        <i class="fas fa-bookmark"></i> Bookmarked
-                                    </button>` : ''}
+                                    <a href="paper.html?id=${encodeURIComponent(item.id)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
+                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')"><i class="fas fa-bookmark"></i> Saved</button>
                                 </div>
                             </div>
                         </div>
