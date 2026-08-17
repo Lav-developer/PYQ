@@ -80,6 +80,7 @@
     const previewHintEl = document.getElementById('paperPreviewHint');
     const downloadAltEl = document.getElementById('paperDownloadAlt');
     const infoListEl = document.getElementById('paperInfoList');
+    const paperLockOverlayEl = document.getElementById('paperLockOverlay');
     const relatedSectionEl = document.getElementById('relatedSection');
     const relatedGridEl = document.getElementById('relatedGrid');
     const relatedSubtitleEl = document.getElementById('relatedSubtitle');
@@ -95,10 +96,11 @@
     let currentPaperId = null;
     let currentUser = null;
 
-    // Auth listener for comment UI
+    // Auth listener for comment UI + paper lock (forces signup)
     auth.onAuthStateChanged(user => {
         currentUser = user || null;
         updateCommentAuthUI();
+        updatePaperLockUI();
     });
     function updateCommentAuthUI(){
         if(currentUser){
@@ -106,9 +108,36 @@
             commentText.disabled = false;
         } else {
             commentAuthPromptEl.style.display = 'flex';
-            // still allow typing but will require login on submit
         }
     }
+    function updatePaperLockUI(){
+        if (!paperLockOverlayEl || !document.getElementById('paperContent')) return;
+        // only apply after paper is loaded; otherwise keep hidden
+        if (!currentPaper) {
+            paperLockOverlayEl.style.display = 'none';
+            document.getElementById('paperContent')?.classList.remove('locked');
+            return;
+        }
+        const isLocked = !currentUser;
+        const card = document.getElementById('paperContent');
+        if (isLocked) {
+            paperLockOverlayEl.style.display = 'flex';
+            card.classList.add('locked');
+        } else {
+            paperLockOverlayEl.style.display = 'none';
+            card.classList.remove('locked');
+        }
+    }
+    // expose helpers for inline onclick that should gate
+    window._paperRequiresLogin = function(){
+        if (!currentUser) {
+            // use same search gate modal if available (from script.js), else fallback to login
+            if (typeof openSearchGateModal === 'function') openSearchGateModal();
+            else openLoginModal();
+            return true;
+        }
+        return false;
+    };
 
     // Main load
     async function init(){
@@ -353,9 +382,11 @@
         document.getElementById('paperReportInlineLink').addEventListener('click', (e)=>{ e.preventDefault(); openReportModal(p); });
 
         // Also wire copy link inside info card to show feedback
+        updatePaperLockUI();
     }
 
     function openPreview(id, url, title){
+        if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
         // use modal if direct pdf, else new tab
         if(isDirectPdfUrl(url) && !isMediaFireUrl(url)){
             const modalEl = document.getElementById('pdfModal');
@@ -375,6 +406,7 @@
     }
 
     function handleDownloadClick(id){
+        if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
         incrementViews(id);
     }
     window.handleDownloadClick = handleDownloadClick;

@@ -17,13 +17,13 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
-    // PYQs — public read, admin write, anyone can +1 views
+    // PYQs — public read, admin write, signed-in users can +1 views (forces signup + saves quota)
     // ─────────────────────────────────────────
     match /pyqs/{doc} {
       allow read: if true;
       allow create, delete: if isAdminByEmail();
-      // Admin can do any update; everyone-else can only increment `views` by 1
-      allow update: if isAdminByEmail() || (
+      // Admin can do any update; signed-in users can only increment `views` by 1
+      allow update: if isAdminByEmail() || (isSignedIn() && (
         // first-time view: doc had no views field, new views == 1
         ( !('views' in resource.data) && request.resource.data.views == 1 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) )
         ||
@@ -33,7 +33,7 @@ service cloud.firestore {
           && resource.data.views is number
           && request.resource.data.views == resource.data.views + 1
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) )
-      );
+      ));
     }
 
     match /contributors/{doc}{

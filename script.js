@@ -1955,13 +1955,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (trendingContainer) {
                     renderCompactPyqList('trendingList', trendingItemsRaw.slice(0,6), 'No trending papers yet.');
                 }
-                // Lazy full fetch in background for search/filter (so next search is 0 reads)
-                fetchAllPyqsCached().then(full => {
-                    // update course cards once full is ready (more accurate counts)
-                    if (courseCardsContainer) {
-                        try { renderCourseCards(courseNames, full); } catch(e){}
-                    }
-                }).catch(()=>{});
+                // Lazy full fetch in background for search/filter — only for signed-in users (saves quota + forces signup)
+                if (currentUser) {
+                    fetchAllPyqsCached().then(full => {
+                        if (courseCardsContainer) {
+                            try { renderCourseCards(courseNames, full); } catch(e){}
+                        }
+                    }).catch(()=>{});
+                }
                 return; // early return — homepage done with 12 reads
             }
 
@@ -2343,8 +2344,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-        // Load More button for PYQs
+        // Load More button for PYQs — gated: beyond first page requires login
         document.getElementById('loadMoreBtn').addEventListener('click', async function() {
+            if (!currentUser) {
+                openSearchGateModal();
+                return;
+            }
             if (pyqHasMore && !document.getElementById('searchInput').value.trim() && !hasActivePyqFilters()) {
                 await loadCollectionPage('pyqs', true);
             }
@@ -2386,11 +2391,17 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Search function — PYQ-only P0: free for everyone, no login gate
+    // Search function — gated: free browse of first 20, but search/filters require login (saves 50K reads + drives signups)
     window.performSearch = async function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
         const filters = getPyqFilterState();
         const filtersActive = hasActivePyqFilters();
+
+        // 🔒 GATE: search & filters require login — prevents anon full-collection reads
+        if ((searchTerm || filtersActive) && !currentUser) {
+            openSearchGateModal();
+            return;
+        }
 
         const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
 
@@ -2527,8 +2538,21 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     window.openPyqDocument = function(pyqId, filePath, title) {
+        if (!currentUser) {
+            openSearchGateModal();
+            return;
+        }
         incrementPyqViews(pyqId);
         previewPDF(filePath, title);
+    };
+    // also gate direct preview wrapper for related cards
+    const _origPreviewPDF = window.previewPDF;
+    window.previewPDF = function(filePath, title) {
+        if (!currentUser) {
+            openSearchGateModal();
+            return;
+        }
+        return _origPreviewPDF(filePath, title);
     };
 
     // Share function

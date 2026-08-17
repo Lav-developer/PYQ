@@ -59,7 +59,33 @@
             box-shadow: 0 20px 45px rgba(2,6,23,0.22);
             backdrop-filter: blur(14px);
             overflow: hidden;
+            position: relative;
         }
+        .paper-lock-overlay {
+            position: absolute; inset: 0;
+            background: rgba(2,6,23,0.72);
+            backdrop-filter: blur(10px);
+            display: flex; align-items: center; justify-content: center;
+            z-index: 20; padding: 1.25rem;
+        }
+        .paper-lock-card {
+            max-width: 460px; width: 100%;
+            background: linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.88));
+            border: 1px solid rgba(110,231,216,0.22);
+            border-radius: 22px; padding: 1.5rem 1.25rem;
+            text-align: center; box-shadow: 0 20px 50px rgba(0,0,0,0.4);
+        }
+        .paper-lock-icon {
+            width: 64px; height: 64px; margin: 0 auto 12px;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            background: linear-gradient(135deg, #6ee7d8, #22d3ee); color: #05121d; font-size: 1.6rem;
+            box-shadow: 0 10px 24px rgba(110,231,216,0.25);
+        }
+        .paper-lock-card h3 { color: #f8fafc; font-weight: 800; font-size: 1.25rem; margin: 0 0 8px; }
+        .paper-lock-card p { color: rgba(203,213,225,0.78); font-size: 13px; line-height: 1.5; margin: 0 0 14px; }
+        .paper-detail-card.locked .paper-actions-bar,
+        .paper-detail-card.locked .paper-preview-wrap { filter: blur(7px); pointer-events: none; opacity: 0.35; }
+        .paper-detail-card.locked .paper-detail-head { filter: blur(2px); opacity: 0.7; }
         .paper-detail-head {
             padding: 1.75rem 1.75rem 1.25rem;
             border-bottom: 1px solid rgba(148,163,184,0.12);
@@ -329,6 +355,19 @@
 
         <!-- Paper Content -->
         <article id="paperContent" class="paper-detail-card" style="display:none;">
+            <!-- 🔒 Lock overlay — shown when not logged in (forces signup + saves reads) -->
+            <div id="paperLockOverlay" class="paper-lock-overlay" style="display:none;">
+                <div class="paper-lock-card">
+                    <div class="paper-lock-icon"><i class="fas fa-lock"></i></div>
+                    <h3>Sign up to view this paper</h3>
+                    <p>Members get instant preview, download & discussion. Create a free account in 10 seconds — unlocks search, filters, Load More and all papers.</p>
+                    <div class="d-flex gap-2 justify-content-center flex-wrap">
+                        <button class="btn-paper btn-paper-primary" onclick="openSignupModal()"><i class="fas fa-user-plus"></i> Sign Up Free</button>
+                        <button class="btn-paper btn-paper-secondary" onclick="openLoginModal()"><i class="fas fa-sign-in-alt"></i> Login</button>
+                    </div>
+                    <small style="color: rgba(203,213,225,0.55); display:block; margin-top:10px;">🔒 Preview & download are for members only</small>
+                </div>
+            </div>
             <div class="paper-detail-head">
                 <div class="paper-kicker" id="paperKicker"><i class="fas fa-file-pdf"></i> <span>PYQ</span></div>
                 <h1 class="paper-title" id="paperTitle">Loading title...</h1>
