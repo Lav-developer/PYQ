@@ -2101,6 +2101,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function renderBookmarks(searchTerm = '') {
+        const _blist = document.getElementById('bookmarksList');
+        if (!_blist) return;
         const startIndex = (currentPageBookmarks - 1) * itemsPerPageBookmarks;
         const endIndex = startIndex + itemsPerPageBookmarks;
 
@@ -2332,14 +2334,17 @@ document.addEventListener('DOMContentLoaded', function() {
             renderPYQs();
         });
 
-        // Load More button for Bookmarks
-        document.getElementById('loadMoreBookmarksBtn').addEventListener('click', function() {
-            currentPageBookmarks++;
-            renderBookmarks();
-        });
+        // Load More button for Bookmarks — guarded (removed from homepage)
+        const _loadMoreBookmarksBtn = document.getElementById('loadMoreBookmarksBtn');
+        if (_loadMoreBookmarksBtn) {
+            _loadMoreBookmarksBtn.addEventListener('click', function() {
+                currentPageBookmarks++;
+                renderBookmarks();
+            });
+        }
 
         // Copy link button
-        copyLinkBtn.addEventListener('click', function() {
+        if (copyLinkBtn) copyLinkBtn.addEventListener('click', function() {
             shareLink.select();
             document.execCommand('copy');
 
@@ -2350,20 +2355,22 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 2000);
         });
 
-        // Tab switching
-        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
-            tab.addEventListener('shown.bs.tab', function(event) {
-                const targetTab = event.target.getAttribute('data-bs-target');
-                // Clear search when switching tabs
-                document.getElementById('searchInput').value = '';
-                performSearch();
-                // Render bookmarks when bookmarks tab is shown
-                if (targetTab === '#nav-bookmarks') {
-                    currentPageBookmarks = 1;
-                    renderBookmarks();
-                }
+        // Tab switching — guarded (bookmarks tab removed from homepage)
+        const _tabs = document.querySelectorAll('[data-bs-toggle="tab"]');
+        if (_tabs && _tabs.length) {
+            _tabs.forEach(tab => {
+                tab.addEventListener('shown.bs.tab', function(event) {
+                    const targetTab = event.target.getAttribute('data-bs-target');
+                    const _searchInput = document.getElementById('searchInput');
+                    if (_searchInput) _searchInput.value = '';
+                    if (typeof performSearch === 'function') try { performSearch(); } catch(e){}
+                    if (targetTab === '#nav-bookmarks') {
+                        currentPageBookmarks = 1;
+                        try { renderBookmarks(); } catch(e){}
+                    }
+                });
             });
-        });
+        }
     }
 
     // Search function — gated: free browse of first 20, but search/filters require login (saves 50K reads + drives signups)
