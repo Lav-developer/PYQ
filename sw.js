@@ -1,9 +1,10 @@
 // Service Worker for DSMNRU Academic Archive PWA
-const CACHE_NAME = 'dsmnru-archive-v3';
+const CACHE_NAME = 'dsmnru-archive-v4';
 const urlsToCache = [
   '/',
   '/index.html',
   '/paper.html',
+  '/bookmarks.html',
   '/contributors.html',
   '/tools.html',
   '/links.html',
