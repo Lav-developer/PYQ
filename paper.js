@@ -375,7 +375,6 @@
         if(secondary){
             actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnServer2"><i class="${secondaryMeta.icon}"></i> Server 2</button>`;
         }
-        actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnShare"><i class="fas fa-share-nodes"></i> Share</button>`;
         actionsHtml += `<button class="btn-paper ${isBookmarked ? 'btn-paper-bookmarked' : 'btn-paper-secondary'}" id="btnBookmark"><i class="fas fa-bookmark"></i> ${isBookmarked ? 'Bookmarked' : 'Bookmark'}</button>`;
         actionsHtml += `<button class="btn-paper btn-paper-danger" id="btnReport"><i class="fas fa-triangle-exclamation"></i> Report Broken</button>`;
         actionsHtml += `<a href="index.html" class="btn-paper btn-paper-secondary"><i class="fas fa-arrow-left"></i> All Papers</a>`;
@@ -444,7 +443,8 @@
         if(fbSecondary && secondary){
             fbSecondary.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
         }
-        document.getElementById('btnShare').addEventListener('click', () => openShare(shareTarget, title));
+        const _shareTopBtn = document.getElementById('btnShare');
+        if (_shareTopBtn) _shareTopBtn.addEventListener('click', () => openShare(shareTarget, title));
         document.getElementById('btnBookmark').addEventListener('click', function(){
             const toggled = toggleBookmark(shareTarget);
             this.classList.toggle('btn-paper-bookmarked', toggled);
