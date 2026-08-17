@@ -1166,7 +1166,7 @@ body {
   box-shadow: var(--shadow-lg);
 }
 
-.pyq-list, .syllabus-list, .bookmarks-list {
+.pyq-list, .syllabus-list {
   list-style-type: none;
   padding: 0;
   margin: 0;
@@ -1251,30 +1251,6 @@ body {
   background-color: rgba(var(--color-success-rgb), 0.2);
   color: var(--success-color);
   border-color: var(--success-color);
-}
-
-/* Bookmark Button Styles */
-.btn-bookmark {
-    background-color: rgba(var(--color-red-500-rgb), 0.2);
-    color: var(--color-red-500);
-    border: 1px solid rgba(var(--color-red-500-rgb), 0.5);
-    transition: all var(--duration-normal) var(--ease-standard);
-}
-
-.btn-bookmark:hover {
-    background-color: rgba(var(--color-red-500-rgb), 0.3);
-    transform: translateY(-2px);
-}
-
-.btn-bookmark.bookmarked {
-    background-color: var(--color-red-500);
-    color: var(--color-white);
-    border-color: var(--color-red-500);
-}
-
-.btn-bookmark.bookmarked:hover {
-    background-color: var(--color-red-400);
-    border-color: var(--color-red-400);
 }
 
 /* Favorites Container */
@@ -3915,7 +3891,6 @@ section[id] {
 .btn-tool-primary,
 .btn-tool-secondary,
 .btn-tool-info,
-.btn-bookmark,
 .btn-user-profile,
 .btn-newsletter,
 .btn-outline-light,
@@ -3929,8 +3904,7 @@ section[id] {
 .btn-action,
 .btn-tool-primary,
 .btn-tool-secondary,
-.btn-tool-info,
-.btn-bookmark {
+.btn-tool-info {
   border: 1px solid rgba(148, 163, 184, 0.16);
 }
 
@@ -3966,16 +3940,6 @@ section[id] {
   border-color: rgba(148, 163, 184, 0.22);
 }
 
-.btn-bookmark {
-  background: rgba(248, 113, 113, 0.12);
-  color: #fecaca;
-  border-color: rgba(248, 113, 113, 0.22);
-}
-
-.btn-bookmark.bookmarked {
-  background: linear-gradient(135deg, #fb7185, #f43f5e);
-  color: #fff;
-}
 
 .tool-card,
 .newsletter-card,

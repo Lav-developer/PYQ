@@ -516,9 +516,22 @@ function updateDashboardStats() {
     }
 }
 
+// Convert any Firestore value into a CSV-safe string (timestamps, arrays, objects)
+function csvCellValue(value) {
+    if (value === null || value === undefined) return '';
+    if (typeof value.toDate === 'function') {
+        try { return value.toDate().toISOString(); } catch (e) { return String(value); }
+    }
+    if (Array.isArray(value)) return value.map(v => csvCellValue(v)).join('; ');
+    if (typeof value === 'object') {
+        try { return JSON.stringify(value); } catch (e) { return String(value); }
+    }
+    return String(value);
+}
+
 function buildCsvContent(rows, columns) {
     const escapeCsv = value => {
-        const text = value === null || value === undefined ? '' : String(value);
+        const text = csvCellValue(value);
         return `"${text.replace(/"/g, '""')}"`;
     };
 
@@ -653,71 +666,94 @@ async function loadCollectionSnapshot(collectionName) {
     return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 }
 
+// All collections included in the CSV backup (order = order in the file)
+const CSV_BACKUP_COLLECTIONS = ['pyqs', 'contributors', 'users', 'pendingUploads', 'feedback', 'comments'];
+
+// Every field used by any collection — nothing gets silently dropped
+const CSV_BACKUP_COLUMNS = [
+    'collection', 'id', 'name', 'title', 'Server 1', 'Server 2', 'course', 'semester',
+    'session', 'subject', 'branch', 'description', 'views', 'status', 'type', 'details',
+    'text', 'paperId', 'userName', 'userEmail', 'downloadUrl', 'studentName',
+    'studentCourse', 'studentEmail', 'userId', 'fileName', 'fileSize', 'email', 'phone',
+    'role', 'avatar', 'uid', 'createdAt', 'uploadedAt'
+];
+
+// Flatten one Firestore doc into a full backup row
+function buildCsvBackupRow(collection, doc) {
+    return {
+        collection: collection,
+        id: doc.id || doc.uid || '',
+        name: doc.name || doc.signupName || '',
+        title: doc.title || '',
+        'Server 1': doc.file || doc.server1 || '',
+        'Server 2': doc.file2 || doc.server2 || '',
+        course: doc.course || doc.signupCourse || '',
+        semester: doc.semester || '',
+        session: doc.session || '',
+        subject: doc.subject || '',
+        branch: doc.branch || '',
+        description: doc.description || '',
+        views: doc.views !== undefined && doc.views !== null ? doc.views : '',
+        status: doc.status || '',
+        type: doc.type || '',
+        details: doc.details || '',
+        text: doc.text || '',
+        paperId: doc.paperId || '',
+        userName: doc.userName || '',
+        userEmail: doc.userEmail || '',
+        downloadUrl: doc.downloadUrl || '',
+        studentName: doc.studentName || '',
+        studentCourse: doc.studentCourse || '',
+        studentEmail: doc.studentEmail || '',
+        userId: doc.userId || '',
+        fileName: doc.fileName || '',
+        fileSize: doc.fileSize || '',
+        email: doc.email || doc.signupEmail || '',
+        phone: doc.phone || '',
+        role: doc.role || '',
+        avatar: doc.avatar || '',
+        uid: doc.uid || '',
+        createdAt: doc.createdAt || '',
+        uploadedAt: doc.uploadedAt || ''
+    };
+}
+
 async function downloadAllCsvBackup() {
     try {
-        const [pyqs, contributors, users] = await Promise.all([
-            allData.pyqs.length ? Promise.resolve(allData.pyqs) : loadCollectionSnapshot('pyqs'),
-            allData.contributors.length ? Promise.resolve(allData.contributors) : loadCollectionSnapshot('contributors'),
-            allData.users.length ? Promise.resolve(allData.users) : loadCollectionSnapshot('users')
-        ]);
+        // Always fetch fresh, complete snapshots — cached `allData` may be unloaded
+        // (lazy sections) or filtered (e.g. pendingUploads only holds status=='pending').
+        const results = await Promise.all(CSV_BACKUP_COLLECTIONS.map(name =>
+            loadCollectionSnapshot(name).catch(err => {
+                console.warn('CSV backup: could not read "' + name + '":', err.message);
+                return null; // null = permission/read failure, [] = empty collection
+            })
+        ));
 
         const allRows = [];
-
-        pyqs.forEach(item => {
-            allRows.push({
-                collection: 'pyqs',
-                id: item.id || '',
-                name: '',
-                title: item.title || '',
-                'Server 1': item.file || item.server1 || '',
-                'Server 2': item.file2 || item.server2 || '',
-                course: item.course || '',
-                semester: item.semester || '',
-                session: item.session || '',
-                email: '',
-                phone: '',
-                role: '',
-                avatar: ''
-            });
+        const summary = [];
+        const failed = [];
+        CSV_BACKUP_COLLECTIONS.forEach((name, i) => {
+            const docs = results[i];
+            if (docs === null) {
+                failed.push(name);
+                return;
+            }
+            docs.forEach(doc => allRows.push(buildCsvBackupRow(name, doc)));
+            summary.push(name + ': ' + docs.length);
         });
 
-        contributors.forEach(item => {
-            allRows.push({
-                collection: 'contributors',
-                id: item.id || '',
-                name: item.name || '',
-                title: '',
-                file: '',
-                course: '',
-                semester: '',
-                session: '',
-                email: '',
-                phone: '',
-                role: item.role || '',
-                avatar: item.avatar || ''
-            });
-        });
+        if (!allRows.length && failed.length) {
+            alert('CSV backup failed — could not read: ' + failed.join(', ') + '. Make sure you are logged in as admin.');
+            return;
+        }
 
-        users.forEach(item => {
-            allRows.push({
-                collection: 'users',
-                id: item.id || item.uid || '',
-                name: item.name || item.signupName || '',
-                title: '',
-                file: '',
-                course: item.course || item.signupCourse || '',
-                semester: '',
-                session: '',
-                email: item.email || item.signupEmail || '',
-                phone: item.phone || '',
-                role: item.role || '',
-                avatar: ''
-            });
-        });
-
-        const csv = buildCsvContent(allRows, ['collection', 'id', 'name', 'title', 'Server 1', 'Server 2', 'course', 'semester', 'session', 'email', 'phone', 'role', 'avatar']);
+        const csv = buildCsvContent(allRows, CSV_BACKUP_COLUMNS);
         downloadCsvFile('database-backup.csv', csv);
-        alert('CSV backup downloaded successfully.');
+        alert(
+            'CSV backup downloaded.\n\n' + summary.join('\n') +
+            (failed.length ? '\n\nCould not read (skipped): ' + failed.join(', ') : '') +
+            '\n\nTotal rows: ' + allRows.length
+        );
     } catch (error) {
         console.error('Error generating CSV backup:', error);
         alert('Failed to generate CSV backup: ' + error.message);

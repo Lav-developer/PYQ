@@ -365,8 +365,6 @@
         const secondaryMeta = secondary ? getPreviewMeta(secondary) : null;
         const shareTarget = primary || secondary || pageUrl;
 
-        const isBookmarked = checkBookmarked(shareTarget);
-
         let actionsHtml = '';
         if(primary){
             actionsHtml += `<button class="btn-paper btn-paper-primary" id="btnPreviewPrimary"><i class="${primaryMeta.icon}"></i> ${primaryMeta.label === 'Preview' ? 'Preview PDF' : 'Open PDF'}</button>`;
@@ -375,7 +373,6 @@
         if(secondary){
             actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnServer2"><i class="${secondaryMeta.icon}"></i> Server 2</button>`;
         }
-        actionsHtml += `<button class="btn-paper ${isBookmarked ? 'btn-paper-bookmarked' : 'btn-paper-secondary'}" id="btnBookmark"><i class="fas fa-bookmark"></i> ${isBookmarked ? 'Bookmarked' : 'Bookmark'}</button>`;
         actionsHtml += `<button class="btn-paper btn-paper-danger" id="btnReport"><i class="fas fa-triangle-exclamation"></i> Report Broken</button>`;
         actionsHtml += `<a href="index.html" class="btn-paper btn-paper-secondary"><i class="fas fa-arrow-left"></i> All Papers</a>`;
 
@@ -445,11 +442,6 @@
         }
         const _shareTopBtn = document.getElementById('btnShare');
         if (_shareTopBtn) _shareTopBtn.addEventListener('click', () => openShare(shareTarget, title));
-        document.getElementById('btnBookmark').addEventListener('click', function(){
-            const toggled = toggleBookmark(shareTarget);
-            this.classList.toggle('btn-paper-bookmarked', toggled);
-            this.innerHTML = `<i class="fas fa-bookmark"></i> ${toggled ? 'Bookmarked' : 'Bookmark'}`;
-        });
         document.getElementById('btnReport').addEventListener('click', () => openReportModal(p));
 
         // Share buttons
@@ -559,27 +551,6 @@
                 if(pill) pill.innerHTML = `<i class="fas fa-eye"></i> ${currentPaper.views} views`;
             }
         } catch(e){}
-    }
-
-    // Bookmarks - localStorage
-    function getBookmarks(){
-        try { const raw = localStorage.getItem('dsmnruBookmarks'); return raw ? JSON.parse(raw) : { pyqs: [] }; } catch(e){ return { pyqs: [] }; }
-    }
-    function checkBookmarked(target){
-        if(!target) return false;
-        const bm = getBookmarks();
-        return Array.isArray(bm.pyqs) && bm.pyqs.includes(target);
-    }
-    function toggleBookmark(target){
-        if(!target) return false;
-        const bm = getBookmarks();
-        if(!Array.isArray(bm.pyqs)) bm.pyqs = [];
-        const idx = bm.pyqs.indexOf(target);
-        let isNow = false;
-        if(idx>-1){ bm.pyqs.splice(idx,1); isNow=false; }
-        else { bm.pyqs.push(target); isNow=true; }
-        localStorage.setItem('dsmnruBookmarks', JSON.stringify(bm));
-        return isNow;
     }
 
     // Related papers — cache-first (0 reads if homepage already cached full list)

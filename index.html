@@ -113,7 +113,6 @@
                 <p class="subtitle">Your Gateway to Academic Excellence — DSMNRU PYQs only</p>
 
                 <div class="page-nav" aria-label="Site sections">
-                    <a class="page-nav-link" href="bookmarks.html"><i class="fas fa-bookmark"></i> Bookmarks</a>
                     <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
                     <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
                     <a class="page-nav-link" href="links.html"><i class="fas fa-link"></i> Links</a>
@@ -571,17 +570,17 @@
         </div>
     </div>
 
-        <!-- Search Gate Modal (kept for bookmark/share gating if needed, but NOT for search) -->
+        <!-- Login Gate Modal (used for search/filters/preview gating) -->
         <div class="modal fade" id="searchGateModal" tabindex="-1" aria-labelledby="searchGateModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content search-gate-modal">
                     <div class="modal-body text-center p-4 p-md-5">
                         <div class="search-gate-icon mx-auto mb-3">
-                            <i class="fas fa-bookmark"></i>
+                            <i class="fas fa-user-lock"></i>
                         </div>
-                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Login to save bookmarks</h5>
+                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Login required</h5>
                         <p class="search-gate-text mb-4">
-                            Bookmarks are saved to your account. Sign up to keep your papers across devices.
+                            Create a free account to search, preview and download papers across devices.
                         </p>
                         <div class="search-gate-actions d-grid gap-2 d-sm-flex justify-content-sm-center">
                             <button type="button" class="btn btn-primary btn-lg" onclick="closeSearchGateModal(); openSignupModal();">

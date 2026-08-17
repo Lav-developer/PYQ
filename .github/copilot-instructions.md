@@ -20,10 +20,9 @@ Developer workflows
 Conventions & gotchas
 - Collection names are plural (`pyqs`, `syllabus`) — changing them requires updates in both `script.js` and `admin.js`.
 - Code uses the Firebase compat SDK (script tags in HTML). Do not remove compat tags unless migrating all code to the modular SDK.
-- Bookmarking uses localStorage key `dsmnruBookmarks` and stores file URLs. Keep client-side bookmarks isolated from Firestore.
 
 Files to check when changing behavior
-- `script.js` — data loading, rendering, bookmarks, search, pagination
+- `script.js` — data loading, rendering, search, pagination
 - `admin.js` — auth flows, add/edit/delete helpers, `allData` array handling
 - `index.html` / `admin.html` — script tags (compat SDKs) and DOM IDs used by JS
 

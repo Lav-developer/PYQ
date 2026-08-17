@@ -1,354 +1,181 @@
 <div align="center">
   <img src="img/Logo.png" alt="DSMNRU Archive Logo" width="120" />
   <h1>🎓 DSMNRU Academic Archive</h1>
-  <p><i>A modern, feature-rich platform for browsing and downloading Previous Year Question Papers (PYQs), syllabi, and academic resources for DSMNRU students.</i></p>
-  
-  <a href="https://dsmnru-pyq.netlify.app/"><strong>Explore the Live App »</strong></a>
-  <br />
-  <br />
+  <p><strong>The Complete Resource Hub for DSMNRU Students — PYQs, Notes, Syllabus & Tools</strong></p>
+  <p><i>Browse 500+ Previous Year Question Papers with instant preview, locked downloads, and verified contributions. Built for speed, SEO, and offline-first.</i></p>
 
-  [![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
-  [![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
-  [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
-  [![Firebase](https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black)](https://firebase.google.com/)
-  [![PWA Ready](https://img.shields.io/badge/PWA-Ready-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white)](https://web.dev/progressive-web-apps/)
+  <p>
+    <a href="https://dsmnru-pyq.netlify.app/"><strong>🚀 Live Demo</strong></a> •
+    <a href="https://dsmnru-pyq.netlify.app/paper.html?id=demo">Paper Detail Demo</a> •
+      <a href="https://dsmnru-pyq.netlify.app/admin.html">Admin</a>
+  </p>
+
+  <p>
+    <img src="https://img.shields.io/badge/HTML5-E34F26?style=for-the-badge&logo=html5&logoColor=white" alt="HTML5" />
+    <img src="https://img.shields.io/badge/CSS3-1572B6?style=for-the-badge&logo=css3&logoColor=white" alt="CSS3" />
+    <img src="https://img.shields.io/badge/JavaScript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black" alt="JavaScript" />
+    <img src="https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black" alt="Firebase" />
+    <img src="https://img.shields.io/badge/PWA-Ready-5A0FC8?style=for-the-badge&logo=pwa&logoColor=white" alt="PWA" />
+  </p>
+
+  <p>
+    <img src="https://img.shields.io/github/stars/Lav-developer/PYQ?style=social" alt="Stars" />
+    <img src="https://img.shields.io/github/forks/Lav-developer/PYQ?style=social" alt="Forks" />
+    <img src="https://img.shields.io/github/last-commit/Lav-developer/PYQ?style=flat-square" alt="Last Commit" />
+    <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" alt="License" />
+    <img src="https://img.shields.io/badge/PRs-Welcome-brightgreen?style=flat-square" alt="PRs" />
+  </p>
 </div>
-
-<hr />
-
-<details>
-<summary>📖 <strong>Table of Contents</strong> (Click to expand)</summary>
-
-- [🌟 Features](#-features)
-- [📂 Project Structure](#-project-structure)
-- [🚀 Quick Start](#-quick-start)
-- [📡 Data & Firebase](#-data--firebase)
-- [📤 Student Upload System](#-student-upload-system)
-- [👨‍💼 Admin Features](#-admin-features)
-- [🎨 Styling & Theme](#-styling--theme)
-- [🔐 Firestore Security Rules](#-firestore-security-rules)
-- [📱 Progressive Web App (PWA)](#-progressive-web-app-pwa)
-- [🔍 SEO](#-seo)
-- [🛠️ Development Workflow](#-development-workflow)
-- [🚨 Common Issues & Fixes](#-common-issues--fixes)
-- [🎯 Future Enhancements](#-future-enhancements)
-- [💡 Tips for Best Results](#-tips-for-best-results)
-
-</details>
-
-<hr />
-
-## 🌟 Features
-
-### **For Students**
-- � **User Authentication** - Secure sign-up and login with email/password and Google.
-- 👤 **User Profiles** - Manage your name, course, and phone number.
-- 📚 **Browse PYQs** - Search, filter, and download academic materials.
--  **Bookmarks** - Save your favorite papers for quick access
-- 🔍 **Smart Search** - Find papers by course, year, and semester
-- 📖 **PDF Viewer** - Preview papers inline
-- 📤 **Share Documents** - Easy sharing via social media & links
-- 📤 **Upload Papers** - Contribute your own question papers and notes
-- ️ **Student Tools** - A suite of utilities to help with academics:
-  - **SGPA Calculator**: Calculate semester GPA with subject-wise grades.
-  - **Study Planner**: Plan and track your study schedule.
-  - **Attendance Tracker**: Monitor attendance records.
-- 📝 **Feedback System** - Report broken links or request missing PYQs.
-- 🌐 **Progressive Web App (PWA)** - Installable with offline access to cached content.
-- 💬 **Live Chat** - Get real-time support.
-
-### **For Admins**
-- 🔑 **Secure Admin Login** - Role-based access control for the admin panel.
-- ➕ **Add/Edit/Delete Content** - Manage PYQs and Syllabus easily
-- 👥 **User Submissions** - Review and approve student-uploaded content
-- 📊 **Lazy Loading UI** - Fast admin panel with on-demand data loading
-- 🗂️ **Collapsible Sections** - Organize with accordion interface
-- 📁 **Pending Uploads** - Queue system for student submissions
-- 🗺️ **Sitemap Generation** - Auto-generate sitemaps for SEO
 
 ---
 
+> **DSMNRU PYQs only. Not affiliated with DSMNRU University.** Papers are contributed by students for educational use.
+
+---
+
+<details>
+<summary>📖 <strong>Table of Contents</strong> — Click to expand</summary>
+
+- [✨ Why DSMNRU Archive?](#-why-dsmnru-archive)
+- [🌟 Features](#-features)
+- [🆕 What's New](#-whats-new)
+- [🛠️ Tech Stack](#%EF%B8%8F-tech-stack)
+- [📂 Project Structure](#-project-structure)
+- [🚀 Quick Start](#-quick-start)
+- [🔧 Environment & Firebase Setup](#-environment--firebase-setup)
+- [📡 Data Model & Collections](#-data-model--collections)
+- [🔐 Firestore Security Rules](#-firestore-security-rules)
+- [📤 Student Upload Flow](#-student-upload-flow)
+- [👨‍💼 Admin Guide](#-admin-guide)
+- [🎨 Styling & Theme](#-styling--theme)
+- [📱 PWA & Offline](#-pwa--offline)
+- [🔍 SEO & Performance](#-seo--performance)
+- [⚡ Caching & Quota Saving (50K Reads)](#-caching--quota-saving-50k-reads)
+- [🛡️ Auth & Verification](#%EF%B8%8F-auth--verification)
+- [🧪 Development Workflow](#-development-workflow)
+- [🚨 Common Issues](#-common-issues)
+- [🎯 Roadmap](#-roadmap)
+- [🤝 Contributing](#-contributing)
+- [👥 Contributors](#-contributors)
+- [📞 Support](#-support)
+- [📄 License](#-license)
+
+</details>
+
+---
+
+## ✨ Why DSMNRU Archive?
+
+| Before (Modal-only) | After (Resource Hub) |
+|---|---|
+| PYQs in a list, preview in modal, no SEO | **1 URL = 1 Paper** (`paper.html?id=xxx`) — Google indexes every paper, breadcrumb, JSON-LD |
+| Search loads all docs every keystroke → hits 50K quota | **Session + 15m cache** → 0 reads on refresh/search, 12 reads for homepage vs N |
+| Anon can scrape all PDFs | **Login gate** for Search / Filters / Load More / Preview — drives sign-ups, saves quota |
+| Uploads via temporary hosts | **gofile.io** + admin review queue, image→PDF auto-merge (≤10 MB) |
+| No feedback loop | **Report Broken Link / Request PYQ** → admin Feedback inbox |
+
+---
+
+## 🌟 Features
+
+### For Students 🎒
+- 🔐 **Auth** — Email/Password + Google, email verification **enforced** (blocking overlay, no bypass)
+- 👤 **Profiles** — Name, course, phone, avatar
+- 📚 **Browse PYQs** — 20 free on load, **View Details** → `paper.html` (locked preview + inline same-site viewer for `archive.org`/`catbox.moe`, never jumps out)
+- 🔍 **Search & Filters** — Course / Semester / Session + Sort (Newest, Most Viewed, A-Z) — gated, 0 reads when cached
+- 📖 **Paper Detail Page** — Breadcrumb, pills (course/sem/session/branch/views), inline preview, **Server 1/2** same-site, **Report**, **Related** (6, cache-first), **Discussion** (comments)
+- 📤 **Upload** — Single PDF or multiple images → auto-merged PDF (jsPDF, 6 quality attempts) → `pendingUploads`
+- 🧰 **Student Tools** — SGPA Calculator, Study Planner (reminders), Attendance Tracker (per-date)
+- 📝 **Feedback** — Report Broken Link / Request PYQ → `feedback` collection
+- 🌗 **PWA** — Installable, offline cache (`sw.js v5`), works on `localhost` + HTTPS
+- 💬 **Live Chat** — Floating chat widget → `realtime-agent`
+
+### For Admins 🛡️
+- 🔑 **Secure Login** — Admin check via `pendingUploads` read permission (no email exposed)
+- ➕ **Quick Create** — Course / Sem / Session / Subject / Branch → auto `title` → `pyqs` with `file`/`file2`
+- 📥 **Bulk CSV Import** — `pyqs` / `contributors` ( `id` → update, else create )
+- 📚 **Content Library** — Card list, local **0-read search** (`#adminPyqSearch`), Copy Server 1/2, Edit/Delete by **doc id** (fixes filtered delete bug)
+- ⏳ **Review Queue** — `pendingUploads` where `status=='pending'` → Download / Delete
+- 👥 **Contributors** — Add/edit/delete (`PYQs Provider` etc.)
+- 👤 **Users** — Registered profiles, edit role/course/phone, delete
+- 🚩 **Feedback Inbox** — **NEW** `Broken Reports & PYQ Requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved`, realtime `new` pulse, counts in hero
+- 📊 **Lazy Admin** — **0 reads on login** — each section fetches only when expanded (saves 50K quota), hero note: *"Expand any card to fetch"*
+- 🧹 **No Analytics** — Intentionally removed (non-mandate) to save reads
+
+---
+
+## 🆕 What's New (PR #2 — `c6591ea` → `22002f9` → `451dd05` → `50347a8` → `5a1fb44`)
+- **`paper.html?id=xxx`** — breadcrumb, view count, same-site preview (no `archive.org` jump), related, comments, share, report, JSON-LD
+- **`firestore.rules`** — `isVerified()` for `views` increment + `comments`/`feedback`/`pendingUploads` writes; `pyqs` read public, write admin-only
+- **Cache** — `sessionStorage` + `localStorage TTL 15m` + Firestore persistence → homepage 12 reads vs N, search 0 reads when cached (signed-in only)
+- **Gates** — Search/Filters/Load More/paper preview now require **login + verified email** (blocking overlay, `static` modal, re-show if dismissed)
+- **Admin** — Feedback inbox, lazy 0-read, local search, id-based delete/edit fix
+- **Homepage** — Simplified to **single View Details button** → paper page (no Open/Backup/Share/Bookmark clutter), Trending/Recently/Bookmarks tab removed
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Tech |
+|---|---|
+| Frontend | HTML5, CSS3 (Manrope + FKGroteskNeue, glassmorphism), vanilla JS, Bootstrap 5.3, Font Awesome 6, SweetAlert2 |
+| Backend | Firebase Auth (compat 9.22.1), Firestore, Storage (compat), `enablePersistence({synchronizeTabs:true})` |
+| PWA | `sw.js` (cache-first), `manifest.json`, `sitemap.xml`, `robots.txt` |
+| Tools | jsPDF 2.5.1 (image→PDF), PapaParse 5.4.1 (CSV), Normalize.css |
+| Hosting | Netlify (`dsmnru-pyq.netlify.app`) + Firebase |
 
 ---
 
 ## 📂 Project Structure
 
-<details>
-<summary>Click to view folder structure</summary>
-
 ```
 .
-├── index.html                 # Public homepage & student UI
-├── admin.html                 # Admin dashboard (Firebase auth required)
-├── script.js                  # Frontend logic (auth, data loading, search, tools, uploads)
-├── admin.js                   # Admin functions (auth, CRUD, lazy loading, submissions)
-├── styles.css                 # Dark theme styling
-├── sw.js                      # Service worker (offline support)
-├── manifest.json              # PWA manifest
-├── offline.html               # Offline fallback page
-├── robots.txt                 # SEO crawler configuration
-├── sitemap.xml                # SEO sitemap
-├── cors.json                  # CORS configuration
-└── img/                       # Images and assets
+├── index.html          # Homepage — search, filters, 20 free PYQs → View Details
+├── paper.html          # Paper Detail — breadcrumb, preview, related, comments (id=gated)
+├── paper.js            # Paper logic — cache-first related, verification block, same-site preview
+├── script.js           # Main — auth, cache (session+15m), gated search, upload, tools, feedback
+├── admin.html          # Admin — lazy sections, Feedback inbox, local search
+├── admin.js            # Admin — CRUD, lazy, CSV, Feedback, id-based delete fix
+├── styles.css          # Dark glass theme, design tokens, responsive
+├── sw.js               # Service Worker v5 — caches /, /index.html, /paper.html, /styles.css, /script.js, /paper.js
+├── manifest.json       # PWA manifest (standalone, theme #0f172a)
+├── sitemap.xml         # Includes /, /index.html, /paper.html, /contributors.html, /tools.html, /links.html
+├── firestore.rules     # NEW — isVerified() + isAdminByEmail() + pendingUploads/comments/feedback rules
+├── cors.json           # CORS for local + Netlify
+├── courses.json        # Course catalog for filters
+├── tools.html          # SGPA / Attendance / Planner
+├── links.html          # University portals
+├── contributors.html   # Contributors grid
+└── img/Logo.png
 ```
 
 ---
 
 ## 🚀 Quick Start
 
-### Local Development
-
-Open directly in browser (works out of box):
 ```bash
-# Just open in browser
-open index.html
-# or admin.html for admin panel
-```
+# 1. Clone
+git clone https://github.com/Lav-developer/PYQ.git
+cd PYQ
 
-Or run a local static server:
-
-**Python:**
-```bash
+# 2. Run (no build needed)
 python -m http.server 8000
-# Visit: http://localhost:8000
-```
-
-**Node:**
-```bash
+# or
 npx serve .
-# Visit: http://localhost:3000
+# Visit http://localhost:8000
+# Admin: http://localhost:8000/admin.html
 ```
 
----
-
-## 📡 Data & Firebase
-
-### **Collections**
-- **`pyqs`**: Stores Previous Year Question Papers.
-  - Fields: `title`, `file` (Server 1 URL), `file2` (Server 2 URL), `course`, `semester`, `session`, `branch`.
-- **`users`**: Stores registered user profiles.
-  - Fields: `uid`, `email`, `name`, `course`, `phone`, `role`, `createdAt`.
-- **`contributors`**: Manages the list of content contributors.
-  - Fields: `name`, `avatar`, `role`.
-- **`pendingUploads`**: A queue for student-submitted files awaiting admin review.
-  - Fields: `title`, `downloadUrl`, `studentName`, `course`, `semester`, `fileName`, `uploadedAt`, `status`.
-- **`feedback`**: Collects user feedback, including broken link reports and PYQ requests.
-  - Fields: `type`, `title`, `details`, `status`, `createdAt`.
-
-### **Local Storage Keys**
-- `dsmnruBookmarks`: Saved paper URLs.
-- `dsmnruStudyPlanner`: Study schedule tasks.
-- `dsmnruAttendance`: Attendance records for subjects.
-- `dsmnruCgpaLast`: Last CGPA calculation result.
-- `profileCompletionDismissed`: Timestamp for dismissing the profile completion reminder.
-- `dashboardTheme`, `dashboardLayout`: Admin dashboard UI preferences.
+> **PWA install** needs HTTPS — works on `localhost` and Netlify, not on `file://`.
 
 ---
 
-## 📤 Student Upload System
+## 🔧 Environment & Firebase Setup
 
-### How Students Upload
+**1. Create Firebase project** → Enable **Auth** (Email/Password + Google) → **Firestore** (test mode then apply rules below).
 
-1.  **Access Upload Form**: Navigate to the "Help us grow the collection" section on the homepage.
-2.  **Fill Form**:
-    -   **Your Name** (required)
-    -   **Title** (e.g., "Effective Technical Communication")
-    -   **Course**, **Semester**
-    -   **Select Files**: Choose a single PDF or multiple images (JPG, PNG).
-3.  **Submit**: Images are automatically converted into a single, optimized PDF. The final PDF is uploaded to a temporary file-hosting service.
-4.  **Confirmation**: A success message confirms the submission is sent for admin review.
-
-### How It Works Behind the Scenes
-
-1.  The final PDF (either uploaded directly or converted from images) is sent to **gofile.io**, a free and CORS-enabled file hosting service.
-2.  The file's metadata and its `downloadUrl` are saved to the `pendingUploads` collection in Firestore.
-3.  The admin reviews the submission in the dashboard's "Review Queue".
-4.  The admin can download the file, verify its quality, and add it to the main `pyqs` collection.
-5.  The student's name is credited for their contribution.
-
-### Why This Approach?
-
-✅ **Zero Firebase Storage Cost**: Avoids using Firebase Storage quotas.  
-✅ **Flexible Uploads**: Supports both direct PDF and image-to-PDF conversion.  
-✅ **Quality Control**: All submissions are reviewed by an admin before being published.  
-✅ **Student Crediting**: The contributor's name is recorded with each submission.  
-✅ **Clean Workflow**: A dedicated queue keeps submissions organized for the admin.
-
----
-
-## 👨‍💼 Admin Features
-
-### Login & Authentication
-1.  Go to `admin.html`.
-2.  Sign in with the designated admin email and password. Non-admin accounts are automatically logged out.
-3.  The dashboard loads with live stats and collapsible management sections.
-
-### Managing Content
-
-**Add New PYQ:**
-- Use the "Quick Create" form to add a new PYQ.
-- The title is auto-generated from course, semester, subject, and session fields to ensure consistency.
-- Provide up to two server URLs for the file.
-
-**Bulk Import:**
-- Upload a CSV file to add or update records in the `pyqs` or `contributors` collections.
-- If a row has an `id`, the corresponding document is updated; otherwise, a new document is created.
-
-**Edit & Delete:**
-- Expand the "Content Library" to view all PYQs.
-- Click "Edit" or "Delete" on any item to manage it.
-
-### Processing Student Uploads
-
-**Workflow:**
-1.  Expand the "Review Queue" section in the admin panel.
-2.  New submissions appear with the student's name, file details, and a download link.
-3.  Click "Download" to get the file.
-4.  After verifying, manually add it to the library using the "Quick Create" form.
-5.  Click "Delete" to remove the submission from the queue.
-
----
-
-## 🎨 Styling & Theme
-
-The project features a modern, glassmorphism-inspired dark theme.
-
-**CSS Variables** defined in `styles.css` for easy customization:
-- `--color-primary`: The main accent color (teal).
-- `--color-background`: The main page background.
-- `--color-surface`: The background for cards and modals.
-- `--color-text`: The primary text color.
-
----
-
-## 🔐 Firestore Security Rules
-
-```javascript
-rules_version = '2';
-
-service cloud.firestore {
-  match /databases/{database}/documents {
-    
-    // Helper: Check if user is admin
-    function isAdminByEmail() {
-      return request.auth != null && request.auth.token.email == "kush210431@gmail.com";
-    }
-
-    // Public collections are world-readable, admin-writable.
-    match /pyqs/{docId} {
-      allow read: if true;
-      allow write: if isAdminByEmail();
-    }
-    match /contributors/{docId} {
-      allow read: if true;
-      allow write: if isAdminByEmail();
-    }
-
-    // Users can read/write their own data. Admins have full access.
-    match /users/{userId} {
-      allow read, update: if request.auth.uid == userId || isAdminByEmail();
-      allow create: if request.auth.uid == userId;
-      allow delete: if isAdminByEmail();
-    }
-
-    // Anyone can submit to pendingUploads and feedback. Only admins can read/delete.
-    match /pendingUploads/{docId} {
-      allow read: if isAdminByEmail();
-      allow create: if request.resource.data.title is string
-                    && request.resource.data.studentName is string
-                    && request.resource.data.downloadUrl is string;
-      allow delete: if isAdminByEmail();
-    }
-    match /feedback/{docId} {
-      allow read, update: if isAdminByEmail();
-      allow create: if request.resource.data.type is string;
-      allow delete: if isAdminByEmail();
-    }
-
-    // Deny all other access
-    match /{document=**} {
-      allow read: if false;
-      allow write: if false;
-    }
-  }
-}
-```
-
----
-
-## 📱 Progressive Web App (PWA)
-
-The site works offline with service worker support:
-- `sw.js` - Caches assets for offline access
-- `manifest.json` - PWA metadata
-- `offline.html` - Fallback offline page
-
-**To install:**
-- On a supported browser (like Chrome on desktop or mobile), an "Install" button will appear in the address bar.
-- Once installed, the app can be launched from the home screen or app drawer.
-- Cached content remains available even when offline.
-
----
-
-## 🔍 SEO
-
-- Auto-generated `sitemap.xml` from admin panel
-- SEO metadata in `index.html` (title, description, OG tags)
-- Structured data (JSON-LD) for rich search results
-- `robots.txt` for search engine crawling
-
----
-
-## 🛠️ Development Workflow
-
-### Adding a New Feature
-
-1. **Frontend:** Update `index.html` with new UI
-2. **Logic:** Add JavaScript to `script.js`
-3. **Styling:** Add CSS to `styles.css`
-4. **Admin:** If needed, update `admin.html` and `admin.js`
-5. **Test:** Run local server and verify
-
-### Updating Data Flow
-
-- Data loads from Firestore at runtime
-- Use `db.collection('collectionName').get()` to fetch
-- Save with `add()`, `set()`, `delete()` methods
-- Update UI after data changes
-
----
-
-## 🚨 Common Issues & Fixes
-
-### Issue: Admin can't log in
-**Solution:** Ensure the Firebase config is correct in `admin.html` and the email is hardcoded as the admin email in `admin.js`.
-
-### Issue: Changes not showing
-**Solution:** Clear browser cache (Ctrl+Shift+Delete) and refresh
-
-### Issue: Uploads not appearing
-**Solution:** Check that Firestore rules allow `create` operations on the `pendingUploads` collection.
-
-### Issue: Offline features not working
-**Solution:** Service worker needs HTTPS in production (works on localhost)
-
-### Issue: File upload fails
-**Solution:** Check CORS configuration and Firestore security rules for `pendingUploads`
-
----
-
-## 📚 Firebase Setup
-
-1. Create Firebase project
-2. Enable Firestore Database
-3. Copy config to `script.js`, `admin.js`, `admin.html`
-4. Create initial collections: `pyqs`, `users`, `contributors`, `pendingUploads`, `feedback`.
-5. Create an admin user account in Firebase Authentication.
-6. Apply security rules from above
-7. Deploy or run locally
-
-**Firebase Config Location:**
-```javascript
+**2. Copy config** into `script.js`, `admin.js`, `paper.js`, `admin.html`:
+```js
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
   authDomain: "YOUR_AUTH_DOMAIN",
@@ -360,56 +187,214 @@ const firebaseConfig = {
 };
 ```
 
+**3. Create collections:** `pyqs`, `users`, `contributors`, `pendingUploads`, `feedback`, `comments`, `meta` (optional).
+
+**4. Create admin user** in Auth, then in Firestore `users/{uid}` set `role: "admin"` and in Rules replace `abc@gmail.com` with your admin email.
+
+**5. Deploy rules:**
+```bash
+firebase deploy --only firestore:rules
+# or paste firestore.rules in Console → Firestore → Rules → Publish
+```
+
 ---
 
-## 📄 License
+## 📡 Data Model & Collections
 
-This project is built for DSMNRU students and contributors.
+**`pyqs`** — `title` (auto-generated `Course Branch Sem Subject {Session}`), `file` (Server1), `file2` (Server2), `course`, `semester`, `session`, `subject`, `branch`, `description`, `views` (int), `createdAt` (timestamp)
+
+**`users`** — `uid`, `email`/`signupEmail`, `name`/`signupName`, `course`/`signupCourse`, `phone`, `role`, `emailVerified`, `createdAt`, `makeSubscriberSynced` etc.
+
+**`contributors`** — `name`, `avatar` (initials), `role` (`PYQs Provider`)
+
+**`pendingUploads`** — `title`, `course`, `semester`, `studentName`, `studentCourse`, `studentEmail`, `userId`, `fileName`, `downloadUrl` (gofile), `fileSize`, `uploadedAt`, `status: 'pending'`
+
+**`feedback`** — `type` (`broken_link` | `pyq_request`), `status: 'new'|'resolved'`, `title`/`course`/`details` or `course`/`subject`/`semester`/`session`, `email`, `userId`, `userEmail`, `createdAt`
+
+**`comments`** — `paperId`, `text` (3-600), `userId`, `userName`, `userEmail`, `createdAt` (also supports `pyqs/{id}/comments` subcollection fallback)
+
+**Local Storage:** `dsmnruStudyPlanner`, `dsmnruAttendance`, `dsmnruCgpaLast`, `profileCompletionDismissed`, `dsmnru_pyqs_full_v1` + `dsmnru_pyqs_full_time_v1` (cache), `dsmnru_pyqs_session_v1`
+
+---
+
+## 🔐 Firestore Security Rules
+
+See `firestore.rules` — key ideas:
+
+```js
+function isAdminByEmail() { return auth.token.email == "YOUR_ADMIN@gmail.com"; }
+function isVerified() { return auth.token.email_verified == true; }
+
+// pyqs: public read, admin full write, verified can +1 views only
+match /pyqs/{doc} {
+  allow read: if true;
+  allow create, delete: if isAdminByEmail();
+  allow update: if isAdminByEmail() || (isVerified() && diff.hasOnly(['views']) && views+1);
+}
+
+// comments/feedback/pendingUploads: create requires isVerified()
+match /comments/{id} { allow read: true; allow create: if isVerified() && text 3-600 && userId==auth.uid; }
+match /feedback/{id} { allow read: if isAdminByEmail(); allow create: if isVerified() && type in [...] && status=='new'; }
+```
+
+**Deploy after editing `abc@gmail.com` → your email.**
+
+---
+
+## 📤 Student Upload Flow
+
+1. Fill **Help us grow** → Your Name, Title, Course/Sem, **1 PDF or N images** (≤10 MB final)
+2. Images → `jsPDF` 6 attempts (2000px→900px, 0.9→0.58 quality) → single PDF
+3. PDF → `https://api.gofile.io/servers` → `https://{server}.gofile.io/uploadFile` → `downloadPage` URL
+4. Metadata → `pendingUploads` (`status: pending`)
+5. Admin → *Review Queue* → Download → verify → *Quick Create* → `pyqs` → credited
+
+---
+
+## 👨‍💼 Admin Guide
+
+**Login:** `admin.html` → admin email → dashboard. Non-admin auto sign-out.
+
+**Hero:** Lazy — `0 reads on login` → expand a card to fetch. Counts update live.
+
+**Quick Create:** Course / Sem / Session / Subject / Branch → auto-title → Server 1 (+ Server 2) → `Add PYQ`
+
+**Bulk CSV:** Target `pyqs` / `contributors` → choose `.csv` (`collection,id,title,Server 1,Server 2,course,semester,session`) → `Import` (id → update, else add)
+
+**Content Library:** `Manage PYQs` → local **0-read search** → `Edit` (id-based) / `Delete` (id-based, fixes filtered delete bug) / `Copy Server 1/2`
+
+**Review Queue:** `Pending pyqs to upload` → `Copy URL` / `Download` / `Delete`
+
+**Contributors:** `People` → Add (name → auto avatar) / Edit / Delete
+
+**Users:** `Registered profiles` → `Edit` (name/course/phone/role) / `Delete`
+
+**Feedback (NEW):** `Broken reports & PYQ requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh` (real-time `new` pulse)
+
+**CSV Backup:** Floating `file-csv` button → `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore (not lazy cache)
+
+---
+
+## 🎨 Styling & Theme
+
+Glassmorphism dark theme (`styles.css` tokens: `--color-primary` teal, `--color-background` charcoal, `--color-surface` card). All pages share `Manrope` + `FKGroteskNeue`, `backdrop-filter: blur(14px)`, `border-radius: 18-24px`. Edit tokens in `:root` for theming.
+
+---
+
+## 📱 PWA & Offline
+
+- `sw.js v5` caches `/`, `/index.html`, `/paper.html`, `/styles.css`, `/script.js`, `/paper.js`, `courses.json`, `manifest.json`
+- `manifest.json` → `standalone`, `theme #0f172a`, emoji icons
+- Install via Chrome address bar → offline after first load (Firestore persistence + Cache API)
+
+---
+
+## 🔍 SEO & Performance
+
+- **1 URL = 1 Paper** (`paper.html?id=xxx`) with `canonical`, `og:title/description/url/image`, `twitter:card`, `JSON-LD Article` (headline, publisher)
+- `sitemap.xml` (auto includes `/paper.html`) + `robots.txt` (Allow `/`, Disallow `/admin.html`)
+- `paper.js` sets title/meta on load for crawler preview
+- Lighthouse: inline skeletons, `content-visibility` ready, `loading="lazy"` on iframes
+
+---
+
+## ⚡ Caching & Quota Saving (50K Reads)
+
+**Problem:** `pyqs.get()` on every search = `N reads × searches` → hits 50K/day.
+
+**Fix (signed-in only, anon gated):**
+- `sessionStorage` (instant, 0 reads on refresh) + `localStorage TTL 15m` (`dsmnru_pyqs_full_v1`) + `enablePersistence({synchronizeTabs:true})`
+- **Homepage:** Cache hit → 0 reads, miss → 12 reads (`orderBy createdAt limit 6` + `orderBy views limit 6`) vs N, lazy full fetch only for signed-in
+- **Search/Filters:** Cache hit → 0 reads filter locally, miss → 1 full fetch then cached
+- **Paper Related:** Cache hit → 0 reads fuzzy filter, else 12 reads
+- **Gate:** Search/Filters/Load More/paper preview require `login + verified` → anon never triggers full fetch
+
+**Tune:** `PYQS_CACHE_TTL_MS = 15*60*1000` in `script.js`/`paper.js`; `clearPyqsCache()` to force refresh.
+
+---
+
+## 🛡️ Auth & Verification
+
+- `isGoogleUser()` → Google considered verified
+- `requiresEmailVerification(user) = !isGoogleUser && !emailVerified`
+- **Enforced:** Search/Filters/Load More/paper preview/comment/upload/report all check `isVerifiedOrPrompt()` → shows **blocking overlay + static modal** (`backdrop:'static', keyboard:false`, re-shows if dismissed) with `Resend` / `I verified — Check` / `Use different email` (deletes unverified account)
+- Server: `isVerified()` in `firestore.rules` for all writes
+
+---
+
+## 🧪 Development Workflow
+
+```bash
+# Add feature
+# 1. UI → index.html / paper.html / admin.html
+# 2. Logic → script.js / paper.js / admin.js (keep id-based, not index)
+# 3. Style → styles.css (tokens)
+# 4. Test locally + check Firestore rules
+# 5. Bump sw.js CACHE_NAME if caching changed
+```
+
+---
+
+## 🚨 Common Issues
+
+- **Admin can't delete** → `permission-denied` → check `firestore.rules` admin email + ensure logged in as admin (pendingUploads read test)
+- **Verification bypassed** → ensure `firestore.rules` published and hard-refresh (old rules cached)
+- **Homepage blank** → was bookmark tab `null` error → fixed in `5b38bd3` (guarded), hard-refresh
+- **Comment prompt always visible** → was `d-flex !important` + duplicate `style` → fixed in `50347a8`
+- **Paper jumps to archive.org** → fixed in `d7d63be` → Server 1/2 now load **inline** on same site
+- **Counts 0 in admin** → intentional lazy — expand a section to fetch
+
+---
+
+## 🎯 Roadmap
+
+- [x] Paper Detail SEO + same-site preview
+- [x] Feedback inbox
+- [x] Cache + gates
+- [x] Lazy admin
+- [ ] Rating & reviews
+- [ ] Solution uploads
+- [ ] Discussion forum
+- [ ] Mobile app (TWA)
+- [ ] i18n
+
+---
+
+## 🤝 Contributing
+
+PRs welcome! For large features, open an issue first.
+
+```bash
+git checkout -b feat/my-feature
+# ... make changes, test locally
+git commit -m "feat: my feature"
+git push origin feat/my-feature
+# Open PR to main
+```
+
+Please keep **id-based** edits/deletes and **0-read** local searches.
 
 ---
 
 ## 👥 Contributors
 
-The heroes who made this archive possible! See homepage "Contributors" section. Thank you to all students who have contributed PYQs and resources!
+See `/contributors.html` and the `contributors` collection. Thank you to all student contributors! Add yourself via *Help us grow* → admin will credit you.
 
 ---
 
 ## 📞 Support
 
-- 💬 **Live Chat**: Click the chat button on the site for instant support.
-- 📝 **Feedback Forms**: Use the "Report Broken Link" or "Request PYQ" modals on the site.
+- 💬 **Live Chat** — floating chat button → `realtime-agent`
+- 📝 **Report / Request** — `Request PYQ` / `Report broken link` modals (card after PYQs + paper page) → admin Feedback
+- 📧 **Email** — via profile / feedback `email` field
 
 ---
 
-## 🎯 Future Enhancements
+## 📄 License
 
-- [ ] Rating & reviews for papers
-- [ ] Paper difficulty levels
-- [ ] Discussion forums
-- [ ] Mobile app (React Native)
-- [ ] Multiple language support
-- [ ] Analytics dashboard for admins
-- [ ] Email notifications for new uploads
-- [ ] Advanced filtering by exam type
-- [ ] Solution uploads alongside questions
+MIT — for DSMNRU students and contributors.
 
----
-
-## 💡 Tips for Best Results
-
-**For Students:**
-- Use the SGPA calculator to track your academic performance.
-- Bookmark important papers for quick access before exams.
-- Use the study planner to organize your preparation schedule.
-- Contribute high-quality notes and papers to help the community.
-- Share useful resources with classmates using the share feature.
-
-**For Admins:**
-- Review submissions regularly to keep the platform up-to-date.
-- Organize PDFs logically in your cloud storage before linking them.
-- Use consistent naming conventions for files and titles.
-- Clear the pending queue after processing uploads.
-
----
-
-**Built with ❤️ for DSMNRU Students** 🎓
+<div align="center">
+  <strong>Built with ❤️ for DSMNRU Students</strong> 🎓<br/>
+  <sub>DSMNRU PYQs only • Not affiliated with DSMNRU University</sub>
+</div>

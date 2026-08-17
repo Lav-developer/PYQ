@@ -549,7 +549,6 @@ document.getElementById('signupForm').addEventListener('submit', async function(
             signupCourse: '',
             emailVerified: isGoogleUser(user) ? true : false,
             createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-            bookmarks: [],
             phone: '',
             preferences: {},
             role: 'user'
@@ -1039,17 +1038,6 @@ function logout() {
     });
 }
 
-// ===== BOOKMARKS MODAL =====
-function openBookmarksModal() {
-    document.getElementById('profileDropdown').style.display = 'none';
-    // You can expand this to show user's bookmarks
-    Swal.fire({
-        title: 'My Bookmarks',
-        text: 'View your bookmarked documents from the Bookmarks tab',
-        icon: 'info'
-    });
-}
-
 // User Upload Handler
 function isImageFile(file) {
     return !!file && typeof file.type === 'string' && file.type.startsWith('image/');
@@ -1516,7 +1504,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Global data storage
     let allData = { pyqs: [] };
     let filteredPyqs = [];
-    let bookmarks = { pyqs: [] };
 
     const serverPageSize = 20;
     let pyqLastVisible = null;
@@ -1525,10 +1512,6 @@ document.addEventListener('DOMContentLoaded', function() {
     // Pagination variables for PYQs
     let currentPage = 1;
     const itemsPerPage = 20;
-
-    // Pagination variables for Bookmarks
-    let currentPageBookmarks = 1;
-    const itemsPerPageBookmarks = 10;
 
     // Function to extract year from title
     function extractYearFromTitle(title) {
@@ -1736,7 +1719,6 @@ document.addEventListener('DOMContentLoaded', function() {
             // Populate filter options based on loaded PYQs
             populateCourseFilter();
 
-            loadBookmarks();
             renderPYQs(filteredPyqs);
             setupEventListeners();
             updatePyqFilterUI();
@@ -2171,85 +2153,6 @@ document.addEventListener('DOMContentLoaded', function() {
         updatePyqFilterUI();
     }
 
-    function renderBookmarks(searchTerm = '') {
-        const _blist = document.getElementById('bookmarksList');
-        if (!_blist) return;
-        const startIndex = (currentPageBookmarks - 1) * itemsPerPageBookmarks;
-        const endIndex = startIndex + itemsPerPageBookmarks;
-
-        // Collect all bookmarked items
-        let bookmarkedItems = [];
-        bookmarks.pyqs.forEach(filePath => {
-            const item = allData.pyqs.find(pyq => pyq.file === filePath || pyq.file2 === filePath || pyq.server1 === filePath || pyq.server2 === filePath);
-            if (item) {
-                bookmarkedItems.push({ ...item, type: 'pyq' });
-            }
-        });
-
-        // Filter by search term if provided
-        if (searchTerm) {
-            bookmarkedItems = bookmarkedItems.filter(item =>
-                item.title.toLowerCase().includes(searchTerm) ||
-                (item.course && item.course.toLowerCase().includes(searchTerm)) ||
-                (item.semester && item.semester.toLowerCase().includes(searchTerm))
-            );
-        }
-
-        // Sort by year descending
-        bookmarkedItems.sort((a, b) => b.year - a.year);
-
-        const bookmarksToRender = bookmarkedItems.slice(startIndex, endIndex);
-
-        if (!bookmarksToRender.length) {
-            if (currentPageBookmarks === 1) {
-                showEmptyState('bookmarksList', 'No bookmarked items yet. Bookmark items from PYQs to see them here.');
-            }
-            document.getElementById('loadMoreBookmarksBtn').style.display = 'none';
-            return;
-        }
-
-        if (currentPageBookmarks === 1) {
-            document.getElementById('bookmarksList').innerHTML = '';
-        }
-
-        document.getElementById('bookmarksList').insertAdjacentHTML('beforeend', bookmarksToRender.map((item, index) => {
-            if (item.type === 'pyq') {
-                const primaryFile = getPyqPrimaryLink(item);
-                const secondaryFile = getPyqSecondaryLink(item);
-                const shareTarget = primaryFile || secondaryFile;
-                const safeTitle = escapeJsString(item.title || 'Document');
-                const safeId = escapeJsString(item.id || '');
-                const viewCount = Number.isFinite(Number(item.views)) ? Number(item.views) : 0;
-
-                return `
-                    <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
-                        <div class="pyq-info">
-                            <div class="pdf-icon">
-                                <i class="fas fa-file-pdf"></i>
-                            </div>
-                            <div class="pyq-details">
-                                <h5 class="pyq-title">${item.title}</h5>
-                                <div class="pyq-meta"><i class="fas fa-eye"></i> ${viewCount} views</div>
-                                <div class="pyq-actions">
-                                    <a href="paper.html?id=${encodeURIComponent(item.id)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
-                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')"><i class="fas fa-bookmark"></i> Saved</button>
-                                </div>
-                            </div>
-                        </div>
-                    </li>
-                `;
-            }
-        }).join(''));
-
-        // Show or hide Load More button
-        const loadMoreBookmarksBtn = document.getElementById('loadMoreBookmarksBtn');
-        if (endIndex < bookmarkedItems.length) {
-            loadMoreBookmarksBtn.style.display = 'inline-block';
-        } else {
-            loadMoreBookmarksBtn.style.display = 'none';
-        }
-    }
-
     function normalizePyqLink(value) {
         if (value === undefined || value === null) {
             return '';
@@ -2295,55 +2198,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 ` : ''}
             </div>
         `;
-    }
-
-    // Bookmark functions
-    function loadBookmarks() {
-        const savedBookmarks = localStorage.getItem('dsmnruBookmarks');
-        if (savedBookmarks) {
-            bookmarks = JSON.parse(savedBookmarks);
-        }
-    }
-
-    function saveBookmarks() {
-        localStorage.setItem('dsmnruBookmarks', JSON.stringify(bookmarks));
-    }
-
-    function toggleBookmark(type, filePath) {
-        if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
-        if (!currentUser) { openSearchGateModal(); return; }
-        const index = bookmarks[type].indexOf(filePath);
-        if (index > -1) {
-            bookmarks[type].splice(index, 1);
-        } else {
-            bookmarks[type].push(filePath);
-        }
-        saveBookmarks();
-        // Update all bookmark buttons in the DOM without re-rendering
-        document.querySelectorAll('.btn-bookmark').forEach(button => {
-            const onclick = button.getAttribute('onclick');
-            const match = onclick.match(/toggleBookmark\('([^']+)', '([^']+)'\)/);
-            if (match) {
-                const btnType = match[1];
-                const btnFilePath = match[2];
-                const isBookmarkedNow = isBookmarked(btnType, btnFilePath);
-                button.classList.toggle('bookmarked', isBookmarkedNow);
-                button.innerHTML = `<i class="fas fa-bookmark"></i> ${isBookmarkedNow ? 'Bookmarked' : 'Bookmark'}`;
-            }
-        });
-        // Refresh bookmarks tab if it's currently active
-        const activeTab = document.querySelector('.nav-link.active');
-        if (activeTab && activeTab.getAttribute('data-bs-target') === '#nav-bookmarks') {
-            currentPageBookmarks = 1;
-            renderBookmarks();
-        }
-    }
-
-    // Make toggleBookmark globally accessible for onclick handlers
-    window.toggleBookmark = toggleBookmark;
-
-    function isBookmarked(type, filePath) {
-        return bookmarks[type].includes(filePath);
     }
 
     function setupEventListeners() {
@@ -2411,15 +2265,6 @@ document.addEventListener('DOMContentLoaded', function() {
             renderPYQs();
         });
 
-        // Load More button for Bookmarks — guarded (removed from homepage)
-        const _loadMoreBookmarksBtn = document.getElementById('loadMoreBookmarksBtn');
-        if (_loadMoreBookmarksBtn) {
-            _loadMoreBookmarksBtn.addEventListener('click', function() {
-                currentPageBookmarks++;
-                renderBookmarks();
-            });
-        }
-
         // Copy link button
         if (copyLinkBtn) copyLinkBtn.addEventListener('click', function() {
             shareLink.select();
@@ -2432,7 +2277,7 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 2000);
         });
 
-        // Tab switching — guarded (bookmarks tab removed from homepage)
+        // Tab switching — guarded (tabs may not exist on every page)
         const _tabs = document.querySelectorAll('[data-bs-toggle="tab"]');
         if (_tabs && _tabs.length) {
             _tabs.forEach(tab => {
@@ -2441,10 +2286,6 @@ document.addEventListener('DOMContentLoaded', function() {
                     const _searchInput = document.getElementById('searchInput');
                     if (_searchInput) _searchInput.value = '';
                     if (typeof performSearch === 'function') try { performSearch(); } catch(e){}
-                    if (targetTab === '#nav-bookmarks') {
-                        currentPageBookmarks = 1;
-                        try { renderBookmarks(); } catch(e){}
-                    }
                 });
             });
         }
@@ -2542,10 +2383,6 @@ document.addEventListener('DOMContentLoaded', function() {
             currentPage = 1;
             updatePyqResultsBar();
             renderPYQs();
-        } else if (activeTab === '#nav-bookmarks') {
-            // Bookmarks: filter current bookmarked items (they are sourced from allData)
-            currentPageBookmarks = 1;
-            renderBookmarks(searchTerm);
         }
     };
 
