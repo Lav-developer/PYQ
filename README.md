@@ -271,7 +271,7 @@ match /feedback/{id} { allow read: if isAdminByEmail(); allow create: if isVerif
 
 **Feedback (NEW):** `Broken reports & PYQ requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh` (real-time `new` pulse)
 
-**CSV Backup:** Floating `file-csv` button → `database-backup.csv`
+**CSV Backup:** Floating `file-csv` button → `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore (not lazy cache)
 
 ---
 
