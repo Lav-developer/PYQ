@@ -1,0 +1,129 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // helper: true if the signed-in user's email matches the admin email
+    // TODO: replace with your real admin email and consider using custom claims/role field instead
+    function isAdminByEmail() {
+      return request.auth != null
+             && request.auth.token.email == "abc@gmail.com";
+    }
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // ─────────────────────────────────────────
+    // PYQs — public read, admin write, anyone can +1 views
+    // ─────────────────────────────────────────
+    match /pyqs/{doc} {
+      allow read: if true;
+      allow create, delete: if isAdminByEmail();
+      // Admin can do any update; everyone-else can only increment `views` by 1
+      allow update: if isAdminByEmail() || (
+        // first-time view: doc had no views field, new views == 1
+        ( !('views' in resource.data) && request.resource.data.views == 1 && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) )
+        ||
+        // normal increment: only `views` changed and +1
+        ( 'views' in resource.data
+          && request.resource.data.views is number
+          && resource.data.views is number
+          && request.resource.data.views == resource.data.views + 1
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views']) )
+      );
+    }
+
+    match /contributors/{doc}{
+      allow read: if true;
+      allow create, update, delete: if isAdminByEmail();
+    }
+
+    match /syllabus/{doc} {
+      allow read: if true;
+      allow write: if isAdminByEmail();
+    }
+
+    // ─────────────────────────────────────────
+    // Users — owners manage own doc
+    // ─────────────────────────────────────────
+    match /users/{userId} {
+      allow read: if isSignedIn() && (isOwner(userId) || isAdminByEmail());
+      allow create: if isSignedIn()
+                    && isOwner(userId)
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.email == request.auth.token.email;
+      allow update: if isSignedIn()
+                    && (isOwner(userId) || isAdminByEmail());
+      allow delete: if isSignedIn()
+                    && (isOwner(userId) || isAdminByEmail());
+    }
+
+    // pendingUploads — only admin can read; anyone can create a valid pending doc
+    match /pendingUploads/{doc} {
+      allow read: if isAdminByEmail();
+      allow create: if request.resource.data.title is string
+                    && request.resource.data.title.size() > 2
+                    && request.resource.data.studentName is string
+                    && request.resource.data.downloadUrl is string
+                    && request.resource.data.downloadUrl.size() > 10;
+      allow update, delete: if isAdminByEmail();
+    }
+
+    // ─────────────────────────────────────────
+    // NEW: Paper Detail Page — Comments
+    // Top-level `comments` (paper.js tries this first)
+    // ─────────────────────────────────────────
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+                    && request.resource.data.paperId is string
+                    && request.resource.data.paperId.size() > 0
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() >= 3
+                    && request.resource.data.text.size() <= 600
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.userName is string;
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdminByEmail());
+    }
+
+    // Fallback subcollection `pyqs/{pyqId}/comments/{commentId}` (paper.js fallback)
+    match /pyqs/{pyqId}/comments/{commentId} {
+      allow read: if true;
+      allow create: if isSignedIn()
+                    && request.resource.data.paperId is string
+                    && request.resource.data.text is string
+                    && request.resource.data.text.size() >= 3
+                    && request.resource.data.text.size() <= 600
+                    && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdminByEmail());
+    }
+
+    // ─────────────────────────────────────────
+    // NEW: Feedback / Reports (Report Broken Link + Request PYQ)
+    // paper.html + script.js write to `feedback`
+    // NOTE: allow anon create with validation; tighten later with rate limiting
+    // ─────────────────────────────────────────
+    match /feedback/{doc} {
+      allow read: if isAdminByEmail();
+      allow create: if request.resource.data.type is string
+                    && request.resource.data.type in ['broken_link', 'pyq_request']
+                    && request.resource.data.status == 'new';
+      allow update, delete: if isAdminByEmail();
+    }
+
+    // Optional aggregated stats for homepage (public read)
+    match /meta/{doc} {
+      allow read: if true;
+      allow write: if isAdminByEmail();
+    }
+
+    // Lock everything else
+    match /{document=**} {
+      allow read: if false;
+      allow write: if false;
+    }
+  }
+}

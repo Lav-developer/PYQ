@@ -4236,6 +4236,35 @@ section[id] {
   }
 }
 
+/* P0 PYQ enhancements */
+.pyq-results-bar {
+  background: rgba(15,23,42,0.45);
+  border: 1px solid rgba(148,163,184,0.12);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+.results-count { font-size: 13px; color: rgba(226,232,240,0.85); font-weight: 600; }
+.filter-chip {
+  display:inline-flex; align-items:center; gap:6px;
+  padding:6px 10px; border-radius:999px;
+  background: rgba(50,184,198,0.14); border:1px solid rgba(50,184,198,0.25);
+  color: #9cecf3; font-size:12px; font-weight:600;
+}
+.filter-chip.sort-chip { background: rgba(99,102,241,0.14); border-color: rgba(99,102,241,0.25); color:#c4b5fd; }
+.pyq-title a:hover { color: var(--color-teal-300) !important; text-decoration: underline !important; }
+.pyq-meta, .syllabus-meta { display:flex; flex-wrap:wrap; gap:6px; }
+.meta-tag {
+  background-color: rgba(50,184,198,0.14);
+  color: #9cecf3;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  border: 1px solid rgba(50,184,198,0.25);
+  font-weight:600;
+}
+.meta-tag.course { background: rgba(99,102,241,0.14); color:#c4b5fd; border-color: rgba(99,102,241,0.25); }
+.meta-tag.semester { background: rgba(52,211,153,0.14); color:#6ee7b7; border-color: rgba(52,211,153,0.25); }
+
 /* Link Page Categories */
 .link-category .category-title {
   font-size: 1.75rem;
