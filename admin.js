@@ -277,13 +277,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Edit PYQ form submit handler
+    // Edit PYQ form submit handler — now supports id (from editPyqById) or old index
     const editForm = document.getElementById('editForm');
     if (editForm) {
         editForm.addEventListener('submit', function(e) {
             e.preventDefault();
             const type = document.getElementById('editType').value;
-            const index = parseInt(document.getElementById('editIndex').value);
+            const rawIndex = document.getElementById('editIndex').value;
             const title = document.getElementById('editTitle').value.trim();
             const file = document.getElementById('editFile').value.trim();
             const file2 = document.getElementById('editFile2').value.trim();
@@ -293,11 +293,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            // rawIndex may be an id (string) or old numeric index
+            let idx = parseInt(rawIndex);
+            let isId = isNaN(idx) || String(rawIndex).length > 6 || allData[type] && !allData[type][idx];
+            if (isId) {
+                // find by id
+                const id = String(rawIndex).trim();
+                idx = allData[type].findIndex(p => p.id === id);
+                if (idx === -1) { alert('Item not found (maybe deleted). Refresh.'); return; }
+            }
             if (type === 'pyqs') {
                 const branch = document.getElementById('editBranch').value.trim();
-                editItem(type, index, { title, file, file2: file2 || '', branch: branch || '' });
+                editItem(type, idx, { title, file, file2: file2 || '', branch: branch || '' });
             } else {
-                editItem(type, index, { title, file });
+                editItem(type, idx, { title, file });
             }
             
             bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
@@ -772,7 +781,7 @@ function renderPyqs() {
         <article class="resource-card">
             <div class="resource-top">
                 <div>
-                    <div class="resource-kicker">PYQ ${index + 1}</div>
+                    <div class="resource-kicker">PYQ</div>
                     <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
                     <div class="resource-meta">
                         ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
@@ -783,8 +792,8 @@ function renderPyqs() {
                 <div class="resource-actions">
                     ${primaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(primaryFile)})'>Copy Server 1</button>` : ''}
                     ${secondaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(secondaryFile)})'>Copy Server 2</button>` : ''}
-                    <button class="btn btn-sm btn-outline-primary" onclick="editPyq(${index})">Edit</button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('pyqs', ${index})">Delete</button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editPyqById('${pyq.id}')">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePyqById('${pyq.id}')">Delete</button>
                 </div>
             </div>
             <div class="resource-detail">
@@ -873,21 +882,28 @@ function editItem(type, index, item) {
 }
 
 function deleteItem(type, index) {
+    // support both index and id (for backward compat)
+    let idx = index;
+    if (typeof index === 'string' && isNaN(parseInt(index))) {
+        idx = allData[type].findIndex(p => p.id === index);
+        if (idx === -1) { alert('Item not found'); return; }
+    }
     if (confirm('Are you sure you want to delete this item?')) {
-        const existing = allData[type][index];
+        const existing = allData[type][idx];
         if (!existing || !existing.id) {
             alert('Unable to find item id to delete.');
             return;
         }
         db.collection(type).doc(existing.id).delete()
             .then(() => {
-                allData[type].splice(index, 1);
+                allData[type].splice(idx, 1);
                 renderLists();
                 alert('Item deleted successfully!');
             })
             .catch(error => {
                 console.error('Error deleting item:', error);
-                alert('Error deleting item. Please try again.');
+                const msg = error && error.code === 'permission-denied' ? 'permission denied — check admin login & Firestore rules (isAdminByEmail must match your email)' : (error.message || 'Please try again.');
+                alert('Error deleting item: ' + msg);
             });
     }
 }
@@ -925,11 +941,12 @@ function pyqTitleExists(title) {
         });
 }
 
-// Global functions for onclick
-window.editPyq = function(index) {
-    const pyq = allData.pyqs[index];
+// Global functions for onclick — id-based (fixes filtered-list delete bug)
+window.editPyqById = function(id) {
+    const pyq = allData.pyqs.find(p => p.id === id);
+    if (!pyq) { alert('PYQ not found (maybe already deleted). Refresh.'); return; }
     document.getElementById('editType').value = 'pyqs';
-    document.getElementById('editIndex').value = index;
+    document.getElementById('editIndex').value = id;
     document.getElementById('editTitle').value = pyq.title;
     document.getElementById('editFile').value = normalizeStoredLink(pyq.file || pyq.server1);
     document.getElementById('editFile2').value = normalizeStoredLink(pyq.file2 || pyq.server2);
@@ -938,6 +955,39 @@ window.editPyq = function(index) {
     document.getElementById('editSemesterDiv').style.display = 'none';
     document.getElementById('editBranchDiv').style.display = 'none';
     new bootstrap.Modal(document.getElementById('editModal')).show();
+};
+window.deletePyqById = function(id) {
+    const idx = allData.pyqs.findIndex(p => p.id === id);
+    if (idx === -1) { alert('PYQ not found. Refresh the list.'); return; }
+    const pyq = allData.pyqs[idx];
+    if (!confirm(`Delete "${pyq.title}"? This cannot be undone.`)) return;
+    const deleteBtn = event && event.target ? event.target : null;
+    if (deleteBtn) deleteBtn.disabled = true;
+    db.collection('pyqs').doc(id).delete()
+        .then(() => {
+            allData.pyqs.splice(idx, 1);
+            renderPyqs();
+            updateDashboardStats();
+            alert('Item deleted successfully!');
+        })
+        .catch(error => {
+            console.error('Error deleting PYQ:', error);
+            const msg = error && error.message ? error.message : 'Please try again.';
+            if (error && error.code === 'permission-denied') {
+                alert('Delete failed: permission denied. Check Firestore rules & that you are logged in as admin ('+ (error.message||'') +').');
+            } else {
+                alert('Error deleting item: ' + msg);
+            }
+            if (deleteBtn) deleteBtn.disabled = false;
+        });
+};
+// keep old index-based for backward compat (now delegates to id)
+window.editPyq = function(index) {
+    // if index is actually an id string (from old cached HTML), delegate
+    if (typeof index === 'string' && isNaN(index)) { return window.editPyqById(index); }
+    const pyq = allData.pyqs[index];
+    if (!pyq) { alert('PYQ not found'); return; }
+    return window.editPyqById(pyq.id);
 };
 
 window.deleteItem = deleteItem;
@@ -1413,6 +1463,43 @@ function clearResolvedFeedback() {
 window.clearResolvedFeedback = clearResolvedFeedback;
 
 // ── Admin Content Library Search ──
+function renderPyqsFiltered(filtered) {
+    const list = document.getElementById('pyqsList');
+    if (!list) return;
+    if (!filtered.length) {
+        list.innerHTML = '<div class="resource-empty">No PYQs added yet.</div>';
+        return;
+    }
+    list.innerHTML = filtered.map((pyq) => {
+        const primaryFile = normalizeStoredLink(pyq.file || pyq.server1);
+        const secondaryFile = normalizeStoredLink(pyq.file2 || pyq.server2);
+        return `
+        <article class="resource-card">
+            <div class="resource-top">
+                <div>
+                    <div class="resource-kicker">PYQ</div>
+                    <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
+                    <div class="resource-meta">
+                        ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
+                        ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} sem</span>` : ''}
+                        ${pyq.session ? `<span class="resource-pill">${escapeHtml(pyq.session)} session</span>` : ''}
+                    </div>
+                </div>
+                <div class="resource-actions">
+                    ${primaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(primaryFile)})'>Copy Server 1</button>` : ''}
+                    ${secondaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(secondaryFile)})'>Copy Server 2</button>` : ''}
+                    <button class="btn btn-sm btn-outline-primary" onclick="editPyqById('${pyq.id}')">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePyqById('${pyq.id}')">Delete</button>
+                </div>
+            </div>
+            <div class="resource-detail">
+                <div>Server 1: ${escapeHtml(primaryFile)}</div>
+                <div>Server 2: ${escapeHtml(secondaryFile || 'null')}</div>
+            </div>
+        </article>
+    `;
+    }).join('');
+}
 function setupAdminPyqSearch() {
     const input = document.getElementById('adminPyqSearch');
     if (!input) return;
@@ -1428,11 +1515,7 @@ function setupAdminPyqSearch() {
         const list = document.getElementById('pyqsList');
         if (!list) return;
         if (!filtered.length) { list.innerHTML = '<div class="resource-empty">No matches for “'+escapeHtml(q)+'”.</div>'; return; }
-        // reuse render but with filtered subset
-        const orig = allData.pyqs;
-        allData.pyqs = filtered;
-        renderPyqs();
-        allData.pyqs = orig;
+        renderPyqsFiltered(filtered);
     });
 }
 
