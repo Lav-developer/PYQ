@@ -251,15 +251,21 @@ auth.onAuthStateChanged(user => {
     updateUserUI();
     updateUploadAccessUI();
     updatePyqFilterUI();
+    // handle verification block overlay
+    if (!user) {
+        hideVerificationBlock();
+    } else if (requiresEmailVerification(user)) {
+        // will be confirmed after reload
+    }
     if (user) {
         // Check if email is verified
         user.reload()
             .then(async () => {
                 await ensureUserDocumentSynced(user);
                 if (requiresEmailVerification(user)) {
-                    // Show verification prompt modal
                     showEmailVerificationPrompt();
                 } else {
+                    hideVerificationBlock();
                     loadUserProfile();
                     checkAndShowProfileCompletionReminder();
                     const searchInput = document.getElementById('searchInput');
@@ -270,7 +276,10 @@ auth.onAuthStateChanged(user => {
             })
             .catch(error => {
                 console.error('Error syncing auth user with Firestore profile:', error);
+                if (user && requiresEmailVerification(user)) showEmailVerificationPrompt();
             });
+    } else {
+        hideVerificationBlock();
     }
 });
 
@@ -761,13 +770,70 @@ function deleteAccountConfirm() {
 }
 
 // ===== EMAIL VERIFICATION FUNCTIONS =====
+let _verificationBlockEl = null;
+function ensureVerificationBlock() {
+    if (_verificationBlockEl) return _verificationBlockEl;
+    _verificationBlockEl = document.createElement('div');
+    _verificationBlockEl.id = 'verificationBlockOverlay';
+    _verificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.92);backdrop-filter:blur(8px);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
+    _verificationBlockEl.innerHTML = `<div style="max-width:460px;width:100%;background:linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.88));border:1px solid rgba(110,231,216,0.22);border-radius:22px;padding:1.5rem 1.25rem;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+        <div style="width:64px;height:64px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:1.6rem;"><i class="fas fa-envelope"></i></div>
+        <h5 style="color:#f8fafc;font-weight:800;margin:0 0 8px;">Verify your email to continue</h5>
+        <p style="color:rgba(203,213,225,0.78);font-size:13px;line-height:1.5;margin:0 0 14px;">We sent a link to <strong id="verificationBlockEmail" style="color:#f8fafc;"></strong>. You must verify before you can search, view papers or comment. Check spam too.</p>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" onclick="resendVerificationEmail()"><i class="fas fa-redo me-1"></i> Resend email</button>
+            <button class="btn btn-outline-light btn-sm" onclick="checkEmailVerification()"><i class="fas fa-check me-1"></i> I verified — Check</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="logoutAndChangeEmail()"><i class="fas fa-sign-out-alt me-1"></i> Use different email</button>
+        </div>
+        <small style="color:rgba(203,213,225,0.55);display:block;margin-top:10px;">No email? Click “Use different email” to delete this unverified account and sign up again.</small>
+    </div>`;
+    document.body.appendChild(_verificationBlockEl);
+    return _verificationBlockEl;
+}
 function showEmailVerificationPrompt() {
+    if (!currentUser) return;
+    const modalElement = document.getElementById('emailVerificationModal');
+    const blockEl = ensureVerificationBlock();
+    const emailEl = document.getElementById('verificationEmail');
+    const blockEmailEl = document.getElementById('verificationBlockEmail');
+    if (emailEl) emailEl.textContent = currentUser.email;
+    if (blockEmailEl) blockEmailEl.textContent = currentUser.email;
+    // Show blocking overlay (covers entire page, cannot be bypassed by closing modal)
+    if (blockEl) blockEl.style.display = 'flex';
+    // Also show the Bootstrap modal as static (cannot be dismissed)
+    if (modalElement) {
+        const modal = bootstrap.Modal.getOrCreateInstance(modalElement, {backdrop: 'static', keyboard: false});
+        modal.show();
+        // If user somehow hides the modal (console), re-show while still unverified
+        modalElement.addEventListener('hidden.bs.modal', function handler() {
+            if (currentUser && requiresEmailVerification(currentUser)) {
+                setTimeout(() => {
+                    const m = bootstrap.Modal.getOrCreateInstance(modalElement, {backdrop: 'static', keyboard: false});
+                    m.show();
+                }, 200);
+            } else {
+                modalElement.removeEventListener('hidden.bs.modal', handler);
+                if (blockEl) blockEl.style.display = 'none';
+            }
+        });
+    }
+}
+function hideVerificationBlock() {
+    ['verificationBlockOverlay','paperVerificationBlock'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el) el.style.display='none';
+    });
     const modalElement = document.getElementById('emailVerificationModal');
     if (modalElement) {
-        const modal = new bootstrap.Modal(modalElement);
-        document.getElementById('verificationEmail').textContent = currentUser.email;
-        modal.show();
+        try { bootstrap.Modal.getInstance(modalElement)?.hide(); } catch(e){}
     }
+}
+function isVerifiedOrPrompt() {
+    if (currentUser && requiresEmailVerification(currentUser)) {
+        showEmailVerificationPrompt();
+        return false;
+    }
+    return true;
 }
 
 async function logoutAndChangeEmail() {
@@ -857,6 +923,7 @@ async function checkEmailVerification() {
                 emailVerified: true
             }, { merge: true });
             
+            hideVerificationBlock();
             const modal = bootstrap.Modal.getInstance(document.getElementById('emailVerificationModal'));
             if (modal) modal.hide();
             
@@ -867,6 +934,8 @@ async function checkEmailVerification() {
             });
             
             updateUploadAccessUI();
+            // also reload profile and allow actions
+            try { await ensureUserDocumentSynced(currentUser); loadUserProfile(); } catch(e){}
         } else {
             Swal.fire({
                 title: 'Email Not Verified Yet',
@@ -1208,6 +1277,8 @@ function setupUserUploadHandler() {
 
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
+        if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+        if (!currentUser) { openLoginModal(); return; }
 
         const uploadName = document.getElementById('uploadName').value.trim();
         const title = document.getElementById('uploadTitle').value;
@@ -2239,6 +2310,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function toggleBookmark(type, filePath) {
+        if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+        if (!currentUser) { openSearchGateModal(); return; }
         const index = bookmarks[type].indexOf(filePath);
         if (index > -1) {
             bookmarks[type].splice(index, 1);
@@ -2321,10 +2394,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
 
 
-        // Load More button for PYQs — gated: beyond first page requires login
+        // Load More button for PYQs — gated: beyond first page requires login + verified
         document.getElementById('loadMoreBtn').addEventListener('click', async function() {
             if (!currentUser) {
                 openSearchGateModal();
+                return;
+            }
+            if (requiresEmailVerification(currentUser)) {
+                showEmailVerificationPrompt();
                 return;
             }
             if (pyqHasMore && !document.getElementById('searchInput').value.trim() && !hasActivePyqFilters()) {
@@ -2382,6 +2459,11 @@ document.addEventListener('DOMContentLoaded', function() {
         // 🔒 GATE: search & filters require login — prevents anon full-collection reads
         if ((searchTerm || filtersActive) && !currentUser) {
             openSearchGateModal();
+            return;
+        }
+        // 🔒 Email verification gate — unverified cannot search
+        if (currentUser && requiresEmailVerification(currentUser)) {
+            showEmailVerificationPrompt();
             return;
         }
 
@@ -2525,14 +2607,23 @@ document.addEventListener('DOMContentLoaded', function() {
             openSearchGateModal();
             return;
         }
+        if (requiresEmailVerification(currentUser)) {
+            showEmailVerificationPrompt();
+            return;
+        }
         incrementPyqViews(pyqId);
-        previewPDF(filePath, title);
+        // call original preview without re-gating (avoid double check)
+        _origPreviewPDF(filePath, title);
     };
     // also gate direct preview wrapper for related cards
     const _origPreviewPDF = window.previewPDF;
     window.previewPDF = function(filePath, title) {
         if (!currentUser) {
             openSearchGateModal();
+            return;
+        }
+        if (requiresEmailVerification(currentUser)) {
+            showEmailVerificationPrompt();
             return;
         }
         return _origPreviewPDF(filePath, title);
@@ -3337,6 +3428,8 @@ function toggleChatWidget() {
 
 // Function to open Report Broken Link modal
 window.openReportBrokenLinkModal = function(title = '', course = '') {
+    if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+    if (!currentUser) { openLoginModal(); return; }
     const modal = new bootstrap.Modal(document.getElementById('reportBrokenLinkModal'));
     if (title) document.getElementById('reportTitle').value = title;
     if (course) document.getElementById('reportCourse').value = course;
@@ -3345,6 +3438,8 @@ window.openReportBrokenLinkModal = function(title = '', course = '') {
 
 // Function to open Request PYQ modal
 window.openRequestPyqModal = function() {
+    if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+    if (!currentUser) { openLoginModal(); return; }
     const modal = new bootstrap.Modal(document.getElementById('requestPyqModal'));
     modal.show();
 };

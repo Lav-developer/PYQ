@@ -35,6 +35,54 @@
         } catch(e){ return null; }
     }
 
+    // Verification helpers (must match script.js logic)
+    function isGoogleUserPaper(user) {
+        if (!user || !Array.isArray(user.providerData)) return false;
+        return user.providerData.some(p => p && p.providerId === 'google.com');
+    }
+    function requiresEmailVerificationPaper(user) {
+        return !!user && !isGoogleUserPaper(user) && !user.emailVerified;
+    }
+    let _paperVerificationBlockEl = null;
+    function ensurePaperVerificationBlock() {
+        if (_paperVerificationBlockEl) return _paperVerificationBlockEl;
+        _paperVerificationBlockEl = document.createElement('div');
+        _paperVerificationBlockEl.id = 'paperVerificationBlock';
+        _paperVerificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.92);backdrop-filter:blur(8px);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
+        _paperVerificationBlockEl.innerHTML = `<div style="max-width:460px;width:100%;background:linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.88));border:1px solid rgba(110,231,216,0.22);border-radius:22px;padding:1.5rem 1.25rem;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.5);"><div style="width:64px;height:64px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:1.6rem;"><i class="fas fa-envelope"></i></div><h5 style="color:#f8fafc;font-weight:800;margin:0 0 8px;">Verify your email to continue</h5><p style="color:rgba(203,213,225,0.78);font-size:13px;line-height:1.5;margin:0 0 14px;">We sent a link to <strong id="paperVerificationBlockEmail" style="color:#f8fafc;"></strong>. Verify to preview, download and comment.</p><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="resendVerificationEmail()"><i class="fas fa-redo me-1"></i> Resend</button><button class="btn btn-outline-light btn-sm" onclick="checkEmailVerification()"><i class="fas fa-check me-1"></i> I verified</button><button class="btn btn-outline-danger btn-sm" onclick="logoutAndChangeEmail()">Use different email</button></div></div>`;
+        document.body.appendChild(_paperVerificationBlockEl);
+        return _paperVerificationBlockEl;
+    }
+    function showPaperVerificationBlock() {
+        if (!currentUser) return;
+        const block = ensurePaperVerificationBlock();
+        const el = document.getElementById('paperVerificationBlockEmail');
+        if (el) el.textContent = currentUser.email;
+        if (block) block.style.display = 'flex';
+        const modalEl = document.getElementById('emailVerificationModal');
+        if (modalEl) {
+            const m = bootstrap.Modal.getOrCreateInstance(modalEl, {backdrop:'static', keyboard:false});
+            m.show();
+            modalEl.addEventListener('hidden.bs.modal', function h(){
+                if (currentUser && requiresEmailVerificationPaper(currentUser)) {
+                    setTimeout(()=>{ const mm=bootstrap.Modal.getOrCreateInstance(modalEl,{backdrop:'static',keyboard:false}); mm.show(); },200);
+                } else {
+                    modalEl.removeEventListener('hidden.bs.modal', h);
+                    if (block) block.style.display='none';
+                }
+            });
+        }
+    }
+    function hidePaperVerificationBlock(){
+        const b=document.getElementById('paperVerificationBlock');
+        if(b) b.style.display='none';
+        const me=document.getElementById('emailVerificationModal');
+        if(me) try{ bootstrap.Modal.getInstance(me)?.hide(); }catch(e){}
+    }
+    function isPaperVerifiedOrPrompt(){
+        if (currentUser && requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return false; }
+        return true;
+    }
     // Helpers
     function getParam(name) { return new URLSearchParams(window.location.search).get(name); }
     function escapeHtml(v){ return String(v||'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -96,11 +144,23 @@
     let currentPaperId = null;
     let currentUser = null;
 
-    // Auth listener for comment UI + paper lock (forces signup)
+    // Auth listener for comment UI + paper lock + email verification (forces signup + verification)
     auth.onAuthStateChanged(user => {
         currentUser = user || null;
         updateCommentAuthUI();
         updatePaperLockUI();
+        if (!user) {
+            hidePaperVerificationBlock();
+        } else {
+            // check verification after reload
+            user.reload().then(() => {
+                if (requiresEmailVerificationPaper(user)) {
+                    showPaperVerificationBlock();
+                } else {
+                    hidePaperVerificationBlock();
+                }
+            }).catch(()=>{ if (requiresEmailVerificationPaper(user)) showPaperVerificationBlock(); });
+        }
     });
     function updateCommentAuthUI(){
         if(currentUser){
@@ -387,6 +447,7 @@
 
     function openPreview(id, url, title){
         if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
+        if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
         // use modal if direct pdf, else new tab
         if(isDirectPdfUrl(url) && !isMediaFireUrl(url)){
             const modalEl = document.getElementById('pdfModal');
@@ -407,6 +468,7 @@
 
     function handleDownloadClick(id){
         if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
+        if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
         incrementViews(id);
     }
     window.handleDownloadClick = handleDownloadClick;
@@ -664,6 +726,7 @@
             const text = commentText.value.trim();
             if(!text){ commentErrorEl.textContent='Please write a comment.'; commentErrorEl.style.display='block'; return; }
             if(text.length<3){ commentErrorEl.textContent='Comment too short.'; commentErrorEl.style.display='block'; return; }
+            if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
             if(!currentUser){
                 // prompt login
                 commentErrorEl.style.display='none';
