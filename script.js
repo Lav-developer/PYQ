@@ -2378,7 +2378,8 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
+        const activeTabEl = document.querySelector('.nav-link.active');
+        const activeTab = activeTabEl ? activeTabEl.getAttribute('data-bs-target') : '#nav-pyq';
 
         // Helper: ZERO-READ search if cache hit — else 1 server read then cache for 15 mins
         async function fetchAndFilterCollection(collectionName, filterFn) {

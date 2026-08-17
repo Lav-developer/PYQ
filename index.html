@@ -194,19 +194,7 @@
                     </div>
                 </div>
                 </div>
-                <!-- Navigation Tabs -->
-                <div class="nav-tabs-container mt-4">
-                    <nav>
-                        <div class="nav nav-tabs" id="nav-tab" role="tablist">
-                            <button class="nav-link active" id="nav-pyq-tab" data-bs-toggle="tab" data-bs-target="#nav-pyq" type="button" role="tab" aria-controls="nav-pyq" aria-selected="true">
-                                <i class="fas fa-file-alt"></i> Previous Year Questions
-                            </button>
-                            <button class="nav-link" id="nav-bookmarks-tab" data-bs-toggle="tab" data-bs-target="#nav-bookmarks" type="button" role="tab" aria-controls="nav-bookmarks" aria-selected="false">
-                                <i class="fas fa-bookmark"></i> Bookmarks
-                            </button>
-                        </div>
-                    </nav>
-                </div>
+
             </div>
         </div>
     </header>
@@ -221,28 +209,6 @@
     <!-- Main Content -->
     <main class="container mt-4">
 
-        <section class="content-section home-highlights" id="highlightsSection">
-            <div class="highlights-grid">
-                <article class="highlight-panel">
-                    <div class="section-header section-header-left">
-                        <h2><i class="fas fa-bolt"></i> Recently added</h2>
-                        <p class="section-description">Fresh uploads added to the archive.</p>
-                    </div>
-                    <div id="recentlyAddedList" class="compact-resource-list"></div>
-                </article>
-                <article class="highlight-panel">
-                    <div class="section-header section-header-left">
-                        <h2><i class="fas fa-fire"></i> Trending</h2>
-                        <p class="section-description">Most viewed papers right now.</p>
-                    </div>
-                    <div id="trendingList" class="compact-resource-list"></div>
-                </article>
-            </div>
-        </section>
-
-        <div class="tab-content" id="nav-tabContent">
-            <!-- PYQ Tab -->
-            <div class="tab-pane fade show active" id="nav-pyq" role="tabpanel" aria-labelledby="nav-pyq-tab">
                 <section class="content-section" id="pyqs-section">
                     <div class="section-header">
                         <h2><i class="fas fa-file-alt"></i> Previous Year Question Papers</h2>
@@ -258,25 +224,6 @@
     </div>
 </div>
                 </section>
-            </div>
-            
-            <!-- Bookmarks Tab -->
-            <div class="tab-pane fade" id="nav-bookmarks" role="tabpanel" aria-labelledby="nav-bookmarks-tab">
-                <section class="content-section" id="bookmarks-section">
-                    <div class="section-header">
-                        <h2><i class="fas fa-bookmark"></i> My Bookmarks</h2>
-                        <p class="section-description">Quick access to your saved question papers</p>
-                    </div>
-                    <div class="bookmarks-container">
-                        <ul class="bookmarks-list" id="bookmarksList">
-                        </ul>
-                        <div class="text-center mt-3">
-                            <button id="loadMoreBookmarksBtn" class="btn btn-primary" style="display:none;">Load More</button>
-                        </div>
-                    </div>
-                </section>
-            </div>
-        </div>
     </main>
 
     <!-- Request / Help bar -->
