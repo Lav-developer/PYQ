@@ -104,11 +104,24 @@
         if(isDirectPdfUrl(url) && !isMediaFireUrl(url)) return { label: 'Preview', icon: 'fas fa-eye' };
         return { label: 'Open Link', icon: 'fas fa-external-link-alt' };
     }
+    const INLINE_PREVIEW_MQ = window.matchMedia('(min-width: 992px)');
+    function canUseInlinePreview(){
+        return INLINE_PREVIEW_MQ.matches;
+    }
+    function openFileOffsite(url){
+        if(!url) return;
+        try { window.open(url, '_blank', 'noopener,noreferrer'); } catch(e){ window.location.href = url; }
+    }
     function loadPreviewOnSameSite(url, title){
         // Stay on same site — load URL into the main preview frame instead of window.open
         if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
         if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
         incrementViews(currentPaper.id);
+        // Phones/tablets: never inject an iframe — hosts can break out and leave the archive
+        if(!canUseInlinePreview()){
+            openFileOffsite(url);
+            return;
+        }
         // Show in main inline preview (works for catbox/archive direct PDFs; details pages will show inside frame if allowed)
         previewContainerEl.innerHTML = `<div class="paper-preview-frame"><iframe src="${escapeHtml(url)}" title="${escapeHtml(title)} preview" loading="lazy" referrerpolicy="no-referrer"></iframe></div>`;
         previewHintEl.textContent = `Previewing ${title} — same-site viewer`;
@@ -367,7 +380,12 @@
 
         let actionsHtml = '';
         if(primary){
-            actionsHtml += `<button class="btn-paper btn-paper-primary" id="btnPreviewPrimary"><i class="${primaryMeta.icon}"></i> ${primaryMeta.label === 'Preview' ? 'Preview PDF' : 'Open PDF'}</button>`;
+            const desktopPreview = canUseInlinePreview();
+            const primaryLabel = desktopPreview
+                ? (primaryMeta.label === 'Preview' ? 'Preview PDF' : 'Open PDF')
+                : 'Download PDF';
+            const primaryIcon = desktopPreview ? primaryMeta.icon : 'fas fa-download';
+            actionsHtml += `<button class="btn-paper btn-paper-primary" id="btnPreviewPrimary"><i class="${primaryIcon}"></i> ${primaryLabel}</button>`;
             actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnServer1"><i class="fas fa-download"></i> Server 1</button>`;
         }
         if(secondary){
@@ -378,36 +396,7 @@
 
         actionsBarEl.innerHTML = actionsHtml;
 
-        // Preview container
-        if(primary && isDirectPdfUrl(primary) && !isMediaFireUrl(primary)){
-            previewContainerEl.innerHTML = `
-                <div class="paper-preview-frame">
-                    <iframe src="${escapeHtml(primary)}" title="${escapeHtml(title)} preview" loading="lazy"></iframe>
-                </div>
-            `;
-            previewHintEl.textContent = 'PDF loads inline — use full-screen preview for better reading';
-            downloadAltEl.innerHTML = `<small style="color: rgba(203,213,225,0.6);">If preview fails (Drive/MediaFire), use Download buttons above.</small>`;
-        } else if(primary){
-            previewContainerEl.innerHTML = `
-                <div class="paper-no-preview">
-                    <i class="fas fa-file-pdf"></i>
-                    <h4 style="color:#f8fafc; margin:8px 0;">Preview not available inline</h4>
-                    <p style="margin:0 0 14px;">This paper is hosted externally. Click Server 1 or Server 2 above to load it here on the same site.</p>
-                    <button class="btn-paper btn-paper-primary" style="justify-content:center;" id="btnFallbackPrimary"><i class="fas fa-eye"></i> Load Server 1 Preview Here</button>
-                </div>
-            `;
-            previewHintEl.textContent = 'External link — opens in new tab';
-        } else if(secondary) {
-            // no primary but secondary exists
-            if(isDirectPdfUrl(secondary) && !isMediaFireUrl(secondary)){
-                previewContainerEl.innerHTML = `<div class="paper-preview-frame"><iframe src="${escapeHtml(secondary)}" title="${escapeHtml(title)} preview"></iframe></div>`;
-            } else {
-                previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-link"></i><h4 style="color:#f8fafc;">Use Server 2</h4><button class="btn-paper btn-paper-primary" style="justify-content:center;" id="btnFallbackSecondary"><i class="fas fa-eye"></i> Load Server 2 Preview Here</button></div>`;
-            }
-        } else {
-            previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-bug"></i><h4 style="color:#f8fafc;">No file link available</h4><p>Admin has not added a file URL for this paper yet. Please report or request.</p></div>`;
-            previewHintEl.textContent = 'No preview';
-        }
+        fillPreviewContainer(p, title, primary, secondary);
 
         // Info list
         infoListEl.innerHTML = `
@@ -465,9 +454,53 @@
         updatePaperLockUI();
     }
 
+    function fillPreviewContainer(p, title, primary, secondary){
+        if(!previewContainerEl) return;
+        // Never mount an iframe on phones — CSS also hides this block below 992px
+        if(!canUseInlinePreview()){
+            previewContainerEl.innerHTML = '';
+            if(previewHintEl) previewHintEl.textContent = 'Preview is available on laptop and larger screens';
+            if(downloadAltEl) downloadAltEl.innerHTML = '';
+            return;
+        }
+        if(primary && isDirectPdfUrl(primary) && !isMediaFireUrl(primary)){
+            previewContainerEl.innerHTML = `
+                <div class="paper-preview-frame">
+                    <iframe src="${escapeHtml(primary)}" title="${escapeHtml(title)} preview" loading="lazy"></iframe>
+                </div>
+            `;
+            previewHintEl.textContent = 'PDF loads inline — use full-screen preview for better reading';
+            downloadAltEl.innerHTML = `<small style="color: rgba(203,213,225,0.6);">If preview fails (Drive/MediaFire), use Download buttons above.</small>`;
+        } else if(primary){
+            previewContainerEl.innerHTML = `
+                <div class="paper-no-preview">
+                    <i class="fas fa-file-pdf"></i>
+                    <h4 style="color:#f8fafc; margin:8px 0;">Preview not available inline</h4>
+                    <p style="margin:0 0 14px;">This paper is hosted externally. Click Server 1 or Server 2 above to load it here on the same site.</p>
+                    <button class="btn-paper btn-paper-primary" style="justify-content:center;" id="btnFallbackPrimary"><i class="fas fa-eye"></i> Load Server 1 Preview Here</button>
+                </div>
+            `;
+            previewHintEl.textContent = 'External link — load it in the viewer above';
+        } else if(secondary) {
+            if(isDirectPdfUrl(secondary) && !isMediaFireUrl(secondary)){
+                previewContainerEl.innerHTML = `<div class="paper-preview-frame"><iframe src="${escapeHtml(secondary)}" title="${escapeHtml(title)} preview"></iframe></div>`;
+            } else {
+                previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-link"></i><h4 style="color:#f8fafc;">Use Server 2</h4><button class="btn-paper btn-paper-primary" style="justify-content:center;" id="btnFallbackSecondary"><i class="fas fa-eye"></i> Load Server 2 Preview Here</button></div>`;
+            }
+        } else {
+            previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-bug"></i><h4 style="color:#f8fafc;">No file link available</h4><p>Admin has not added a file URL for this paper yet. Please report or request.</p></div>`;
+            previewHintEl.textContent = 'No preview';
+        }
+    }
+
     function openPreview(id, url, title){
         if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
         if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
+        if(!canUseInlinePreview()){
+            incrementViews(id);
+            openFileOffsite(url);
+            return;
+        }
         // Always stay on same site: try modal for direct PDFs, else inline preview (never window.open)
         if(isDirectPdfUrl(url) && !isMediaFireUrl(url)){
             const modalEl = document.getElementById('pdfModal');
@@ -809,6 +842,37 @@
             if(v) v.src='';
         }
     });
+
+    function refreshPreviewForViewport(){
+        if(!currentPaper) return;
+        const title = currentPaper.title || ((currentPaper.course || 'General') + ' Paper');
+        const primary = getPrimaryLink(currentPaper);
+        const secondary = getSecondaryLink(currentPaper);
+        fillPreviewContainer(currentPaper, title, primary, secondary);
+        const previewBtn = document.getElementById('btnPreviewPrimary');
+        if(previewBtn && primary){
+            const desktopPreview = canUseInlinePreview();
+            const meta = getPreviewMeta(primary);
+            const label = desktopPreview
+                ? (meta.label === 'Preview' ? 'Preview PDF' : 'Open PDF')
+                : 'Download PDF';
+            const icon = desktopPreview ? meta.icon : 'fas fa-download';
+            previewBtn.innerHTML = `<i class="${icon}"></i> ${label}`;
+        }
+        const fbPrimary = document.getElementById('btnFallbackPrimary');
+        if(fbPrimary && primary){
+            fbPrimary.addEventListener('click', () => loadPreviewOnSameSite(primary, title + ' — Server 1'));
+        }
+        const fbSecondary = document.getElementById('btnFallbackSecondary');
+        if(fbSecondary && secondary){
+            fbSecondary.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
+        }
+    }
+    if(typeof INLINE_PREVIEW_MQ.addEventListener === 'function'){
+        INLINE_PREVIEW_MQ.addEventListener('change', refreshPreviewForViewport);
+    } else if(typeof INLINE_PREVIEW_MQ.addListener === 'function'){
+        INLINE_PREVIEW_MQ.addListener(refreshPreviewForViewport);
+    }
 
     // Start
     if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', init);
