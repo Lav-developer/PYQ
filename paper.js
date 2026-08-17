@@ -104,6 +104,18 @@
         if(isDirectPdfUrl(url) && !isMediaFireUrl(url)) return { label: 'Preview', icon: 'fas fa-eye' };
         return { label: 'Open Link', icon: 'fas fa-external-link-alt' };
     }
+    function loadPreviewOnSameSite(url, title){
+        // Stay on same site — load URL into the main preview frame instead of window.open
+        if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
+        if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
+        incrementViews(currentPaper.id);
+        // Show in main inline preview (works for catbox/archive direct PDFs; details pages will show inside frame if allowed)
+        previewContainerEl.innerHTML = `<div class="paper-preview-frame"><iframe src="${escapeHtml(url)}" title="${escapeHtml(title)} preview" loading="lazy" referrerpolicy="no-referrer"></iframe></div>`;
+        previewHintEl.textContent = `Previewing ${title} — same-site viewer`;
+        downloadAltEl.innerHTML = `<small style="color: rgba(203,213,225,0.6);">If the preview is blank due to the host blocking embeds, use the modal preview button.</small>`;
+        // Smooth scroll to preview
+        setTimeout(()=>{ try{ previewContainerEl.scrollIntoView({behavior:'smooth', block:'center'}); }catch(e){} }, 100);
+    }
     function formatDate(ts){
         if(!ts) return '-';
         try {
@@ -358,10 +370,10 @@
         let actionsHtml = '';
         if(primary){
             actionsHtml += `<button class="btn-paper btn-paper-primary" id="btnPreviewPrimary"><i class="${primaryMeta.icon}"></i> ${primaryMeta.label === 'Preview' ? 'Preview PDF' : 'Open PDF'}</button>`;
-            actionsHtml += `<a href="${escapeHtml(primary)}" target="_blank" rel="noopener noreferrer" class="btn-paper btn-paper-secondary" onclick="handleDownloadClick('${escapeJs(p.id)}')"><i class="fas fa-download"></i> Download Server 1</a>`;
+            actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnServer1"><i class="fas fa-download"></i> Server 1</button>`;
         }
         if(secondary){
-            actionsHtml += `<a href="${escapeHtml(secondary)}" target="_blank" rel="noopener noreferrer" class="btn-paper btn-paper-secondary"><i class="${secondaryMeta.icon}"></i> Server 2</a>`;
+            actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnServer2"><i class="${secondaryMeta.icon}"></i> Server 2</button>`;
         }
         actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnShare"><i class="fas fa-share-nodes"></i> Share</button>`;
         actionsHtml += `<button class="btn-paper ${isBookmarked ? 'btn-paper-bookmarked' : 'btn-paper-secondary'}" id="btnBookmark"><i class="fas fa-bookmark"></i> ${isBookmarked ? 'Bookmarked' : 'Bookmark'}</button>`;
@@ -384,8 +396,8 @@
                 <div class="paper-no-preview">
                     <i class="fas fa-file-pdf"></i>
                     <h4 style="color:#f8fafc; margin:8px 0;">Preview not available inline</h4>
-                    <p style="margin:0 0 14px;">This paper is hosted externally (Google Drive / MediaFire). Use the download buttons to open it.</p>
-                    <a href="${escapeHtml(primary)}" target="_blank" rel="noopener" class="btn-paper btn-paper-primary" style="justify-content:center;" onclick="handleDownloadClick('${escapeJs(p.id)}')"><i class="fas fa-external-link-alt"></i> Open & Download Now</a>
+                    <p style="margin:0 0 14px;">This paper is hosted externally. Click Server 1 or Server 2 above to load it here on the same site.</p>
+                    <button class="btn-paper btn-paper-primary" style="justify-content:center;" id="btnFallbackPrimary"><i class="fas fa-eye"></i> Load Server 1 Preview Here</button>
                 </div>
             `;
             previewHintEl.textContent = 'External link — opens in new tab';
@@ -394,7 +406,7 @@
             if(isDirectPdfUrl(secondary) && !isMediaFireUrl(secondary)){
                 previewContainerEl.innerHTML = `<div class="paper-preview-frame"><iframe src="${escapeHtml(secondary)}" title="${escapeHtml(title)} preview"></iframe></div>`;
             } else {
-                previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-link"></i><h4 style="color:#f8fafc;">Use Server 2</h4><a href="${escapeHtml(secondary)}" target="_blank" class="btn-paper btn-paper-primary" style="justify-content:center;"><i class="fas fa-download"></i> Open Server 2</a></div>`;
+                previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-link"></i><h4 style="color:#f8fafc;">Use Server 2</h4><button class="btn-paper btn-paper-primary" style="justify-content:center;" id="btnFallbackSecondary"><i class="fas fa-eye"></i> Load Server 2 Preview Here</button></div>`;
             }
         } else {
             previewContainerEl.innerHTML = `<div class="paper-no-preview"><i class="fas fa-bug"></i><h4 style="color:#f8fafc;">No file link available</h4><p>Admin has not added a file URL for this paper yet. Please report or request.</p></div>`;
@@ -411,10 +423,26 @@
             <li><span>Document ID</span> <strong style="font-family: monospace; font-size: 12px;">${escapeHtml(p.id)}</strong></li>
         `;
 
-        // Bind action handlers
+        // Bind action handlers — all previews stay on same site
         const previewBtn = document.getElementById('btnPreviewPrimary');
         if(previewBtn && primary){
             previewBtn.addEventListener('click', () => openPreview(p.id, primary, title));
+        }
+        const s1Btn = document.getElementById('btnServer1');
+        if(s1Btn && primary){
+            s1Btn.addEventListener('click', () => loadPreviewOnSameSite(primary, title + ' — Server 1'));
+        }
+        const s2Btn = document.getElementById('btnServer2');
+        if(s2Btn && secondary){
+            s2Btn.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
+        }
+        const fbPrimary = document.getElementById('btnFallbackPrimary');
+        if(fbPrimary && primary){
+            fbPrimary.addEventListener('click', () => loadPreviewOnSameSite(primary, title + ' — Server 1'));
+        }
+        const fbSecondary = document.getElementById('btnFallbackSecondary');
+        if(fbSecondary && secondary){
+            fbSecondary.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
         }
         document.getElementById('btnShare').addEventListener('click', () => openShare(shareTarget, title));
         document.getElementById('btnBookmark').addEventListener('click', function(){
@@ -448,7 +476,7 @@
     function openPreview(id, url, title){
         if (!currentUser) { if (typeof openSearchGateModal === 'function') openSearchGateModal(); else openLoginModal(); return; }
         if (requiresEmailVerificationPaper(currentUser)) { showPaperVerificationBlock(); return; }
-        // use modal if direct pdf, else new tab
+        // Always stay on same site: try modal for direct PDFs, else inline preview (never window.open)
         if(isDirectPdfUrl(url) && !isMediaFireUrl(url)){
             const modalEl = document.getElementById('pdfModal');
             const viewer = document.getElementById('pdfViewer');
@@ -461,9 +489,11 @@
                 modalEl.removeEventListener('hidden.bs.modal', handler);
             });
         } else {
-            window.open(url, '_blank', 'noopener,noreferrer');
+            // For Drive/Archive/catbox details pages, load in same-site inline preview
+            loadPreviewOnSameSite(url, title);
+            return;
         }
-        incrementViews(id); // count preview as view
+        incrementViews(id); // count preview as view (for modal case)
     }
 
     function handleDownloadClick(id){
