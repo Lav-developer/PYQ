@@ -375,43 +375,14 @@ function setupSectionCollapseBehavior() {
 }
 
 function loadData() {
-    // Auto-load counts for hero stats (light queries)
-    loadPendingOnDemand();
-    loadUsersOnDemand();
-    loadFeedbackCount();
-    // Also load pyqs count for analytics without full list
-    db.collection('pyqs').get().then(snap => {
-        allData.pyqs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        updateDashboardStats();
-        renderAdminAnalytics();
-    }).catch(()=>{});
-}
-function loadFeedbackCount() {
-    db.collection('feedback').get().then(snap => {
-        allData.feedback = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const el = document.getElementById('feedbackCount');
-        if (el) el.textContent = snap.size;
-        const hdr = document.getElementById('feedbackHeaderCount');
-        if (hdr) hdr.textContent = snap.size;
-        updateDashboardStats();
-    }).catch(() => {
-        const el = document.getElementById('feedbackCount');
-        if (el) el.textContent = '0';
+    // Lazy: no server calls on login — each section fetches only when expanded.
+    // This saves 50K reads + keeps admin snappy. Hero counts start at 0 and update as you open sections.
+    updateDashboardStats();
+    // Optional: show hint that counts are lazy
+    ['pyqsCount','pendingCount','usersCount','contributorsCount','feedbackCount'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.textContent === '0') el.title = 'Click a section below to load — 0 reads until you expand';
     });
-    // Real-time badge for new feedback (listen for changes)
-    try {
-        db.collection('feedback').where('status','==','new').onSnapshot(snap => {
-            const newCount = snap.size;
-            const hdr = document.getElementById('feedbackHeaderCount');
-            if (hdr) hdr.textContent = allData.feedback.length || snap.size;
-            // pulse effect if new items
-            const card = document.querySelector('#feedbackHeaderCount')?.closest('.section-chip');
-            if (card && newCount > 0) {
-                card.style.background = 'rgba(251, 146, 60, 0.22)';
-                card.style.borderColor = 'rgba(251, 146, 60, 0.35)';
-            }
-        });
-    } catch(e){}
 }
 
 function resetLazyLoadState() {
@@ -509,7 +480,6 @@ function escapeXml(unsafe) {
 function renderLists() {
     renderPyqs();
     renderUsers();
-    renderAdminAnalytics();
     updateDashboardStats();
 }
 
@@ -534,104 +504,6 @@ function updateDashboardStats() {
     const feedbackCountElement = document.getElementById('feedbackCount');
     if (feedbackCountElement) {
         feedbackCountElement.textContent = allData.feedback ? allData.feedback.length : '0';
-    }
-}
-
-function getPyqTimestampValue(pyq) {
-    const candidate = pyq && (pyq.createdAt || pyq.uploadedAt || pyq.addedAt);
-    if (!candidate) {
-        return 0;
-    }
-
-    if (typeof candidate.toDate === 'function') {
-        return candidate.toDate().getTime();
-    }
-
-    const parsed = Date.parse(candidate);
-    return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getCourseLabel(pyq) {
-    return String(pyq && (pyq.course || pyq.category || ''))
-        .trim()
-        .replace(/\s+/g, ' ');
-}
-
-function renderAdminAnalytics() {
-    const pyqs = Array.isArray(allData.pyqs) ? allData.pyqs : [];
-    const totalViews = pyqs.reduce((sum, item) => sum + (Number(item.views) || 0), 0);
-    const averageViews = pyqs.length ? (totalViews / pyqs.length) : 0;
-
-    const courseCounts = new Map();
-    pyqs.forEach(pyq => {
-        const courseLabel = getCourseLabel(pyq);
-        if (!courseLabel) {
-            return;
-        }
-
-        const current = courseCounts.get(courseLabel) || 0;
-        courseCounts.set(courseLabel, current + 1);
-    });
-
-    const topCourseEntry = Array.from(courseCounts.entries()).sort((a, b) => b[1] - a[1])[0];
-    const newestPyq = [...pyqs].sort((a, b) => getPyqTimestampValue(b) - getPyqTimestampValue(a))[0];
-    const topViewedPyqs = [...pyqs]
-        .sort((a, b) => {
-            const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
-            if (viewDiff !== 0) {
-                return viewDiff;
-            }
-
-            return getPyqTimestampValue(b) - getPyqTimestampValue(a);
-        })
-        .slice(0, 5);
-
-    const uploadCountsList = document.getElementById('adminUploadCountsList');
-    const topPapersList = document.getElementById('adminTopPapersList');
-
-    const setText = (id, value) => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.textContent = value;
-        }
-    };
-
-    setText('adminTotalViews', totalViews.toLocaleString());
-    setText('adminAverageViews', pyqs.length ? averageViews.toFixed(1) : '0');
-    setText('adminTopCourse', topCourseEntry ? topCourseEntry[0] : '-');
-    setText('adminNewestPyq', newestPyq ? newestPyq.title : '-');
-
-    if (topPapersList) {
-        topPapersList.innerHTML = topViewedPyqs.length ? topViewedPyqs.map(pyq => `
-            <article class="resource-card">
-                <div class="resource-top">
-                    <div>
-                        <div class="resource-kicker">${escapeHtml(String(Number(pyq.views) || 0))} views</div>
-                        <h5 class="resource-title">${escapeHtml(pyq.title || 'Untitled')}</h5>
-                        <div class="resource-meta">
-                            ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
-                            ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} sem</span>` : ''}
-                        </div>
-                    </div>
-                </div>
-            </article>
-        `).join('') : '<div class="resource-empty">No PYQ views yet.</div>';
-    }
-
-    if (uploadCountsList) {
-        const courseEntries = Array.from(courseCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        uploadCountsList.innerHTML = courseEntries.length ? courseEntries.map(([course, count]) => `
-            <article class="resource-card">
-                <div class="resource-top">
-                    <div>
-                        <h5 class="resource-title">${escapeHtml(course)}</h5>
-                        <div class="resource-meta">
-                            <span class="resource-pill">${count} upload${count === 1 ? '' : 's'}</span>
-                        </div>
-                    </div>
-                </div>
-            </article>
-        `).join('') : '<div class="resource-empty">No course uploads yet.</div>';
     }
 }
 
@@ -1464,9 +1336,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Error adding contributor: ' + error.message);
             });
         });
-        
-        // Load contributors on page init
-        loadContributors();
     }
 
 });

@@ -738,6 +738,7 @@
                                 <i class="fas fa-right-from-bracket me-2"></i> Logout
                             </button>
                         </div>
+                        <p style="margin-top: 1rem; color: rgba(255,255,255,0.72); font-size: 0.85rem;"><i class="fas fa-bolt me-1"></i> Lazy-loaded admin — <strong>0 reads on login</strong>. Expand any card to fetch — counts update live. Analytics removed to save quota.</p>
                     </div>
                     <!-- <div class="col-lg-4 hero-panel">
                         <div class="hero-panel-item">
@@ -786,53 +787,7 @@
                 </div>
             </div>
 
-            <div class="card section-card mb-4">
-                <div class="card-header">
-                    <div class="section-header-button mb-0">
-                        <span>
-                            <span class="section-chip"><i class="fas fa-chart-pie"></i> Analytics</span>
-                            <span class="d-block mt-2">Views, trending papers, and upload distribution</span>
-                        </span>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div class="stats-grid mb-4">
-                        <div class="stat-card">
-                            <small>Total views</small>
-                            <strong id="adminTotalViews">0</strong>
-                            <p>Combined view count across all PYQs.</p>
-                        </div>
-                        <div class="stat-card">
-                            <small>Average views</small>
-                            <strong id="adminAverageViews">0</strong>
-                            <p>Average views per PYQ.</p>
-                        </div>
-                        <div class="stat-card">
-                            <small>Top course</small>
-                            <strong id="adminTopCourse">-</strong>
-                            <p>Course with the most uploads.</p>
-                        </div>
-                        <div class="stat-card">
-                            <small>Newest PYQ</small>
-                            <strong id="adminNewestPyq">-</strong>
-                            <p>Latest document added to the archive.</p>
-                        </div>
-                    </div>
-
-                    <div class="row g-4">
-                        <div class="col-lg-7">
-                            <h6 class="mb-3">Top viewed papers</h6>
-                            <div id="adminTopPapersList" class="resource-list"></div>
-                        </div>
-                        <div class="col-lg-5">
-                            <h6 class="mb-3">Uploads by course</h6>
-                            <div id="adminUploadCountsList" class="resource-list"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="dashboard-grid">
+                        <div class="dashboard-grid">
                 <div class="card section-card">
                     <div class="card-header">
                         <div class="section-header-button mb-0">
