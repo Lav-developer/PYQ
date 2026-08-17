@@ -44,7 +44,6 @@
 - � **User Authentication** - Secure sign-up and login with email/password and Google.
 - 👤 **User Profiles** - Manage your name, course, and phone number.
 - 📚 **Browse PYQs** - Search, filter, and download academic materials.
--  **Bookmarks** - Save your favorite papers for quick access
 - 🔍 **Smart Search** - Find papers by course, year, and semester
 - 📖 **PDF Viewer** - Preview papers inline
 - 📤 **Share Documents** - Easy sharing via social media & links
@@ -136,7 +135,6 @@ npx serve .
   - Fields: `type`, `title`, `details`, `status`, `createdAt`.
 
 ### **Local Storage Keys**
-- `dsmnruBookmarks`: Saved paper URLs.
 - `dsmnruStudyPlanner`: Study schedule tasks.
 - `dsmnruAttendance`: Attendance records for subjects.
 - `dsmnruCgpaLast`: Last CGPA calculation result.
@@ -399,7 +397,6 @@ The heroes who made this archive possible! See homepage "Contributors" section. 
 
 **For Students:**
 - Use the SGPA calculator to track your academic performance.
-- Bookmark important papers for quick access before exams.
 - Use the study planner to organize your preparation schedule.
 - Contribute high-quality notes and papers to help the community.
 - Share useful resources with classmates using the share feature.
