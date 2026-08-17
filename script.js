@@ -22,6 +22,74 @@ db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
     }
 });
 
+// ===== CLIENT CACHE FOR PYQS — Save 50K reads/day =====
+// Strategy: sessionStorage = instant reuse (0 reads on refresh/search within session)
+//           localStorage + TTL = cross-tab reuse for 15 mins
+//           Firestore persistence (enabled above) = offline cache fallback
+// Result: 1 server read per device per 15 mins instead of 1 per search/refresh
+const PYQS_CACHE_KEY = 'dsmnru_pyqs_full_v1';
+const PYQS_CACHE_TIME_KEY = 'dsmnru_pyqs_full_time_v1';
+const PYQS_SESSION_KEY = 'dsmnru_pyqs_session_v1';
+const PYQS_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes (tune to 5-30 as needed)
+
+function getCachedPyqsFull() {
+    try {
+        // sessionStorage is fastest — no JSON parse if we can reuse same object reference in memory
+        const sessRaw = sessionStorage.getItem(PYQS_SESSION_KEY);
+        if (sessRaw) {
+            try { return JSON.parse(sessRaw); } catch(e){}
+        }
+        const raw = localStorage.getItem(PYQS_CACHE_KEY);
+        const timeRaw = localStorage.getItem(PYQS_CACHE_TIME_KEY);
+        if (!raw || !timeRaw) return null;
+        const age = Date.now() - parseInt(timeRaw, 10);
+        if (age > PYQS_CACHE_TTL_MS) {
+            // stale — treat as miss so we refetch, but keep old data as fallback if fetch fails
+            return null;
+        }
+        const data = JSON.parse(raw);
+        // populate session for next call
+        try { sessionStorage.setItem(PYQS_SESSION_KEY, raw); } catch(e){}
+        return data;
+    } catch (e) { return null; }
+}
+function setCachedPyqsFull(data) {
+    try {
+        const str = JSON.stringify(data);
+        localStorage.setItem(PYQS_CACHE_KEY, str);
+        localStorage.setItem(PYQS_CACHE_TIME_KEY, String(Date.now()));
+        sessionStorage.setItem(PYQS_SESSION_KEY, str);
+    } catch (e) { console.warn('pyqs cache save failed:', e.message); }
+}
+function getCachedPyqsStaleFallback() {
+    try {
+        const raw = localStorage.getItem(PYQS_CACHE_KEY);
+        if (!raw) return null;
+        return JSON.parse(raw);
+    } catch(e){ return null; }
+}
+function clearPyqsCache() {
+    try { localStorage.removeItem(PYQS_CACHE_KEY); localStorage.removeItem(PYQS_CACHE_TIME_KEY); sessionStorage.removeItem(PYQS_SESSION_KEY); } catch(e){}
+}
+// small helper: cached fetch for "all pyqs" — used by search when needed
+async function fetchAllPyqsCached({ forceRefresh = false } = {}) {
+    if (!forceRefresh) {
+        const cached = getCachedPyqsFull();
+        if (cached) return cached;
+    }
+    // no cache or stale — fetch from server once
+    const snap = await db.collection('pyqs').get({ source: 'server' });
+    const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const processed = items.map(item => {
+        const yearMatch = String(item.title || '').match(/\{(\d{4})/);
+        const year = yearMatch ? parseInt(yearMatch[1]) : 0;
+        const v = Number(item.views);
+        return { ...item, year, views: Number.isFinite(v) && v >=0 ? Math.floor(v) : 0 };
+    });
+    setCachedPyqsFull(processed);
+    return processed;
+}
+
 // Courses loaded from local courses.json (used to populate course selects)
 let coursesList = [];
 
@@ -183,15 +251,21 @@ auth.onAuthStateChanged(user => {
     updateUserUI();
     updateUploadAccessUI();
     updatePyqFilterUI();
+    // handle verification block overlay
+    if (!user) {
+        hideVerificationBlock();
+    } else if (requiresEmailVerification(user)) {
+        // will be confirmed after reload
+    }
     if (user) {
         // Check if email is verified
         user.reload()
             .then(async () => {
                 await ensureUserDocumentSynced(user);
                 if (requiresEmailVerification(user)) {
-                    // Show verification prompt modal
                     showEmailVerificationPrompt();
                 } else {
+                    hideVerificationBlock();
                     loadUserProfile();
                     checkAndShowProfileCompletionReminder();
                     const searchInput = document.getElementById('searchInput');
@@ -202,7 +276,10 @@ auth.onAuthStateChanged(user => {
             })
             .catch(error => {
                 console.error('Error syncing auth user with Firestore profile:', error);
+                if (user && requiresEmailVerification(user)) showEmailVerificationPrompt();
             });
+    } else {
+        hideVerificationBlock();
     }
 });
 
@@ -693,13 +770,70 @@ function deleteAccountConfirm() {
 }
 
 // ===== EMAIL VERIFICATION FUNCTIONS =====
+let _verificationBlockEl = null;
+function ensureVerificationBlock() {
+    if (_verificationBlockEl) return _verificationBlockEl;
+    _verificationBlockEl = document.createElement('div');
+    _verificationBlockEl.id = 'verificationBlockOverlay';
+    _verificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.92);backdrop-filter:blur(8px);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
+    _verificationBlockEl.innerHTML = `<div style="max-width:460px;width:100%;background:linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.88));border:1px solid rgba(110,231,216,0.22);border-radius:22px;padding:1.5rem 1.25rem;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.5);">
+        <div style="width:64px;height:64px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:1.6rem;"><i class="fas fa-envelope"></i></div>
+        <h5 style="color:#f8fafc;font-weight:800;margin:0 0 8px;">Verify your email to continue</h5>
+        <p style="color:rgba(203,213,225,0.78);font-size:13px;line-height:1.5;margin:0 0 14px;">We sent a link to <strong id="verificationBlockEmail" style="color:#f8fafc;"></strong>. You must verify before you can search, view papers or comment. Check spam too.</p>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+            <button class="btn btn-primary btn-sm" onclick="resendVerificationEmail()"><i class="fas fa-redo me-1"></i> Resend email</button>
+            <button class="btn btn-outline-light btn-sm" onclick="checkEmailVerification()"><i class="fas fa-check me-1"></i> I verified — Check</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="logoutAndChangeEmail()"><i class="fas fa-sign-out-alt me-1"></i> Use different email</button>
+        </div>
+        <small style="color:rgba(203,213,225,0.55);display:block;margin-top:10px;">No email? Click “Use different email” to delete this unverified account and sign up again.</small>
+    </div>`;
+    document.body.appendChild(_verificationBlockEl);
+    return _verificationBlockEl;
+}
 function showEmailVerificationPrompt() {
+    if (!currentUser) return;
+    const modalElement = document.getElementById('emailVerificationModal');
+    const blockEl = ensureVerificationBlock();
+    const emailEl = document.getElementById('verificationEmail');
+    const blockEmailEl = document.getElementById('verificationBlockEmail');
+    if (emailEl) emailEl.textContent = currentUser.email;
+    if (blockEmailEl) blockEmailEl.textContent = currentUser.email;
+    // Show blocking overlay (covers entire page, cannot be bypassed by closing modal)
+    if (blockEl) blockEl.style.display = 'flex';
+    // Also show the Bootstrap modal as static (cannot be dismissed)
+    if (modalElement) {
+        const modal = bootstrap.Modal.getOrCreateInstance(modalElement, {backdrop: 'static', keyboard: false});
+        modal.show();
+        // If user somehow hides the modal (console), re-show while still unverified
+        modalElement.addEventListener('hidden.bs.modal', function handler() {
+            if (currentUser && requiresEmailVerification(currentUser)) {
+                setTimeout(() => {
+                    const m = bootstrap.Modal.getOrCreateInstance(modalElement, {backdrop: 'static', keyboard: false});
+                    m.show();
+                }, 200);
+            } else {
+                modalElement.removeEventListener('hidden.bs.modal', handler);
+                if (blockEl) blockEl.style.display = 'none';
+            }
+        });
+    }
+}
+function hideVerificationBlock() {
+    ['verificationBlockOverlay','paperVerificationBlock'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el) el.style.display='none';
+    });
     const modalElement = document.getElementById('emailVerificationModal');
     if (modalElement) {
-        const modal = new bootstrap.Modal(modalElement);
-        document.getElementById('verificationEmail').textContent = currentUser.email;
-        modal.show();
+        try { bootstrap.Modal.getInstance(modalElement)?.hide(); } catch(e){}
     }
+}
+function isVerifiedOrPrompt() {
+    if (currentUser && requiresEmailVerification(currentUser)) {
+        showEmailVerificationPrompt();
+        return false;
+    }
+    return true;
 }
 
 async function logoutAndChangeEmail() {
@@ -789,6 +923,7 @@ async function checkEmailVerification() {
                 emailVerified: true
             }, { merge: true });
             
+            hideVerificationBlock();
             const modal = bootstrap.Modal.getInstance(document.getElementById('emailVerificationModal'));
             if (modal) modal.hide();
             
@@ -799,6 +934,8 @@ async function checkEmailVerification() {
             });
             
             updateUploadAccessUI();
+            // also reload profile and allow actions
+            try { await ensureUserDocumentSynced(currentUser); loadUserProfile(); } catch(e){}
         } else {
             Swal.fire({
                 title: 'Email Not Verified Yet',
@@ -1140,6 +1277,8 @@ function setupUserUploadHandler() {
 
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
+        if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+        if (!currentUser) { openLoginModal(); return; }
 
         const uploadName = document.getElementById('uploadName').value.trim();
         const title = document.getElementById('uploadTitle').value;
@@ -1287,17 +1426,77 @@ function setupUserUploadHandler() {
     });
 }
 
-// Update UI for PYQ filters based on auth state
+// Update UI for PYQ filters — PYQ-only P0: search & filters are free for everyone
 function updatePyqFilterUI() {
     const panel = document.getElementById('pyqFilterPanel');
     if (!panel) return;
-
-    // Keep filter panel visible at all times. Show a small hint for unauthenticated users.
     panel.style.display = 'block';
     const hint = document.getElementById('filterHint');
     if (hint) {
-        hint.style.display = currentUser ? 'none' : 'inline';
+        // Keep a friendly hint but never gate — just show count info
+        hint.style.display = 'inline';
     }
+    const badge = document.getElementById('pyqCountBadge');
+    if (badge) {
+        const total = (typeof filteredPyqs !== 'undefined' && filteredPyqs.length) ? filteredPyqs.length : (typeof allData !== 'undefined' && allData.pyqs ? allData.pyqs.length : 0);
+        badge.textContent = total ? `${total} papers` : `${coursesList.length ? coursesList.length+' courses' : 'All PYQs free'}`;
+    }
+    updatePyqResultsBar();
+}
+
+function getSortValue() {
+    const sel = document.getElementById('sortBy');
+    return sel ? sel.value : 'newest';
+}
+
+function applyPyqSorting(list) {
+    const sort = getSortValue();
+    const arr = [...list];
+    if (sort === 'popular') {
+        return arr.sort((a,b) => (Number(b.views)||0) - (Number(a.views)||0) || getRecentSortValue(b) - getRecentSortValue(a));
+    }
+    if (sort === 'az') {
+        return arr.sort((a,b) => String(a.title||'').localeCompare(String(b.title||'')));
+    }
+    if (sort === 'za') {
+        return arr.sort((a,b) => String(b.title||'').localeCompare(String(a.title||'')));
+    }
+    if (sort === 'oldest') {
+        return arr.sort((a,b) => getRecentSortValue(a) - getRecentSortValue(b));
+    }
+    // newest (default)
+    return arr.sort((a,b) => getRecentSortValue(b) - getRecentSortValue(a));
+}
+
+function updatePyqResultsBar() {
+    const bar = document.getElementById('pyqResultsBar');
+    const countEl = document.getElementById('pyqResultsCount');
+    const chipsEl = document.getElementById('activeFilterChips');
+    if (!bar || !countEl || !chipsEl) return;
+    const hasFilters = typeof hasActivePyqFilters === 'function' ? hasActivePyqFilters() : false;
+    const searchTerm = (document.getElementById('searchInput') && document.getElementById('searchInput').value.trim()) || '';
+    const total = (typeof filteredPyqs !== 'undefined') ? filteredPyqs.length : 0;
+    if (!hasFilters && !searchTerm) {
+        bar.style.display = 'none';
+        return;
+    }
+    bar.style.display = 'block';
+    countEl.textContent = total;
+    // build chips
+    const chips = [];
+    if (searchTerm) chips.push(`<span class="filter-chip"><i class="fas fa-search"></i> “${escapeHtml(searchTerm)}”</span>`);
+    try {
+        const f = getPyqFilterState();
+        if (f.course) {
+            const label = document.getElementById('filterCourse')?.selectedOptions[0]?.textContent?.trim() || f.course;
+            chips.push(`<span class="filter-chip"><i class="fas fa-graduation-cap"></i> ${escapeHtml(label)}</span>`);
+        }
+        if (f.year) chips.push(`<span class="filter-chip"><i class="fas fa-layer-group"></i> ${escapeHtml(f.year)}</span>`);
+        if (f.session) chips.push(`<span class="filter-chip"><i class="fas fa-calendar"></i> ${escapeHtml(f.session)}</span>`);
+        const sortLabel = document.getElementById('sortBy')?.selectedOptions[0]?.textContent?.trim();
+        if (sortLabel) chips.push(`<span class="filter-chip sort-chip"><i class="fas fa-sort"></i> ${escapeHtml(sortLabel)}</span>`);
+    } catch(e){}
+    chipsEl.innerHTML = chips.join('') || '<span class="text-muted small">No filters</span>';
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -1448,14 +1647,19 @@ document.addEventListener('DOMContentLoaded', function() {
         const course = document.getElementById('filterCourse');
         const year = document.getElementById('filterYear');
         const session = document.getElementById('filterSession');
+        const searchInput = document.getElementById('searchInput');
+        const sortSel = document.getElementById('sortBy');
 
         if (course) course.value = '';
         if (year) year.value = '';
         if (session) session.value = '';
+        if (searchInput) searchInput.value = '';
+        if (sortSel) sortSel.value = 'newest';
 
         if (resetResults && allData.pyqs.length) {
-            filteredPyqs = [...allData.pyqs];
+            filteredPyqs = applyPyqSorting([...allData.pyqs]);
             currentPage = 1;
+            updatePyqResultsBar();
             renderPYQs();
         }
     }
@@ -1525,6 +1729,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
         try {
             await loadCollectionPage('pyqs');
+            // Apply current sort (P0)
+            try { filteredPyqs = applyPyqSorting([...filteredPyqs]); } catch(e){}
             loadHomepageSections();
 
             // Populate filter options based on loaded PYQs
@@ -1747,7 +1953,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div class="mini-pyq-actions">
                         <span class="mini-pyq-views"><i class="fas fa-eye"></i> ${views}</span>
-                        ${targetFile ? `<button type="button" class="btn btn-sm btn-outline-info" onclick="openPyqDocument('${safeId}', '${escapeJsString(targetFile)}', '${safeTitle}')">Open</button>` : ''}
+                        <a href="paper.html?id=${encodeURIComponent(item.id)}" class="btn btn-sm btn-outline-info"><i class="fas fa-eye me-1"></i> View Details</a>
                     </div>
                 </article>
             `;
@@ -1783,36 +1989,78 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            const [courseNames, snapshot] = await Promise.all([
-                fetchCourseCatalog(),
-                db.collection('pyqs').get({ source: 'server' })
-            ]);
+            const courseNames = await fetchCourseCatalog();
 
-            const allPyqs = snapshot.docs.map(doc => normalizePyqMetadata({ id: doc.id, ...doc.data() }));
+            // Try cache first — 0 reads if hit (saves 50K quota)
+            let allPyqs = getCachedPyqsFull();
+            let usedCache = !!allPyqs;
+            if (!allPyqs) {
+                // No cache: fetch minimal needed for homepage (12 reads) instead of N reads
+                // Trending = top 6 by views, Recent = top 6 by createdAt/session
+                // Do these 2 small queries for instant UI, then lazy-fetch full in background for search
+                const [recentSnap, trendingSnap] = await Promise.all([
+                    db.collection('pyqs').orderBy('createdAt', 'desc').limit(6).get({ source: 'server' }).catch(async () => {
+                        // fallback if createdAt missing/index: use title order
+                        return db.collection('pyqs').limit(6).get({ source: 'server' });
+                    }),
+                    db.collection('pyqs').orderBy('views', 'desc').limit(6).get({ source: 'server' }).catch(async () => {
+                        return db.collection('pyqs').limit(6).get({ source: 'server' });
+                    })
+                ]);
+                const recentItemsRaw = recentSnap.docs.map(doc => normalizePyqMetadata({ id: doc.id, ...doc.data() }));
+                const trendingItemsRaw = trendingSnap.docs.map(doc => normalizePyqMetadata({ id: doc.id, ...doc.data() }));
+                // For course cards, we need at least some data — use union of those 12 + paginated first page if available
+                const unionForCounts = [...recentItemsRaw, ...trendingItemsRaw, ...(typeof allData !== 'undefined' && allData.pyqs ? allData.pyqs : [])];
+                // Deduplicate by id for counts
+                const seen = new Map();
+                unionForCounts.forEach(p => { if (!seen.has(p.id)) seen.set(p.id, p); });
+                const unionList = Array.from(seen.values());
 
+                if (courseCardsContainer) {
+                    renderCourseCards(courseNames, unionList);
+                }
+                if (recentContainer) {
+                    // recent already sorted by createdAt query; just render
+                    renderCompactPyqList('recentlyAddedList', recentItemsRaw.slice(0,6), 'No recently added question papers yet.');
+                }
+                if (trendingContainer) {
+                    renderCompactPyqList('trendingList', trendingItemsRaw.slice(0,6), 'No trending papers yet.');
+                }
+                // Lazy full fetch in background for search/filter — only for signed-in users (saves quota + forces signup)
+                if (currentUser) {
+                    fetchAllPyqsCached().then(full => {
+                        if (courseCardsContainer) {
+                            try { renderCourseCards(courseNames, full); } catch(e){}
+                        }
+                    }).catch(()=>{});
+                }
+                return; // early return — homepage done with 12 reads
+            }
+
+            // Cache hit: zero reads for homepage sections
             if (courseCardsContainer) {
                 renderCourseCards(courseNames, allPyqs);
             }
-
             if (recentContainer) {
                 const recentItems = [...allPyqs]
                     .sort((a, b) => getRecentSortValue(b) - getRecentSortValue(a))
                     .slice(0, 6);
                 renderCompactPyqList('recentlyAddedList', recentItems, 'No recently added question papers yet.');
             }
-
             if (trendingContainer) {
                 const trendingItems = [...allPyqs]
                     .sort((a, b) => {
                         const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
-                        if (viewDiff !== 0) {
-                            return viewDiff;
-                        }
-
+                        if (viewDiff !== 0) return viewDiff;
                         return getRecentSortValue(b) - getRecentSortValue(a);
                     })
                     .slice(0, 6);
                 renderCompactPyqList('trendingList', trendingItems, 'No trending papers yet.');
+            }
+            // Optional: refresh cache in background after 2s if older than 5 mins (keep fresh without paying on every load)
+            const timeRaw = parseInt(localStorage.getItem(PYQS_CACHE_TIME_KEY) || '0', 10);
+            if (Date.now() - timeRaw > 5 * 60 * 1000) {
+                setTimeout(() => fetchAllPyqsCached({ forceRefresh: true }).catch(()=>{}), 2000);
             }
         } catch (error) {
             console.error('Unable to load homepage sections:', error);
@@ -1839,11 +2087,11 @@ document.addEventListener('DOMContentLoaded', function() {
             pyqTab.click();
         }
 
-        if (currentUser) {
-            performSearch();
-        } else {
-            openSearchGateModal();
-        }
+        // PYQ-only: no login gate
+        performSearch();
+        // smooth scroll to papers
+        const section = document.getElementById('pyqs-section');
+        if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
     // Load contributors only on pages that render the contributors grid.
@@ -1862,6 +2110,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 showEmptyState('pyqList', 'No question papers found matching your criteria');
             }
             document.getElementById('loadMoreBtn').style.display = 'none';
+            updatePyqFilterUI();
             return;
         }
 
@@ -1876,6 +2125,17 @@ document.addEventListener('DOMContentLoaded', function() {
             const safeTitle = escapeJsString(pyq.title || 'Document');
             const safeId = escapeJsString(pyq.id || '');
             const viewCount = Number.isFinite(Number(pyq.views)) ? Number(pyq.views) : 0;
+            // Build pills from course/sem/session/branch
+            const pills = [];
+            if (pyq.course) pills.push(`<span class="meta-tag course"><i class="fas fa-graduation-cap"></i> ${escapeHtml(pyq.course)}</span>`);
+            if (pyq.semester) pills.push(`<span class="meta-tag semester"><i class="fas fa-layer-group"></i> ${escapeHtml(pyq.semester)}</span>`);
+            if (pyq.session) pills.push(`<span class="meta-tag"><i class="fas fa-calendar"></i> ${escapeHtml(pyq.session)}</span>`);
+            if (pyq.branch) pills.push(`<span class="meta-tag"><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>`);
+            if (!pills.length && pyq.title) {
+                // fallback: try to extract from title
+                const sem = getPyqSemesterValue(pyq);
+                if (sem) pills.push(`<span class="meta-tag semester">${escapeHtml(sem)}</span>`);
+            }
 
             return `
             <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
@@ -1884,21 +2144,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         <i class="fas fa-file-pdf"></i>
                     </div>
                     <div class="pyq-details">
-                        <h5 class="pyq-title">${pyq.title}</h5>
-                        <div class="pyq-meta"><i class="fas fa-eye"></i> ${viewCount} views</div>
+                        <h5 class="pyq-title"><a href="paper.html?id=${encodeURIComponent(pyq.id)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h5>
+                        <div class="syllabus-meta" style="margin-bottom:8px;">${pills.join('')}</div>
+                        <div class="pyq-meta" style="margin-bottom:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:13px; color: var(--color-text-secondary);">
+                            <span><i class="fas fa-eye"></i> ${viewCount} views</span>
+                            ${pyq.branch ? `<span><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>` : ''}
+                        </div>
                         <div class="pyq-actions">
-                            ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(primaryFile)}', '${safeTitle}')">
-                                <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
-                            </button>` : ''}
-                            ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(secondaryFile)}', '${safeTitle}')">
-                                <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
-                            </button>` : ''}
-                            ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
-                                <i class="fas fa-share-alt"></i> Share
-                            </button>
-                            <button class="btn btn-action btn-bookmark ${isBookmarked('pyqs', shareTarget) ? 'bookmarked' : ''}" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')">
-                                <i class="fas fa-bookmark"></i> ${isBookmarked('pyqs', shareTarget) ? 'Bookmarked' : 'Bookmark'}
-                            </button>` : ''}
+                            <a href="paper.html?id=${encodeURIComponent(pyq.id)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
                         </div>
                     </div>
                 </div>
@@ -1915,9 +2168,12 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             loadMoreBtn.style.display = 'none';
         }
+        updatePyqFilterUI();
     }
 
     function renderBookmarks(searchTerm = '') {
+        const _blist = document.getElementById('bookmarksList');
+        if (!_blist) return;
         const startIndex = (currentPageBookmarks - 1) * itemsPerPageBookmarks;
         const endIndex = startIndex + itemsPerPageBookmarks;
 
@@ -1975,18 +2231,8 @@ document.addEventListener('DOMContentLoaded', function() {
                                 <h5 class="pyq-title">${item.title}</h5>
                                 <div class="pyq-meta"><i class="fas fa-eye"></i> ${viewCount} views</div>
                                 <div class="pyq-actions">
-                                    ${primaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(primaryFile)}', '${safeTitle}')">
-                                        <i class="${getPreviewButtonMeta(primaryFile).icon}"></i> Open PDF
-                                    </button>` : ''}
-                                    ${secondaryFile ? `<button class="btn btn-action btn-preview" onclick="openPyqDocument('${safeId}', '${escapeJsString(secondaryFile)}', '${safeTitle}')">
-                                        <i class="${getPreviewButtonMeta(secondaryFile).icon}"></i> Backup Link
-                                    </button>` : ''}
-                                    ${shareTarget ? `<button class="btn btn-action btn-share" onclick="shareDocument('${escapeJsString(shareTarget)}', '${safeTitle}')">
-                                        <i class="fas fa-share-alt"></i> Share
-                                    </button>
-                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')">
-                                        <i class="fas fa-bookmark"></i> Bookmarked
-                                    </button>` : ''}
+                                    <a href="paper.html?id=${encodeURIComponent(item.id)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
+                                    <button class="btn btn-action btn-bookmark bookmarked" onclick="toggleBookmark('pyqs', '${escapeJsString(shareTarget)}')"><i class="fas fa-bookmark"></i> Saved</button>
                                 </div>
                             </div>
                         </div>
@@ -2034,10 +2280,19 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function showEmptyState(containerId, message) {
+        const isPyqList = containerId === 'pyqList';
         document.getElementById(containerId).innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-search"></i>
                 <p>${message}</p>
+                ${isPyqList ? `
+                <div class="d-flex flex-wrap gap-2 justify-content-center mt-3">
+                    <button class="btn btn-primary btn-sm" onclick="openRequestPyqModal()"><i class="fas fa-plus me-1"></i> Request this PYQ</button>
+                    <button class="btn btn-outline-light btn-sm" onclick="clearPyqFilters()"><i class="fas fa-undo me-1"></i> Clear filters</button>
+                    <button class="btn btn-outline-light btn-sm" onclick="document.getElementById('searchInput').value=''; performSearch();"><i class="fas fa-broom me-1"></i> Clear search</button>
+                </div>
+                <p class="small text-muted mt-2" style="opacity:0.7;">Can't find it? Request it and contributors will try to upload.</p>
+                ` : ''}
             </div>
         `;
     }
@@ -2055,6 +2310,8 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     function toggleBookmark(type, filePath) {
+        if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+        if (!currentUser) { openSearchGateModal(); return; }
         const index = bookmarks[type].indexOf(filePath);
         if (index > -1) {
             bookmarks[type].splice(index, 1);
@@ -2113,23 +2370,40 @@ document.addEventListener('DOMContentLoaded', function() {
         const filterCourse = document.getElementById('filterCourse');
         const filterYear = document.getElementById('filterYear');
         const filterSession = document.getElementById('filterSession');
+        const sortBy = document.getElementById('sortBy');
+        // PYQ-only P0: filters & sort are free for everyone — no gating
         const triggerFilterSearch = () => {
-            if (currentUser) {
-                performSearch();
-            } else {
-                // Show the same gated signup/search modal as the search box
-                openSearchGateModal();
-            }
+            performSearch();
         };
 
         if (filterCourse) filterCourse.addEventListener('change', triggerFilterSearch);
         if (filterYear) filterYear.addEventListener('change', triggerFilterSearch);
         if (filterSession) filterSession.addEventListener('change', triggerFilterSearch);
+        if (sortBy) sortBy.addEventListener('change', function(){
+            // re-apply sorting instantly without server fetch if no search/filters
+            const searchTerm = document.getElementById('searchInput').value.trim();
+            const filtersActive = hasActivePyqFilters();
+            if (!searchTerm && !filtersActive && filteredPyqs.length) {
+                filteredPyqs = applyPyqSorting(filteredPyqs);
+                currentPage = 1;
+                renderPYQs();
+            } else {
+                performSearch();
+            }
+        });
 
 
 
-        // Load More button for PYQs
+        // Load More button for PYQs — gated: beyond first page requires login + verified
         document.getElementById('loadMoreBtn').addEventListener('click', async function() {
+            if (!currentUser) {
+                openSearchGateModal();
+                return;
+            }
+            if (requiresEmailVerification(currentUser)) {
+                showEmailVerificationPrompt();
+                return;
+            }
             if (pyqHasMore && !document.getElementById('searchInput').value.trim() && !hasActivePyqFilters()) {
                 await loadCollectionPage('pyqs', true);
             }
@@ -2137,14 +2411,17 @@ document.addEventListener('DOMContentLoaded', function() {
             renderPYQs();
         });
 
-        // Load More button for Bookmarks
-        document.getElementById('loadMoreBookmarksBtn').addEventListener('click', function() {
-            currentPageBookmarks++;
-            renderBookmarks();
-        });
+        // Load More button for Bookmarks — guarded (removed from homepage)
+        const _loadMoreBookmarksBtn = document.getElementById('loadMoreBookmarksBtn');
+        if (_loadMoreBookmarksBtn) {
+            _loadMoreBookmarksBtn.addEventListener('click', function() {
+                currentPageBookmarks++;
+                renderBookmarks();
+            });
+        }
 
         // Copy link button
-        copyLinkBtn.addEventListener('click', function() {
+        if (copyLinkBtn) copyLinkBtn.addEventListener('click', function() {
             shareLink.select();
             document.execCommand('copy');
 
@@ -2155,55 +2432,90 @@ document.addEventListener('DOMContentLoaded', function() {
             }, 2000);
         });
 
-        // Tab switching
-        document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
-            tab.addEventListener('shown.bs.tab', function(event) {
-                const targetTab = event.target.getAttribute('data-bs-target');
-                // Clear search when switching tabs
-                document.getElementById('searchInput').value = '';
-                performSearch();
-                // Render bookmarks when bookmarks tab is shown
-                if (targetTab === '#nav-bookmarks') {
-                    currentPageBookmarks = 1;
-                    renderBookmarks();
-                }
+        // Tab switching — guarded (bookmarks tab removed from homepage)
+        const _tabs = document.querySelectorAll('[data-bs-toggle="tab"]');
+        if (_tabs && _tabs.length) {
+            _tabs.forEach(tab => {
+                tab.addEventListener('shown.bs.tab', function(event) {
+                    const targetTab = event.target.getAttribute('data-bs-target');
+                    const _searchInput = document.getElementById('searchInput');
+                    if (_searchInput) _searchInput.value = '';
+                    if (typeof performSearch === 'function') try { performSearch(); } catch(e){}
+                    if (targetTab === '#nav-bookmarks') {
+                        currentPageBookmarks = 1;
+                        try { renderBookmarks(); } catch(e){}
+                    }
+                });
             });
-        });
+        }
     }
 
-    // Search function — now queries Firestore server when a search term is entered
+    // Search function — gated: free browse of first 20, but search/filters require login (saves 50K reads + drives signups)
     window.performSearch = async function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
         const filters = getPyqFilterState();
         const filtersActive = hasActivePyqFilters();
 
-        // Only gate search for unauthenticated visitors.
+        // 🔒 GATE: search & filters require login — prevents anon full-collection reads
         if ((searchTerm || filtersActive) && !currentUser) {
             openSearchGateModal();
             return;
         }
+        // 🔒 Email verification gate — unverified cannot search
+        if (currentUser && requiresEmailVerification(currentUser)) {
+            showEmailVerificationPrompt();
+            return;
+        }
 
-        const activeTab = document.querySelector('.nav-link.active').getAttribute('data-bs-target');
+        const activeTabEl = document.querySelector('.nav-link.active');
+        const activeTab = activeTabEl ? activeTabEl.getAttribute('data-bs-target') : '#nav-pyq';
 
-        // Helper: perform a server read of the collection then filter client-side.
+        // Helper: ZERO-READ search if cache hit — else 1 server read then cache for 15 mins
         async function fetchAndFilterCollection(collectionName, filterFn) {
+            if (collectionName !== 'pyqs') {
+                try {
+                    showLoading('pyqList');
+                    const snap = await db.collection(collectionName).get({ source: 'server' });
+                    const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    const processed = processAndSortItems(items);
+                    return processed.filter(filterFn);
+                } catch (err) {
+                    console.error('Search error fetching from server:', err);
+                    return [];
+                }
+            }
             try {
                 showLoading('pyqList');
+                // 1️⃣ Try session/local cache first — 0 reads
+                let cached = getCachedPyqsFull();
+                if (cached && Array.isArray(cached) && cached.length) {
+                    return cached.filter(filterFn);
+                }
+                // 2️⃣ Check stale fallback while we refetch
+                const stale = getCachedPyqsStaleFallback();
+                // 3️⃣ Fetch once from server and cache for next searches
                 const snap = await db.collection(collectionName).get({ source: 'server' });
                 const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 const processed = processAndSortItems(items);
+                setCachedPyqsFull(processed);
                 return processed.filter(filterFn);
             } catch (err) {
                 console.error('Search error fetching from server:', err);
+                // fallback to stale cache if server fails (offline)
+                const stale = getCachedPyqsStaleFallback();
+                if (stale) {
+                    try { return stale.filter(filterFn); } catch(e){}
+                }
                 return [];
             }
         }
 
         if (activeTab === '#nav-pyq') {
             if (!searchTerm && !filtersActive) {
-                // Empty search — show cached/paginated data
-                filteredPyqs = [...allData.pyqs];
+                // Empty search — show cached/paginated data with current sort
+                filteredPyqs = applyPyqSorting([...allData.pyqs]);
                 currentPage = 1;
+                updatePyqResultsBar();
                 renderPYQs();
                 return;
             }
@@ -2226,8 +2538,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
                 return matchesSearch && matchesCourse && matchesYear && matchesSession;
             });
-            filteredPyqs = results;
+            filteredPyqs = applyPyqSorting(results);
             currentPage = 1;
+            updatePyqResultsBar();
             renderPYQs();
         } else if (activeTab === '#nav-bookmarks') {
             // Bookmarks: filter current bookmarked items (they are sourced from allData)
@@ -2290,8 +2603,30 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     window.openPyqDocument = function(pyqId, filePath, title) {
+        if (!currentUser) {
+            openSearchGateModal();
+            return;
+        }
+        if (requiresEmailVerification(currentUser)) {
+            showEmailVerificationPrompt();
+            return;
+        }
         incrementPyqViews(pyqId);
-        previewPDF(filePath, title);
+        // call original preview without re-gating (avoid double check)
+        _origPreviewPDF(filePath, title);
+    };
+    // also gate direct preview wrapper for related cards
+    const _origPreviewPDF = window.previewPDF;
+    window.previewPDF = function(filePath, title) {
+        if (!currentUser) {
+            openSearchGateModal();
+            return;
+        }
+        if (requiresEmailVerification(currentUser)) {
+            showEmailVerificationPrompt();
+            return;
+        }
+        return _origPreviewPDF(filePath, title);
     };
 
     // Share function
@@ -3093,6 +3428,8 @@ function toggleChatWidget() {
 
 // Function to open Report Broken Link modal
 window.openReportBrokenLinkModal = function(title = '', course = '') {
+    if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+    if (!currentUser) { openLoginModal(); return; }
     const modal = new bootstrap.Modal(document.getElementById('reportBrokenLinkModal'));
     if (title) document.getElementById('reportTitle').value = title;
     if (course) document.getElementById('reportCourse').value = course;
@@ -3101,6 +3438,8 @@ window.openReportBrokenLinkModal = function(title = '', course = '') {
 
 // Function to open Request PYQ modal
 window.openRequestPyqModal = function() {
+    if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
+    if (!currentUser) { openLoginModal(); return; }
     const modal = new bootstrap.Modal(document.getElementById('requestPyqModal'));
     modal.show();
 };

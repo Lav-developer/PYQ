@@ -12,19 +12,11 @@
     <meta name="revisit-after" content="7 days">
     <meta name="distribution" content="global">
     <meta name="rating" content="general">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="img/Logo.png" type="image/png">
     <link rel="shortcut icon" href="img/Logo.png" type="image/png">
-    <!-- Apple touch icons removed (not present in repo) -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
-
-    
-    
-    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Custom CSS -->
     <link rel="stylesheet" href="styles.css">
     <link rel="canonical" href="https://dsmnru-pyq.netlify.app/">
     <link rel="alternate" href="https://dsmnru-pyq.netlify.app/" hreflang="en">
@@ -38,9 +30,6 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
-
-
-    <!-- SEO and Social Media Tags -->
     <meta property="og:title" content="DSMNRU PYQ Archive - Previous Year Question Papers">
     <meta property="og:description" content="Browse and download DSMNRU previous year question papers for B.Tech, B.Sc, B.A., B.Com, and more. Free academic resources for DSMNRU students.">
     <meta property="og:type" content="website">
@@ -54,7 +43,6 @@
     <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/Logo.png">
     <meta name="twitter:site" content="@dsmnru_updates">
     <meta name="twitter:creator" content="@dsmnru_updates">
-        <!-- Structured data for better search appearance -->
         <script type="application/ld+json">
         {
             "@context": "https://schema.org",
@@ -74,9 +62,6 @@
             "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive"}
         }
         </script>
-
-
-
 </head>
 <body>
     <!-- Header Section -->
@@ -85,14 +70,12 @@
             <div class="header-content">
                 <div class="header-top">
                     <h1><i class="fas fa-graduation-cap"></i> DSMNRU Archive</h1>
-                    <!-- User Profile Button -->
                     <div class="user-profile-section">
                         <button id="profileBtn" class="btn-user-profile" onclick="toggleProfileDropdown()">
                             <i class="fas fa-user-circle"></i>
                             <span id="userDisplayName">Login</span>
                             <i class="fas fa-chevron-down"></i>
                         </button>
-                        <!-- Profile Dropdown -->
                         <div id="profileDropdown" class="profile-dropdown" style="display: none;">
                             <div id="userLoggedOutMenu" style="display: none;">
                                 <button class="dropdown-item" onclick="openLoginModal()">
@@ -111,7 +94,6 @@
                                             <small id="userEmailDisplay"></small>
                                         </div>
                                     </div>
-
                                 </div>
                                 <hr class="dropdown-divider">
                                 <button class="dropdown-item" onclick="openProfileModal()">
@@ -128,9 +110,10 @@
                         </div>
                     </div>
                 </div>
-                <p class="subtitle">Your Gateway to Academic Excellence</p>
+                <p class="subtitle">Your Gateway to Academic Excellence — DSMNRU PYQs only</p>
 
                 <div class="page-nav" aria-label="Site sections">
+                    <a class="page-nav-link" href="bookmarks.html"><i class="fas fa-bookmark"></i> Bookmarks</a>
                     <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
                     <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
                     <a class="page-nav-link" href="links.html"><i class="fas fa-link"></i> Links</a>
@@ -138,8 +121,8 @@
                 <div class="homepage-search-panel">
                     <!-- Search Box -->
                     <div class="search-box">
-                        <input type="text" id="searchInput" placeholder="Search question papers..." aria-label="Search">
-                        <button type="button" onclick="performSearch()">
+                        <input type="text" id="searchInput" placeholder="Search by subject, course, session (e.g. B.Tech 3rd 2023)..." aria-label="Search">
+                        <button type="button" onclick="performSearch()" aria-label="Search">
                             <i class="fas fa-search"></i>
                         </button>
                     </div>
@@ -149,30 +132,20 @@
                             <div class="card-body p-3 p-md-4">
                                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                                     <div>
-                                        <h6 class="mb-1">Filter PYQs</h6>
-                                        <small id="filterHint" class="text-muted">Sign in to apply filters</small>
+                                        <h6 class="mb-1"><i class="fas fa-sliders-h me-1"></i> Filter PYQs</h6>
+                                        <small id="filterHint" class="text-muted"><span id="pyqCountBadge">0 papers</span> • Search and filters are free for everyone</small>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPyqFilters()">
-                                        Clear Filters
+                                        <i class="fas fa-undo me-1"></i> Clear
                                     </button>
                                 </div>
                                 <div class="row g-3">
-                                    <div class="col-md-4">
+                                    <div class="col-md-3 col-6">
                                         <label for="filterCourse" class="form-label">Course</label>
                                         <select id="filterCourse" class="form-select">
-                                            <!-- <option value="">All Courses</option>
-                                            <option value="b.a">B.A.</option>
-                                            <option value="b.com">B.Com.</option>
-                                            <option value="b.sc">B.Sc.</option>
-                                            <option value="b.tech">B.Tech</option>
-                                            <option value="m.a">M.A.</option>
-                                            <option value="m.com">M.Com.</option>
-                                            <option value="m.sc">M.Sc.</option>
-                                            <option value="m.tech">M.Tech</option>
-                                            <option value="other">Other</option> -->
                                         </select>
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3 col-6">
                                         <label for="filterYear" class="form-label">Semester</label>
                                         <select id="filterYear" class="form-select">
                                             <option value="">All Semesters</option>
@@ -186,7 +159,7 @@
                                             <option value="8th">8th Semester</option>
                                         </select>
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-3 col-6">
                                         <label for="filterSession" class="form-label">Session</label>
                                         <select id="filterSession" class="form-select">
                                             <option value="">All Sessions</option>
@@ -200,32 +173,34 @@
                                             <option value="2019-20">2019-20</option>
                                         </select>
                                     </div>
+                                    <div class="col-md-3 col-6">
+                                        <label for="sortBy" class="form-label">Sort by</label>
+                                        <select id="sortBy" class="form-select">
+                                            <option value="newest" selected>Newest first</option>
+                                            <option value="popular">Most viewed</option>
+                                            <option value="az">A → Z</option>
+                                            <option value="za">Z → A</option>
+                                            <option value="oldest">Oldest first</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <!-- Active filters + results bar -->
+                                <div id="pyqResultsBar" class="pyq-results-bar mt-3" style="display:none;">
+                                    <div class="d-flex flex-wrap align-items-center gap-2">
+                                        <span class="results-count"><i class="fas fa-file-alt me-1"></i> <span id="pyqResultsCount">0</span> papers found</span>
+                                        <div id="activeFilterChips" class="d-flex flex-wrap gap-2"></div>
+                                    </div>
                                 </div>
                         </div>
                     </div>
                 </div>
-
-
-                
-                <!-- Navigation Tabs -->
-                <div class="nav-tabs-container mt-4">
-                    <nav>
-                        <div class="nav nav-tabs" id="nav-tab" role="tablist">
-                            <button class="nav-link active" id="nav-pyq-tab" data-bs-toggle="tab" data-bs-target="#nav-pyq" type="button" role="tab" aria-controls="nav-pyq" aria-selected="true">
-                                <i class="fas fa-file-alt"></i> Previous Year Questions
-                            </button>
-                            <button class="nav-link" id="nav-bookmarks-tab" data-bs-toggle="tab" data-bs-target="#nav-bookmarks" type="button" role="tab" aria-controls="nav-bookmarks" aria-selected="false">
-                                <i class="fas fa-bookmark"></i> Bookmarks
-                            </button>
-                        </div>
-                    </nav>
                 </div>
+
             </div>
         </div>
     </header>
 
-
-    <!-- Realtime Chat Button (opens external chat) -->
+    <!-- Realtime Chat Button -->
     <div id="chatWidget" class="chat-widget" aria-hidden="true">
         <button id="chatToggleBtn" class="chat-toggle" aria-pressed="false" aria-label="Open chat" onclick="toggleChatWidget()">
             <i class="fas fa-comments"></i>
@@ -235,69 +210,40 @@
     <!-- Main Content -->
     <main class="container mt-4">
 
-        <section class="content-section home-highlights" id="highlightsSection">
-            <div class="highlights-grid">
-                <article class="highlight-panel">
-                    <div class="section-header section-header-left">
-                        <h2><i class="fas fa-bolt"></i> Recently added</h2>
-                        <p class="section-description">Fresh uploads added to the archive.</p>
-                    </div>
-                    <div id="recentlyAddedList" class="compact-resource-list"></div>
-                </article>
-                <article class="highlight-panel">
-                    <div class="section-header section-header-left">
-                        <h2><i class="fas fa-fire"></i> Trending</h2>
-                        <p class="section-description">Most viewed papers right now.</p>
-                    </div>
-                    <div id="trendingList" class="compact-resource-list"></div>
-                </article>
-            </div>
-        </section>
-
-        <div class="tab-content" id="nav-tabContent">
-            <!-- PYQ Tab -->
-            <div class="tab-pane fade show active" id="nav-pyq" role="tabpanel" aria-labelledby="nav-pyq-tab">
                 <section class="content-section" id="pyqs-section">
                     <div class="section-header">
                         <h2><i class="fas fa-file-alt"></i> Previous Year Question Papers</h2>
-                        <p class="section-description">Preview and download DSMNRU previous year question papers for B.Tech, B.Sc, B.A., B.Com, and more.</p>
+                        <p class="section-description">DSMNRU PYQs only — preview, download, and request missing papers.</p>
                     </div>
-                    
-
-                    
 <div class="pyq-container">
     <ul class="pyq-list" id="pyqList">
         <!-- PYQ items will be loaded here -->
     </ul>
-    <div class="text-center mt-3">
-        <button id="loadMoreBtn" class="btn btn-primary" style="display:none;">Load More</button>
+    <div class="text-center mt-3 d-flex flex-column align-items-center gap-2">
+        <button id="loadMoreBtn" class="btn btn-primary" style="display:none;"><i class="fas fa-chevron-down me-2"></i>Load More</button>
+        <small class="text-muted" style="opacity:0.7;">Tip: Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to focus search</small>
     </div>
 </div>
                 </section>
-            </div>
-            
-            <!-- Bookmarks Tab -->
-            <div class="tab-pane fade" id="nav-bookmarks" role="tabpanel" aria-labelledby="nav-bookmarks-tab">
-                <section class="content-section" id="bookmarks-section">
-                    <div class="section-header">
-                        <h2><i class="fas fa-bookmark"></i> My Bookmarks</h2>
-                        <p class="section-description">Quick access to your saved question papers</p>
+    </main>
+
+    <!-- Request / Help bar -->
+    <section class="py-4">
+        <div class="container">
+            <div class="card border-0" style="background: linear-gradient(135deg, rgba(50,184,198,0.12), rgba(15,23,42,0.6)); border: 1px solid rgba(50,184,198,0.2); border-radius: 18px;">
+                <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3 p-4">
+                    <div>
+                        <h6 class="mb-1"><i class="fas fa-hand-paper me-2" style="color: var(--color-teal-300);"></i>Missing a PYQ?</h6>
+                        <p class="mb-0 text-muted small">Request a paper or report a broken link — we fix it fast.</p>
                     </div>
-
-
-
-                    <div class="bookmarks-container">
-                        <ul class="bookmarks-list" id="bookmarksList">
-                            <!-- Bookmarked items will be loaded here -->
-                        </ul>
-                        <div class="text-center mt-3">
-                            <button id="loadMoreBookmarksBtn" class="btn btn-primary" style="display:none;">Load More</button>
-                        </div>
+                    <div class="d-flex gap-2 flex-wrap">
+                        <button class="btn btn-primary btn-sm" onclick="openRequestPyqModal()"><i class="fas fa-plus me-1"></i> Request PYQ</button>
+                        <button class="btn btn-outline-light btn-sm" onclick="openReportBrokenLinkModal()"><i class="fas fa-unlink me-1"></i> Report broken link</button>
                     </div>
-                </section>
+                </div>
             </div>
         </div>
-    </main>
+    </section>
 
     <!-- Upload Section -->
     <section class="upload-section py-5" id="upload-section">
@@ -309,12 +255,12 @@
                             <h5 class="mb-0"><i class="fas fa-cloud-upload-alt"></i> Help us grow the collection</h5>
                         </div>
                         <div class="card-body">
-                            <p class="text-muted mb-4">Share your question papers and syllabus to help fellow students</p>
+                            <p class="text-muted mb-4">Share your question papers to help fellow DSMNRU students</p>
                             <div class="upload-form-shell">
                                 <form id="userUploadForm">
                                     <div class="mb-3">
                                         <label for="uploadTitle" class="form-label">Title <span class="text-danger">*</span></label>
-                                        <input type="text" class="form-control" id="uploadTitle" placeholder="e.g.,Indian Consititution" required>
+                                        <input type="text" class="form-control" id="uploadTitle" placeholder="e.g., Indian Constitution - B.A. 1st Sem 2023" required>
                                     </div>
                                     <div class="mb-3">
                                         <label for="uploadName" class="form-label">Your Name <span class="text-danger">*</span></label>
@@ -327,13 +273,13 @@
                                         </div>
                                         <div class="col-md-6 mb-3">
                                             <label for="uploadSemester" class="form-label">Semester (optional)</label>
-                                            <input type="text" class="form-control" id="uploadSemester" placeholder="e.g., 6th">
+                                            <input type="text" class="form-control" id="uploadSemester" placeholder="e.g., 1st">
                                         </div>
                                     </div>
                                     <div class="mb-3">
                                         <label for="uploadFile" class="form-label">PDF or Images <span class="text-danger">*</span></label>
                                         <input type="file" class="form-control" id="uploadFile" accept=".pdf,image/*" multiple required>
-                                        <small class="form-text text-muted d-block mt-2">You can upload one PDF directly, or select multiple images from your gallery. Images are auto-converted into one PDF. Final PDF must be 10MB or less.</small>
+                                        <small class="form-text text-muted d-block mt-2">One PDF or multiple images (auto-merged to 1 PDF). Final PDF must be ≤10 MB.</small>
                                         <div id="uploadFilePreview" class="upload-file-preview" style="display: none;" aria-live="polite">
                                             <div class="upload-file-preview-head">
                                                 <span id="uploadFilePreviewSummary">No files selected</span>
@@ -346,7 +292,6 @@
                                         <i class="fas fa-upload"></i> Upload File
                                     </button>
                                 </form>
-
                                 <div id="uploadFormLockOverlay" class="upload-form-lock-overlay" aria-hidden="true">
                                     <div class="upload-form-lock-card">
                                         <div class="upload-form-lock-icon">
@@ -375,7 +320,8 @@
     <!-- Footer -->
     <footer class="footer">
         <div class="footer-content">
-            <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for students.</p>
+            <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for DSMNRU students.</p>
+            <p class="small text-muted mt-2" style="opacity:0.7; max-width:600px; margin:0 auto;">DSMNRU PYQs only • Not affiliated with DSMNRU University • Papers are contributed by students for educational use.</p>
             <div class="social-links">
                 <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp"><i class="fab fa-whatsapp"></i></a>
             </div>
@@ -400,39 +346,6 @@
             </div>
         </div>
     </div>
-                <!-- CGPA Calculator Modal (top-level) -->
-                <!-- <div class="modal fade" id="cgpaModal" tabindex="-1" aria-labelledby="cgpaModalLabel" aria-hidden="true">
-                    <div class="modal-dialog modal-lg modal-dialog-centered">
-                        <div class="modal-content">
-                            <div class="modal-header">
-                                <h5 class="modal-title" id="cgpaModalLabel">CGPA Calculator</h5>
-                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                            </div>
-                            <div class="modal-body">
-                                <div class="mb-3">
-                                    <label class="form-label">Enter number of subjects</label>
-                                    <div class="d-flex gap-2 align-items-center">
-                                        <button class="btn btn-outline-light" id="cgpaDec">-</button>
-                                        <input id="cgpaCount" type="number" class="form-control" value="1" min="1" max="20" />
-                                        <button class="btn btn-outline-light" id="cgpaInc">+</button>
-                                    </div>
-                                </div>
-
-                                <div id="cgpaSubjects"></div>
-
-                                <div class="d-flex gap-3 mt-3">
-                                    <button class="btn btn-primary" id="calculateCgpaBtn"><i class="fas fa-rocket"></i> Calculate CGPA</button>
-                                    <button class="btn btn-outline-light" id="resetCgpaBtn">Reset</button>
-                                </div>
-
-                                <div class="mt-4">
-                                    <h5>Results</h5>
-                                    <div id="cgpaResults" class="mt-2"></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div> -->
     <!-- Share Modal -->
     <div class="modal fade" id="shareModal" tabindex="-1" aria-labelledby="shareModalLabel" aria-hidden="true">
         <div class="modal-dialog">
@@ -474,7 +387,6 @@
                 </div>
                 <div class="modal-body">
                     <div class="dashboard-settings">
-                        <!-- Theme Toggle -->
                         <div class="setting-group">
                             <h6><i class="fas fa-palette"></i> Theme</h6>
                             <div class="theme-options">
@@ -492,8 +404,6 @@
                                 </label>
                             </div>
                         </div>
-
-                        <!-- Layout Preferences -->
                         <div class="setting-group">
                             <h6><i class="fas fa-columns"></i> Layout</h6>
                             <div class="layout-options">
@@ -507,8 +417,6 @@
                                 </label>
                             </div>
                         </div>
-
-                        <!-- Quick Access -->
                         <div class="setting-group">
                             <h6><i class="fas fa-star"></i> Quick Access</h6>
                             <div class="quick-access-options">
@@ -532,8 +440,6 @@
                         </div>
                     </div>
                 </div>
-
-                            
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary" id="saveDashboardSettings">Save Settings</button>
@@ -665,25 +571,24 @@
         </div>
     </div>
 
-
-        <!-- Search Gate Modal -->
+        <!-- Search Gate Modal (kept for bookmark/share gating if needed, but NOT for search) -->
         <div class="modal fade" id="searchGateModal" tabindex="-1" aria-labelledby="searchGateModalLabel" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
             <div class="modal-dialog modal-dialog-centered">
                 <div class="modal-content search-gate-modal">
                     <div class="modal-body text-center p-4 p-md-5">
                         <div class="search-gate-icon mx-auto mb-3">
-                            <i class="fas fa-lock"></i>
+                            <i class="fas fa-bookmark"></i>
                         </div>
-                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Sign up to unlock</h5>
+                        <h5 class="modal-title mb-2" id="searchGateModalLabel">Login to save bookmarks</h5>
                         <p class="search-gate-text mb-4">
-                            Search results are available for registered users only. Create your account to unlock search, or continue browsing with Load More.
+                            Bookmarks are saved to your account. Sign up to keep your papers across devices.
                         </p>
                         <div class="search-gate-actions d-grid gap-2 d-sm-flex justify-content-sm-center">
                             <button type="button" class="btn btn-primary btn-lg" onclick="closeSearchGateModal(); openSignupModal();">
                                 <i class="fas fa-user-plus"></i> Sign Up Now
                             </button>
-                            <button type="button" class="btn btn-outline-light btn-lg" onclick="continueBrowsingWithoutSearch();">
-                                <i class="fas fa-arrow-down"></i> Continue with Load More
+                            <button type="button" class="btn btn-outline-light btn-lg" onclick="closeSearchGateModal();">
+                                Continue browsing
                             </button>
                         </div>
                     </div>
@@ -771,7 +676,6 @@
                             We've sent a verification email to <strong id="verificationEmail"></strong>
                         </p>
                     </div>
-                    
                     <div class="alert alert-info">
                         <p class="mb-0">
                             <i class="fas fa-info-circle"></i> 
@@ -818,7 +722,6 @@
                             Complete your profile to unlock all features and get a better experience on our platform.
                         </p>
                     </div>
-                    
                     <div class="alert alert-info">
                         <p class="mb-0">
                             <i class="fas fa-info-circle"></i> 
@@ -843,10 +746,89 @@
         </div>
     </div>
 
-    <!-- Bootstrap JS -->
-     
+    <!-- Report Broken Link Modal -->
+    <div class="modal fade" id="reportBrokenLinkModal" tabindex="-1" aria-labelledby="reportBrokenLinkModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="reportBrokenLinkModalLabel"><i class="fas fa-unlink me-2"></i> Report Broken Link</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">Help us fix it quickly. Tell us which paper link is broken.</p>
+                    <form id="reportBrokenLinkForm">
+                        <div class="mb-3">
+                            <label for="reportTitle" class="form-label">Paper Title <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="reportTitle" placeholder="e.g. B.Tech 3rd Sem DBMS 2023" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="reportCourse" class="form-label">Course <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="reportCourse" placeholder="e.g. B.Tech / B.A." required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="reportDetails" class="form-label">What is broken? <span class="text-danger">*</span></label>
+                            <textarea class="form-control" id="reportDetails" rows="3" placeholder="Link doesn't open / Wrong paper / PDF not loading" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label for="reportEmail" class="form-label">Your Email (optional)</label>
+                            <input type="email" class="form-control" id="reportEmail" placeholder="For follow-up">
+                        </div>
+                        <div id="reportBrokenLinkError" class="alert alert-danger" style="display:none;"></div>
+                        <div id="reportBrokenLinkSuccess" class="alert alert-success" style="display:none;"></div>
+                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-paper-plane me-2"></i> Submit Report</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Request PYQ Modal -->
+    <div class="modal fade" id="requestPyqModal" tabindex="-1" aria-labelledby="requestPyqModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="requestPyqModalLabel"><i class="fas fa-plus-circle me-2"></i> Request a PYQ</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-muted">Missing a paper? Request it — contributors will try to upload it.</p>
+                    <form id="requestPyqForm">
+                        <div class="mb-3">
+                            <label for="requestCourseField" class="form-label">Course <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="requestCourseField" placeholder="e.g. B.Tech" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="requestSubject" class="form-label">Subject <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" id="requestSubject" placeholder="e.g. Data Structures" required>
+                        </div>
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <label for="requestSemester" class="form-label">Semester <span class="text-danger">*</span></label>
+                                <select class="form-select" id="requestSemester" required>
+                                    <option value="">Select</option>
+                                    <option>1st</option><option>2nd</option><option>3rd</option><option>4th</option>
+                                    <option>5th</option><option>6th</option><option>7th</option><option>8th</option>
+                                </select>
+                            </div>
+                            <div class="col-6">
+                                <label for="requestSession" class="form-label">Session</label>
+                                <input type="text" class="form-control" id="requestSession" placeholder="e.g. 2023-24">
+                            </div>
+                        </div>
+                        <div class="mb-3 mt-3">
+                            <label for="requestEmail2" class="form-label">Your Email (optional, for notification)</label>
+                            <input type="email" class="form-control" id="requestEmail2" placeholder="you@example.com">
+                        </div>
+                        <div id="requestPyqError" class="alert alert-danger" style="display:none;"></div>
+                        <div id="requestPyqSuccess" class="alert alert-success" style="display:none;"></div>
+                        <button type="submit" class="btn btn-primary w-100"><i class="fas fa-bell me-2"></i> Request PYQ</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- Custom JS -->
     <script src="script.js"></script>
 </body>
 </html>

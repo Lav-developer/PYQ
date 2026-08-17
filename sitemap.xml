@@ -25,3 +25,14 @@
     <changefreq>daily</changefreq>
     <priority>0.90</priority>
   </url>
+  <url>
+    <loc>https://dsmnru-pyq.netlify.app/bookmarks.html</loc>
+    <changefreq>weekly</changefreq>
+    <priority>0.80</priority>
+  </url>
+  <url>
+    <loc>https://dsmnru-pyq.netlify.app/paper.html</loc>
+    <changefreq>daily</changefreq>
+    <priority>0.85</priority>
+  </url>
+</urlset>

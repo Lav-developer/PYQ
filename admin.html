@@ -678,6 +678,12 @@
             color: rgba(245, 245, 245, 0.6) !important;
         }
 
+        /* Feedback UI polish */
+        .feedback-filter-btn.active { background: var(--admin-primary) !important; color: #134252 !important; border-color: var(--admin-primary) !important; box-shadow: 0 6px 14px rgba(50,184,198,0.25); }
+        .resource-card .badge.bg-warning { animation: pulseBadge 1.6s infinite; }
+        @keyframes pulseBadge { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.06); } }
+        #adminPyqSearch:focus { background: rgba(31,33,33,0.9); border-color: var(--admin-primary); color: #fff; box-shadow: 0 0 0 0.2rem rgba(50,184,198,0.2); }
+
         #sitemapStatus {
             background: rgba(10, 12, 12, 0.82) !important;
             backdrop-filter: blur(10px);
@@ -732,6 +738,7 @@
                                 <i class="fas fa-right-from-bracket me-2"></i> Logout
                             </button>
                         </div>
+                        <p style="margin-top: 1rem; color: rgba(255,255,255,0.72); font-size: 0.85rem;"><i class="fas fa-bolt me-1"></i> Lazy-loaded admin — <strong>0 reads on login</strong>. Expand any card to fetch — counts update live. Analytics removed to save quota.</p>
                     </div>
                     <!-- <div class="col-lg-4 hero-panel">
                         <div class="hero-panel-item">
@@ -780,53 +787,7 @@
                 </div>
             </div>
 
-            <div class="card section-card mb-4">
-                <div class="card-header">
-                    <div class="section-header-button mb-0">
-                        <span>
-                            <span class="section-chip"><i class="fas fa-chart-pie"></i> Analytics</span>
-                            <span class="d-block mt-2">Views, trending papers, and upload distribution</span>
-                        </span>
-                    </div>
-                </div>
-                <div class="card-body">
-                    <div class="stats-grid mb-4">
-                        <div class="stat-card">
-                            <small>Total views</small>
-                            <strong id="adminTotalViews">0</strong>
-                            <p>Combined view count across all PYQs.</p>
-                        </div>
-                        <div class="stat-card">
-                            <small>Average views</small>
-                            <strong id="adminAverageViews">0</strong>
-                            <p>Average views per PYQ.</p>
-                        </div>
-                        <div class="stat-card">
-                            <small>Top course</small>
-                            <strong id="adminTopCourse">-</strong>
-                            <p>Course with the most uploads.</p>
-                        </div>
-                        <div class="stat-card">
-                            <small>Newest PYQ</small>
-                            <strong id="adminNewestPyq">-</strong>
-                            <p>Latest document added to the archive.</p>
-                        </div>
-                    </div>
-
-                    <div class="row g-4">
-                        <div class="col-lg-7">
-                            <h6 class="mb-3">Top viewed papers</h6>
-                            <div id="adminTopPapersList" class="resource-list"></div>
-                        </div>
-                        <div class="col-lg-5">
-                            <h6 class="mb-3">Uploads by course</h6>
-                            <div id="adminUploadCountsList" class="resource-list"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <div class="dashboard-grid">
+                        <div class="dashboard-grid">
                 <div class="card section-card">
                     <div class="card-header">
                         <div class="section-header-button mb-0">
@@ -959,6 +920,13 @@
                     <div id="pyqsCollapse" class="collapse">
                         <div class="card-body">
                             <!-- <p class="section-copy mb-3">Review titles and copy file links. Content changes are done through the add forms only.</p> -->
+                            <div class="mb-3">
+                                <div class="input-group">
+                                    <span class="input-group-text" style="background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.12); color: rgba(255,255,255,0.6);"><i class="fas fa-search"></i></span>
+                                    <input type="text" id="adminPyqSearch" class="form-control" placeholder="Search PYQs by title, course, sem, session...">
+                                </div>
+                                <small style="color: rgba(245,245,245,0.55);">Admin search is local — 0 reads. Shows filtered from already-loaded list.</small>
+                            </div>
                             <div id="pyqsList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading PYQs...</div>
                             </div>
@@ -1059,6 +1027,40 @@
                             <!-- <p class="section-copy mb-3">This list comes from the Firestore <strong>users</strong> collection. Firebase Authentication can have extra accounts that never created/synced a profile document.</p> -->
                             <div id="usersList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading users...</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- NEW: Broken Reports & PYQ Requests (Feedback) -->
+                <div class="card section-card">
+                    <div class="card-header">
+                        <button class="section-header-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#feedbackCollapse" aria-expanded="false" aria-controls="feedbackCollapse" onclick="loadFeedbackOnDemand()">
+                            <span>
+                                <span class="section-chip"><i class="fas fa-flag"></i> Feedback</span>
+                                <span class="d-block mt-2">Broken reports & PYQ requests</span>
+                            </span>
+                            <span class="d-inline-flex align-items-center">
+                                <span class="section-chip"><span id="feedbackHeaderCount">0</span> items</span>
+                                <span class="collapse-icon"><i class="fas fa-chevron-down"></i></span>
+                            </span>
+                        </button>
+                    </div>
+                    <div id="feedbackCollapse" class="collapse">
+                        <div class="card-body">
+                            <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+                                <button class="btn btn-sm btn-primary feedback-filter-btn active" data-filter="all" onclick="filterFeedback('all')">All</button>
+                                <button class="btn btn-sm btn-outline-warning feedback-filter-btn" data-filter="broken_link" onclick="filterFeedback('broken_link')"><i class="fas fa-triangle-exclamation me-1"></i> Broken Links</button>
+                                <button class="btn btn-sm btn-outline-info feedback-filter-btn" data-filter="pyq_request" onclick="filterFeedback('pyq_request')"><i class="fas fa-magnifying-glass me-1"></i> Requests</button>
+                                <button class="btn btn-sm btn-outline-light feedback-filter-btn" data-filter="new" onclick="filterFeedback('new')"><i class="fas fa-bell me-1"></i> New only</button>
+                                <span class="ms-auto small" style="color: rgba(245,245,245,0.55);"><i class="fas fa-circle-info me-1"></i> New = awaiting action</span>
+                            </div>
+                            <div id="feedbackList" class="resource-list section-scroll">
+                                <div class="resource-empty">Loading feedback...</div>
+                            </div>
+                            <div class="d-flex gap-2 mt-3">
+                                <button class="btn btn-sm btn-outline-light" onclick="loadFeedback()"><i class="fas fa-rotate me-1"></i> Refresh</button>
+                                <button class="btn btn-sm btn-outline-danger" onclick="clearResolvedFeedback()"><i class="fas fa-trash me-1"></i> Clear resolved</button>
                             </div>
                         </div>
                     </div>

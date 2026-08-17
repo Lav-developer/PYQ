@@ -14,7 +14,7 @@ firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
-let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [] };
+let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedback: [] };
 
 /**
  * Checks if a user is an admin by attempting to read a document
@@ -277,13 +277,13 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Edit PYQ form submit handler
+    // Edit PYQ form submit handler — now supports id (from editPyqById) or old index
     const editForm = document.getElementById('editForm');
     if (editForm) {
         editForm.addEventListener('submit', function(e) {
             e.preventDefault();
             const type = document.getElementById('editType').value;
-            const index = parseInt(document.getElementById('editIndex').value);
+            const rawIndex = document.getElementById('editIndex').value;
             const title = document.getElementById('editTitle').value.trim();
             const file = document.getElementById('editFile').value.trim();
             const file2 = document.getElementById('editFile2').value.trim();
@@ -293,11 +293,20 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            // rawIndex may be an id (string) or old numeric index
+            let idx = parseInt(rawIndex);
+            let isId = isNaN(idx) || String(rawIndex).length > 6 || allData[type] && !allData[type][idx];
+            if (isId) {
+                // find by id
+                const id = String(rawIndex).trim();
+                idx = allData[type].findIndex(p => p.id === id);
+                if (idx === -1) { alert('Item not found (maybe deleted). Refresh.'); return; }
+            }
             if (type === 'pyqs') {
                 const branch = document.getElementById('editBranch').value.trim();
-                editItem(type, index, { title, file, file2: file2 || '', branch: branch || '' });
+                editItem(type, idx, { title, file, file2: file2 || '', branch: branch || '' });
             } else {
-                editItem(type, index, { title, file });
+                editItem(type, idx, { title, file });
             }
             
             bootstrap.Modal.getInstance(document.getElementById('editModal')).hide();
@@ -375,22 +384,22 @@ function setupSectionCollapseBehavior() {
 }
 
 function loadData() {
-    // Auto-load pending uploads and registered users so counts and panels show immediately.
-    loadPendingOnDemand();
-    loadUsersOnDemand();
+    // Lazy: no server calls on login — each section fetches only when expanded.
+    // This saves 50K reads + keeps admin snappy. Hero counts start at 0 and update as you open sections.
+    updateDashboardStats();
+    // Optional: show hint that counts are lazy
+    ['pyqsCount','pendingCount','usersCount','contributorsCount','feedbackCount'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el && el.textContent === '0') el.title = 'Click a section below to load — 0 reads until you expand';
+    });
 }
-        // Also load feedback count for stats
-        db.collection('feedback').get().then(snap => {
-            document.getElementById('feedbackCount').textContent = snap.size;
-        }).catch(() => {
-            document.getElementById('feedbackCount').textContent = '0';
-        });
 
 function resetLazyLoadState() {
     pyqsLoaded = false;
     pendingLoaded = false;
     usersLoaded = false;
     contributorsLoaded = false;
+    feedbackLoaded = false;
 }
 
 // function generateSitemap() {
@@ -480,7 +489,6 @@ function escapeXml(unsafe) {
 function renderLists() {
     renderPyqs();
     renderUsers();
-    renderAdminAnalytics();
     updateDashboardStats();
 }
 
@@ -505,104 +513,6 @@ function updateDashboardStats() {
     const feedbackCountElement = document.getElementById('feedbackCount');
     if (feedbackCountElement) {
         feedbackCountElement.textContent = allData.feedback ? allData.feedback.length : '0';
-    }
-}
-
-function getPyqTimestampValue(pyq) {
-    const candidate = pyq && (pyq.createdAt || pyq.uploadedAt || pyq.addedAt);
-    if (!candidate) {
-        return 0;
-    }
-
-    if (typeof candidate.toDate === 'function') {
-        return candidate.toDate().getTime();
-    }
-
-    const parsed = Date.parse(candidate);
-    return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function getCourseLabel(pyq) {
-    return String(pyq && (pyq.course || pyq.category || ''))
-        .trim()
-        .replace(/\s+/g, ' ');
-}
-
-function renderAdminAnalytics() {
-    const pyqs = Array.isArray(allData.pyqs) ? allData.pyqs : [];
-    const totalViews = pyqs.reduce((sum, item) => sum + (Number(item.views) || 0), 0);
-    const averageViews = pyqs.length ? (totalViews / pyqs.length) : 0;
-
-    const courseCounts = new Map();
-    pyqs.forEach(pyq => {
-        const courseLabel = getCourseLabel(pyq);
-        if (!courseLabel) {
-            return;
-        }
-
-        const current = courseCounts.get(courseLabel) || 0;
-        courseCounts.set(courseLabel, current + 1);
-    });
-
-    const topCourseEntry = Array.from(courseCounts.entries()).sort((a, b) => b[1] - a[1])[0];
-    const newestPyq = [...pyqs].sort((a, b) => getPyqTimestampValue(b) - getPyqTimestampValue(a))[0];
-    const topViewedPyqs = [...pyqs]
-        .sort((a, b) => {
-            const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
-            if (viewDiff !== 0) {
-                return viewDiff;
-            }
-
-            return getPyqTimestampValue(b) - getPyqTimestampValue(a);
-        })
-        .slice(0, 5);
-
-    const uploadCountsList = document.getElementById('adminUploadCountsList');
-    const topPapersList = document.getElementById('adminTopPapersList');
-
-    const setText = (id, value) => {
-        const element = document.getElementById(id);
-        if (element) {
-            element.textContent = value;
-        }
-    };
-
-    setText('adminTotalViews', totalViews.toLocaleString());
-    setText('adminAverageViews', pyqs.length ? averageViews.toFixed(1) : '0');
-    setText('adminTopCourse', topCourseEntry ? topCourseEntry[0] : '-');
-    setText('adminNewestPyq', newestPyq ? newestPyq.title : '-');
-
-    if (topPapersList) {
-        topPapersList.innerHTML = topViewedPyqs.length ? topViewedPyqs.map(pyq => `
-            <article class="resource-card">
-                <div class="resource-top">
-                    <div>
-                        <div class="resource-kicker">${escapeHtml(String(Number(pyq.views) || 0))} views</div>
-                        <h5 class="resource-title">${escapeHtml(pyq.title || 'Untitled')}</h5>
-                        <div class="resource-meta">
-                            ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
-                            ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} sem</span>` : ''}
-                        </div>
-                    </div>
-                </div>
-            </article>
-        `).join('') : '<div class="resource-empty">No PYQ views yet.</div>';
-    }
-
-    if (uploadCountsList) {
-        const courseEntries = Array.from(courseCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
-        uploadCountsList.innerHTML = courseEntries.length ? courseEntries.map(([course, count]) => `
-            <article class="resource-card">
-                <div class="resource-top">
-                    <div>
-                        <h5 class="resource-title">${escapeHtml(course)}</h5>
-                        <div class="resource-meta">
-                            <span class="resource-pill">${count} upload${count === 1 ? '' : 's'}</span>
-                        </div>
-                    </div>
-                </div>
-            </article>
-        `).join('') : '<div class="resource-empty">No course uploads yet.</div>';
     }
 }
 
@@ -871,7 +781,7 @@ function renderPyqs() {
         <article class="resource-card">
             <div class="resource-top">
                 <div>
-                    <div class="resource-kicker">PYQ ${index + 1}</div>
+                    <div class="resource-kicker">PYQ</div>
                     <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
                     <div class="resource-meta">
                         ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
@@ -882,8 +792,8 @@ function renderPyqs() {
                 <div class="resource-actions">
                     ${primaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(primaryFile)})'>Copy Server 1</button>` : ''}
                     ${secondaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(secondaryFile)})'>Copy Server 2</button>` : ''}
-                    <button class="btn btn-sm btn-outline-primary" onclick="editPyq(${index})">Edit</button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="deleteItem('pyqs', ${index})">Delete</button>
+                    <button class="btn btn-sm btn-outline-primary" onclick="editPyqById('${pyq.id}')">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePyqById('${pyq.id}')">Delete</button>
                 </div>
             </div>
             <div class="resource-detail">
@@ -972,21 +882,28 @@ function editItem(type, index, item) {
 }
 
 function deleteItem(type, index) {
+    // support both index and id (for backward compat)
+    let idx = index;
+    if (typeof index === 'string' && isNaN(parseInt(index))) {
+        idx = allData[type].findIndex(p => p.id === index);
+        if (idx === -1) { alert('Item not found'); return; }
+    }
     if (confirm('Are you sure you want to delete this item?')) {
-        const existing = allData[type][index];
+        const existing = allData[type][idx];
         if (!existing || !existing.id) {
             alert('Unable to find item id to delete.');
             return;
         }
         db.collection(type).doc(existing.id).delete()
             .then(() => {
-                allData[type].splice(index, 1);
+                allData[type].splice(idx, 1);
                 renderLists();
                 alert('Item deleted successfully!');
             })
             .catch(error => {
                 console.error('Error deleting item:', error);
-                alert('Error deleting item. Please try again.');
+                const msg = error && error.code === 'permission-denied' ? 'permission denied — check admin login & Firestore rules (isAdminByEmail must match your email)' : (error.message || 'Please try again.');
+                alert('Error deleting item: ' + msg);
             });
     }
 }
@@ -1024,11 +941,12 @@ function pyqTitleExists(title) {
         });
 }
 
-// Global functions for onclick
-window.editPyq = function(index) {
-    const pyq = allData.pyqs[index];
+// Global functions for onclick — id-based (fixes filtered-list delete bug)
+window.editPyqById = function(id) {
+    const pyq = allData.pyqs.find(p => p.id === id);
+    if (!pyq) { alert('PYQ not found (maybe already deleted). Refresh.'); return; }
     document.getElementById('editType').value = 'pyqs';
-    document.getElementById('editIndex').value = index;
+    document.getElementById('editIndex').value = id;
     document.getElementById('editTitle').value = pyq.title;
     document.getElementById('editFile').value = normalizeStoredLink(pyq.file || pyq.server1);
     document.getElementById('editFile2').value = normalizeStoredLink(pyq.file2 || pyq.server2);
@@ -1037,6 +955,39 @@ window.editPyq = function(index) {
     document.getElementById('editSemesterDiv').style.display = 'none';
     document.getElementById('editBranchDiv').style.display = 'none';
     new bootstrap.Modal(document.getElementById('editModal')).show();
+};
+window.deletePyqById = function(id) {
+    const idx = allData.pyqs.findIndex(p => p.id === id);
+    if (idx === -1) { alert('PYQ not found. Refresh the list.'); return; }
+    const pyq = allData.pyqs[idx];
+    if (!confirm(`Delete "${pyq.title}"? This cannot be undone.`)) return;
+    const deleteBtn = event && event.target ? event.target : null;
+    if (deleteBtn) deleteBtn.disabled = true;
+    db.collection('pyqs').doc(id).delete()
+        .then(() => {
+            allData.pyqs.splice(idx, 1);
+            renderPyqs();
+            updateDashboardStats();
+            alert('Item deleted successfully!');
+        })
+        .catch(error => {
+            console.error('Error deleting PYQ:', error);
+            const msg = error && error.message ? error.message : 'Please try again.';
+            if (error && error.code === 'permission-denied') {
+                alert('Delete failed: permission denied. Check Firestore rules & that you are logged in as admin ('+ (error.message||'') +').');
+            } else {
+                alert('Error deleting item: ' + msg);
+            }
+            if (deleteBtn) deleteBtn.disabled = false;
+        });
+};
+// keep old index-based for backward compat (now delegates to id)
+window.editPyq = function(index) {
+    // if index is actually an id string (from old cached HTML), delegate
+    if (typeof index === 'string' && isNaN(index)) { return window.editPyqById(index); }
+    const pyq = allData.pyqs[index];
+    if (!pyq) { alert('PYQ not found'); return; }
+    return window.editPyqById(pyq.id);
 };
 
 window.deleteItem = deleteItem;
@@ -1435,9 +1386,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 alert('Error adding contributor: ' + error.message);
             });
         });
-        
-        // Load contributors on page init
-        loadContributors();
     }
 
 });
@@ -1462,6 +1410,8 @@ function loadFeedback() {
         .get()
         .then(snap => {
             allFeedback = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            allData.feedback = allFeedback;
+            updateDashboardStats();
             updateFeedbackCount();
             renderFeedback();
         })
@@ -1478,7 +1428,95 @@ function updateFeedbackCount() {
 
 function filterFeedback(type) {
     feedbackFilter = type;
+    // update active button UI
+    document.querySelectorAll('.feedback-filter-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-filter') === type;
+        btn.classList.toggle('active', isActive);
+        btn.classList.toggle('btn-primary', isActive);
+        btn.classList.toggle('btn-outline-warning', !isActive && btn.getAttribute('data-filter')==='broken_link');
+        btn.classList.toggle('btn-outline-info', !isActive && btn.getAttribute('data-filter')==='pyq_request');
+        btn.classList.toggle('btn-outline-light', !isActive && (btn.getAttribute('data-filter')==='all' || btn.getAttribute('data-filter')==='new'));
+    });
     renderFeedback();
+}
+window.filterFeedback = filterFeedback;
+window.loadFeedback = loadFeedback;
+window.loadFeedbackOnDemand = loadFeedbackOnDemand;
+window.markFeedbackAsResolved = markFeedbackAsResolved;
+window.deleteFeedback = deleteFeedback;
+
+function clearResolvedFeedback() {
+    const resolved = allFeedback.filter(f => f.status === 'resolved');
+    if (!resolved.length) { alert('No resolved items to clear.'); return; }
+    if (!confirm(`Delete ${resolved.length} resolved feedback items?`)) return;
+    const batch = db.batch();
+    resolved.forEach(f => batch.delete(db.collection('feedback').doc(f.id)));
+    batch.commit().then(() => {
+        allFeedback = allFeedback.filter(f => f.status !== 'resolved');
+        allData.feedback = allFeedback;
+        updateDashboardStats();
+        renderFeedback();
+        loadFeedbackCount();
+        alert('Resolved feedback cleared.');
+    }).catch(e => alert('Error: '+e.message));
+}
+window.clearResolvedFeedback = clearResolvedFeedback;
+
+// ── Admin Content Library Search ──
+function renderPyqsFiltered(filtered) {
+    const list = document.getElementById('pyqsList');
+    if (!list) return;
+    if (!filtered.length) {
+        list.innerHTML = '<div class="resource-empty">No PYQs added yet.</div>';
+        return;
+    }
+    list.innerHTML = filtered.map((pyq) => {
+        const primaryFile = normalizeStoredLink(pyq.file || pyq.server1);
+        const secondaryFile = normalizeStoredLink(pyq.file2 || pyq.server2);
+        return `
+        <article class="resource-card">
+            <div class="resource-top">
+                <div>
+                    <div class="resource-kicker">PYQ</div>
+                    <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
+                    <div class="resource-meta">
+                        ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
+                        ${pyq.semester ? `<span class="resource-pill">${escapeHtml(pyq.semester)} sem</span>` : ''}
+                        ${pyq.session ? `<span class="resource-pill">${escapeHtml(pyq.session)} session</span>` : ''}
+                    </div>
+                </div>
+                <div class="resource-actions">
+                    ${primaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(primaryFile)})'>Copy Server 1</button>` : ''}
+                    ${secondaryFile ? `<button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(secondaryFile)})'>Copy Server 2</button>` : ''}
+                    <button class="btn btn-sm btn-outline-primary" onclick="editPyqById('${pyq.id}')">Edit</button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="deletePyqById('${pyq.id}')">Delete</button>
+                </div>
+            </div>
+            <div class="resource-detail">
+                <div>Server 1: ${escapeHtml(primaryFile)}</div>
+                <div>Server 2: ${escapeHtml(secondaryFile || 'null')}</div>
+            </div>
+        </article>
+    `;
+    }).join('');
+}
+function setupAdminPyqSearch() {
+    const input = document.getElementById('adminPyqSearch');
+    if (!input) return;
+    input.addEventListener('input', function() {
+        const q = this.value.toLowerCase().trim();
+        if (!q) { renderPyqs(); return; }
+        const filtered = allData.pyqs.filter(p => 
+            String(p.title||'').toLowerCase().includes(q) ||
+            String(p.course||'').toLowerCase().includes(q) ||
+            String(p.semester||'').toLowerCase().includes(q) ||
+            String(p.session||'').toLowerCase().includes(q)
+        );
+        const list = document.getElementById('pyqsList');
+        if (!list) return;
+        if (!filtered.length) { list.innerHTML = '<div class="resource-empty">No matches for “'+escapeHtml(q)+'”.</div>'; return; }
+        renderPyqsFiltered(filtered);
+    });
 }
 
 function renderFeedback() {
@@ -1583,3 +1621,12 @@ function escapeHtml(str) {
     };
     return String(str).replace(/[&<>"']/g, m => map[m]);
 }
+// auto-init admin search after DOM ready
+document.addEventListener('DOMContentLoaded', function(){ 
+    try { setupAdminPyqSearch(); } catch(e){}
+    // also init feedback filter active state
+    try { 
+        const firstBtn = document.querySelector('.feedback-filter-btn[data-filter="all"]');
+        if (firstBtn) firstBtn.classList.add('active');
+    } catch(e){}
+});
