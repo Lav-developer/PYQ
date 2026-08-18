@@ -22,72 +22,99 @@ db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
     }
 });
 
-// ===== CLIENT CACHE FOR PYQS — Save 50K reads/day =====
-// Strategy: sessionStorage = instant reuse (0 reads on refresh/search within session)
-//           localStorage + TTL = cross-tab reuse for 15 mins
-//           Firestore persistence (enabled above) = offline cache fallback
-// Result: 1 server read per device per 15 mins instead of 1 per search/refresh
-const PYQS_CACHE_KEY = 'dsmnru_pyqs_full_v1';
-const PYQS_CACHE_TIME_KEY = 'dsmnru_pyqs_full_time_v1';
-const PYQS_SESSION_KEY = 'dsmnru_pyqs_session_v1';
-const PYQS_CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes (tune to 5-30 as needed)
+// ===== API CONFIGURATION (Cloudflare Worker) =====
+// Public data (PYQs, search, contributors, homepage) now comes from the
+// Cloudflare Worker API — never from direct full-collection Firestore reads.
+// The browser still talks to Firestore directly ONLY for user-scoped data:
+// auth/profile, comments, feedback, uploads, and view increments.
+//
+// Set the Worker URL via window.DSMNRU_API_URL (see index.html/paper.html)
+// or via a Netlify `_redirects` proxy of `/api/*` to the Worker.
+const API_BASE_URL = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
+    ? window.DSMNRU_API_URL
+    : '/api';
 
-function getCachedPyqsFull() {
-    try {
-        // sessionStorage is fastest — no JSON parse if we can reuse same object reference in memory
-        const sessRaw = sessionStorage.getItem(PYQS_SESSION_KEY);
-        if (sessRaw) {
-            try { return JSON.parse(sessRaw); } catch(e){}
-        }
-        const raw = localStorage.getItem(PYQS_CACHE_KEY);
-        const timeRaw = localStorage.getItem(PYQS_CACHE_TIME_KEY);
-        if (!raw || !timeRaw) return null;
-        const age = Date.now() - parseInt(timeRaw, 10);
-        if (age > PYQS_CACHE_TTL_MS) {
-            // stale — treat as miss so we refetch, but keep old data as fallback if fetch fails
-            return null;
-        }
-        const data = JSON.parse(raw);
-        // populate session for next call
-        try { sessionStorage.setItem(PYQS_SESSION_KEY, raw); } catch(e){}
-        return data;
-    } catch (e) { return null; }
-}
-function setCachedPyqsFull(data) {
-    try {
-        const str = JSON.stringify(data);
-        localStorage.setItem(PYQS_CACHE_KEY, str);
-        localStorage.setItem(PYQS_CACHE_TIME_KEY, String(Date.now()));
-        sessionStorage.setItem(PYQS_SESSION_KEY, str);
-    } catch (e) { console.warn('pyqs cache save failed:', e.message); }
-}
-function getCachedPyqsStaleFallback() {
-    try {
-        const raw = localStorage.getItem(PYQS_CACHE_KEY);
-        if (!raw) return null;
-        return JSON.parse(raw);
-    } catch(e){ return null; }
-}
-function clearPyqsCache() {
-    try { localStorage.removeItem(PYQS_CACHE_KEY); localStorage.removeItem(PYQS_CACHE_TIME_KEY); sessionStorage.removeItem(PYQS_SESSION_KEY); } catch(e){}
-}
-// small helper: cached fetch for "all pyqs" — used by search when needed
-async function fetchAllPyqsCached({ forceRefresh = false } = {}) {
-    if (!forceRefresh) {
-        const cached = getCachedPyqsFull();
-        if (cached) return cached;
-    }
-    // no cache or stale — fetch from server once
-    const snap = await db.collection('pyqs').get({ source: 'server' });
-    const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    const processed = items.map(item => {
-        const yearMatch = String(item.title || '').match(/\{(\d{4})/);
-        const year = yearMatch ? parseInt(yearMatch[1]) : 0;
-        const v = Number(item.views);
-        return { ...item, year, views: Number.isFinite(v) && v >=0 ? Math.floor(v) : 0 };
+async function apiGet(path, params) {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await fetch(API_BASE_URL + path + query, {
+        headers: { 'Accept': 'application/json' }
     });
-    setCachedPyqsFull(processed);
-    return processed;
+    if (!res.ok) {
+        throw new Error('API error ' + res.status);
+    }
+    return res.json();
+}
+
+// Paginated PYQ list from the Worker (page/limit/sort/filters)
+async function fetchPyqsPage(page, limit, sort) {
+    return apiGet('/pyqs', { page: String(page), limit: String(limit), sort: sort || 'newest' });
+}
+
+// Server-side search over the Worker's KV-cached search index
+async function searchPyqs(params) {
+    return apiGet('/pyqs/search', params);
+}
+
+// Single PYQ full document (includes file/server URLs)
+async function fetchPyqById(id) {
+    return apiGet('/pyqs/' + encodeURIComponent(id));
+}
+
+// Contributors list (KV-cached, long TTL)
+async function fetchContributors() {
+    return apiGet('/contributors');
+}
+
+// Homepage summary: recent, trending, course counts, stats
+async function fetchHomepage() {
+    return apiGet('/homepage');
+}
+
+// Aggregated stats
+async function fetchStats() {
+    return apiGet('/stats');
+}
+
+// ===== CLIENT CACHE FOR API RESPONSES =====
+// The Worker + Cloudflare KV/edge cache already serve most traffic with zero
+// Firestore reads. This small session cache just avoids repeat API calls
+// within a single page session. It never stores the full collection.
+const API_SESSION_CACHE = {};
+const API_SESSION_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
+function getApiSessionCache(key) {
+    const entry = API_SESSION_CACHE[key];
+    if (entry && Date.now() - entry.t < API_SESSION_TTL_MS) {
+        return entry.data;
+    }
+    return null;
+}
+
+function setApiSessionCache(key, data) {
+    try {
+        API_SESSION_CACHE[key] = { data, t: Date.now() };
+        // keep the in-memory map small
+        const keys = Object.keys(API_SESSION_CACHE);
+        if (keys.length > 50) {
+            delete API_SESSION_CACHE[keys[0]];
+        }
+    } catch (e) { /* ignore */ }
+}
+
+// Cached fetch of a PYQ page (used by browsing + Load More)
+async function fetchPyqsPageCached(page, limit, sort) {
+    const key = 'pyqs:' + page + ':' + limit + ':' + (sort || 'newest');
+    const cached = getApiSessionCache(key);
+    if (cached) return cached;
+    const data = await fetchPyqsPage(page, limit, sort);
+    setApiSessionCache(key, data);
+    return data;
+}
+
+function clearPyqsCache() {
+    for (const key of Object.keys(API_SESSION_CACHE)) {
+        delete API_SESSION_CACHE[key];
+    }
 }
 
 // Courses loaded from local courses.json (used to populate course selects)
@@ -1513,17 +1540,22 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentPage = 1;
     const itemsPerPage = 20;
 
+    // Tracks the active server-side search (for Load More of search results)
+    let searchState = null;
+
     // Function to extract year from title
     function extractYearFromTitle(title) {
         const yearMatch = title.match(/\{(\d{4})/);
         return yearMatch ? parseInt(yearMatch[1]) : 0;
     }
 
+    // Items returned by the API are already sorted server-side.
+    // Keep the name for compatibility but only normalize fields here.
     function processAndSortItems(items) {
         return items.map(item => normalizePyqMetadata({
             ...item,
             year: extractYearFromTitle(item.title || '')
-        })).sort((a, b) => b.year - a.year);
+        }));
     }
 
     function normalizePyqMetadata(pyq) {
@@ -1651,56 +1683,28 @@ document.addEventListener('DOMContentLoaded', function() {
         clearPyqFilters(true);
     };
 
-    async function getInitialPage(collectionName) {
-        const baseQuery = db.collection(collectionName).orderBy('title').limit(serverPageSize);
-
-        try {
-            const cacheSnap = await baseQuery.get({ source: 'cache' });
-            if (!cacheSnap.empty) {
-                return { snapshot: cacheSnap, fromCache: true };
-            }
-        } catch (error) {
-            // Cache may be empty/unavailable; fall through to server read.
-        }
-
-        const serverSnap = await baseQuery.get({ source: 'server' });
-        return { snapshot: serverSnap, fromCache: false };
-    }
-
     async function loadCollectionPage(collectionName, append = false) {
         const isPyq = collectionName === 'pyqs';
         if (!isPyq) return;
 
-        const lastVisible = pyqLastVisible;
+        // Server-side pagination via the Worker API — the Worker serves the
+        // page from its KV-cached search index (zero Firestore reads).
+        const pageToLoad = append
+            ? Math.floor(allData.pyqs.length / serverPageSize) + 1
+            : 1;
+        const sort = getSortValue();
 
-        let query = db.collection(collectionName).orderBy('title').limit(serverPageSize);
-        if (append && lastVisible) {
-            query = query.startAfter(lastVisible);
-        }
+        try {
+            const result = await fetchPyqsPageCached(pageToLoad, serverPageSize, sort);
+            const pageItems = processAndSortItems(result.items || []);
 
-        const pageResult = append
-            ? { snapshot: await query.get({ source: 'server' }), fromCache: false }
-            : await getInitialPage(collectionName);
-
-        const snap = pageResult.snapshot;
-        const pageItems = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        const processedPage = processAndSortItems(pageItems);
-
-        allData.pyqs = append ? [...allData.pyqs, ...processedPage] : processedPage;
-        filteredPyqs = [...allData.pyqs];
-        pyqLastVisible = snap.docs.length ? snap.docs[snap.docs.length - 1] : pyqLastVisible;
-        pyqHasMore = snap.docs.length === serverPageSize;
-        if (!append && pageResult.fromCache) {
-            // Refresh silently from server after showing cached results.
-            try {
-                const freshSnap = await db.collection(collectionName).orderBy('title').limit(serverPageSize).get({ source: 'server' });
-                const freshPage = processAndSortItems(freshSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-                allData.pyqs = freshPage;
-                filteredPyqs = [...freshPage];
-                pyqLastVisible = freshSnap.docs.length ? freshSnap.docs[freshSnap.docs.length - 1] : null;
-                pyqHasMore = freshSnap.docs.length === serverPageSize;
-            } catch (error) {
-                console.warn('Unable to refresh pyqs from server:', error.message);
+            allData.pyqs = append ? [...allData.pyqs, ...pageItems] : pageItems;
+            filteredPyqs = [...allData.pyqs];
+            pyqHasMore = pageToLoad < (result.totalPages || 1);
+        } catch (error) {
+            console.error('Error loading pyqs page from API:', error);
+            if (!append) {
+                showEmptyState('pyqList', 'Error loading question papers. Please try again.');
             }
         }
     }
@@ -1732,39 +1736,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
     setupUserUploadHandler();
 
-    // Load and render contributors from Firestore
-    function loadContributors() {
-        const contributorsQuery = db.collection('contributors').orderBy('name');
-
-        contributorsQuery.get({ source: 'cache' })
-            .then(snapshot => {
-                if (!snapshot.empty) {
-                    renderContributors(snapshot);
-                }
-                return contributorsQuery.get({ source: 'server' });
-            })
-            .then(snapshot => {
-                renderContributors(snapshot);
-            })
-            .catch(error => {
-                console.error('Error loading contributors:', error);
-            });
+    // Load and render contributors from the Worker API (KV-cached, long TTL)
+    async function loadContributors() {
+        try {
+            const contributors = await fetchContributors();
+            if (Array.isArray(contributors)) {
+                renderContributors(contributors);
+            }
+        } catch (error) {
+            console.error('Error loading contributors from API:', error);
+        }
     }
 
-    function renderContributors(snapshot) {
+    function renderContributors(contributors) {
                 const contributorsGrid = document.getElementById('contributorsGrid');
                 if (!contributorsGrid) return;
 
                 contributorsGrid.innerHTML = '';
                 
-                snapshot.forEach(doc => {
-                    const contributor = { id: doc.id, ...doc.data() };
+                (contributors || []).forEach(contributor => {
                     const card = document.createElement('div');
                     card.className = 'contributor-card';
                     card.innerHTML = `
-                        <div class="contributor-avatar">${contributor.avatar}</div>
-                        <h5>${contributor.name}</h5>
-                        <p class="contributor-role">${contributor.role}</p>
+                        <div class="contributor-avatar">${escapeHtml(contributor.avatar || '')}</div>
+                        <h5>${escapeHtml(contributor.name || '')}</h5>
+                        <p class="contributor-role">${escapeHtml(contributor.role || '')}</p>
                     `;
                     contributorsGrid.appendChild(card);
                 });
@@ -1781,13 +1777,12 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function loadAggregatedStats() {
+        // Stats now come from the Worker API (KV-cached). Firestore is never
+        // read directly for stats anymore.
         try {
-            const statsDoc = await db.collection('meta').doc('archiveStats').get({ source: 'cache' });
-            if (!statsDoc.exists) {
-                await db.collection('meta').doc('archiveStats').get({ source: 'server' });
-            }
+            await fetchStats();
         } catch (error) {
-            console.warn('Aggregated stats document unavailable:', error.message);
+            console.warn('Aggregated stats unavailable:', error.message);
         }
     }
 
@@ -1846,59 +1841,6 @@ document.addEventListener('DOMContentLoaded', function() {
             console.warn('Course catalog unavailable:', error.message);
             return ['B.A.', 'B.Com', 'B.Tech', 'B.Ed.', 'B.V.A.', 'BPO', 'D.Pharm', 'MBA', 'MCA', 'M.Tech'];
         }
-    }
-
-    function renderCourseCards(courseNames, items) {
-        const container = document.getElementById('courseCards');
-        if (!container) {
-            return;
-        }
-
-        const counts = new Map();
-        (items || []).forEach(pyq => {
-            const courseName = String(pyq.course || pyq.category || '').trim();
-            if (!courseName) {
-                return;
-            }
-
-            const key = normalizeForCompare(courseName);
-            if (!key) {
-                return;
-            }
-
-            const current = counts.get(key) || { label: courseName, count: 0 };
-            current.count += 1;
-            if (!current.label) {
-                current.label = courseName;
-            }
-            counts.set(key, current);
-        });
-
-        const uniqueCourses = Array.from(new Set((courseNames || []).filter(Boolean).map(course => String(course).trim())))
-            .map(label => {
-                const key = normalizeForCompare(label);
-                const match = counts.get(key);
-                return {
-                    label,
-                    count: match ? match.count : 0
-                };
-            })
-            .filter(course => course.label)
-            .sort((a, b) => a.label.localeCompare(b.label));
-
-        container.innerHTML = uniqueCourses.map(course => `
-            <button type="button" class="course-card" data-course="${escapeJsString(course.label)}">
-                <span class="course-card-label">${escapeHtml(course.label)}</span>
-                <strong>${course.count}</strong>
-                <small>question paper${course.count === 1 ? '' : 's'}</small>
-            </button>
-        `).join('');
-
-        container.querySelectorAll('.course-card').forEach(button => {
-            button.addEventListener('click', function() {
-                window.jumpToCourse(this.getAttribute('data-course') || '');
-            });
-        });
     }
 
     function renderCompactPyqList(containerId, items, emptyMessage) {
@@ -1971,78 +1913,26 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         try {
-            const courseNames = await fetchCourseCatalog();
+            // Homepage data comes from the Worker API — a single KV-cached
+            // payload with recent, trending, course counts and stats.
+            // Zero Firestore reads for the frontend.
+            const [courseNames, homepage] = await Promise.all([
+                fetchCourseCatalog().catch(() => []),
+                fetchHomepage().catch(() => null)
+            ]);
 
-            // Try cache first — 0 reads if hit (saves 50K quota)
-            let allPyqs = getCachedPyqsFull();
-            let usedCache = !!allPyqs;
-            if (!allPyqs) {
-                // No cache: fetch minimal needed for homepage (12 reads) instead of N reads
-                // Trending = top 6 by views, Recent = top 6 by createdAt/session
-                // Do these 2 small queries for instant UI, then lazy-fetch full in background for search
-                const [recentSnap, trendingSnap] = await Promise.all([
-                    db.collection('pyqs').orderBy('createdAt', 'desc').limit(6).get({ source: 'server' }).catch(async () => {
-                        // fallback if createdAt missing/index: use title order
-                        return db.collection('pyqs').limit(6).get({ source: 'server' });
-                    }),
-                    db.collection('pyqs').orderBy('views', 'desc').limit(6).get({ source: 'server' }).catch(async () => {
-                        return db.collection('pyqs').limit(6).get({ source: 'server' });
-                    })
-                ]);
-                const recentItemsRaw = recentSnap.docs.map(doc => normalizePyqMetadata({ id: doc.id, ...doc.data() }));
-                const trendingItemsRaw = trendingSnap.docs.map(doc => normalizePyqMetadata({ id: doc.id, ...doc.data() }));
-                // For course cards, we need at least some data — use union of those 12 + paginated first page if available
-                const unionForCounts = [...recentItemsRaw, ...trendingItemsRaw, ...(typeof allData !== 'undefined' && allData.pyqs ? allData.pyqs : [])];
-                // Deduplicate by id for counts
-                const seen = new Map();
-                unionForCounts.forEach(p => { if (!seen.has(p.id)) seen.set(p.id, p); });
-                const unionList = Array.from(seen.values());
+            const recentItems = (homepage && homepage.recent) || [];
+            const trendingItems = (homepage && homepage.trending) || [];
+            const courseCounts = (homepage && homepage.courseCounts) || [];
 
-                if (courseCardsContainer) {
-                    renderCourseCards(courseNames, unionList);
-                }
-                if (recentContainer) {
-                    // recent already sorted by createdAt query; just render
-                    renderCompactPyqList('recentlyAddedList', recentItemsRaw.slice(0,6), 'No recently added question papers yet.');
-                }
-                if (trendingContainer) {
-                    renderCompactPyqList('trendingList', trendingItemsRaw.slice(0,6), 'No trending papers yet.');
-                }
-                // Lazy full fetch in background for search/filter — only for signed-in users (saves quota + forces signup)
-                if (currentUser) {
-                    fetchAllPyqsCached().then(full => {
-                        if (courseCardsContainer) {
-                            try { renderCourseCards(courseNames, full); } catch(e){}
-                        }
-                    }).catch(()=>{});
-                }
-                return; // early return — homepage done with 12 reads
-            }
-
-            // Cache hit: zero reads for homepage sections
             if (courseCardsContainer) {
-                renderCourseCards(courseNames, allPyqs);
+                renderCourseCardsFromCounts(courseNames, courseCounts);
             }
             if (recentContainer) {
-                const recentItems = [...allPyqs]
-                    .sort((a, b) => getRecentSortValue(b) - getRecentSortValue(a))
-                    .slice(0, 6);
                 renderCompactPyqList('recentlyAddedList', recentItems, 'No recently added question papers yet.');
             }
             if (trendingContainer) {
-                const trendingItems = [...allPyqs]
-                    .sort((a, b) => {
-                        const viewDiff = (Number(b.views) || 0) - (Number(a.views) || 0);
-                        if (viewDiff !== 0) return viewDiff;
-                        return getRecentSortValue(b) - getRecentSortValue(a);
-                    })
-                    .slice(0, 6);
                 renderCompactPyqList('trendingList', trendingItems, 'No trending papers yet.');
-            }
-            // Optional: refresh cache in background after 2s if older than 5 mins (keep fresh without paying on every load)
-            const timeRaw = parseInt(localStorage.getItem(PYQS_CACHE_TIME_KEY) || '0', 10);
-            if (Date.now() - timeRaw > 5 * 60 * 1000) {
-                setTimeout(() => fetchAllPyqsCached({ forceRefresh: true }).catch(()=>{}), 2000);
             }
         } catch (error) {
             console.error('Unable to load homepage sections:', error);
@@ -2056,6 +1946,41 @@ document.addEventListener('DOMContentLoaded', function() {
                 showEmptyState('trendingList', 'Trending papers are unavailable right now.');
             }
         }
+    }
+
+    // Render course cards from the Worker's courseCounts payload
+    function renderCourseCardsFromCounts(courseNames, courseCounts) {
+        const container = document.getElementById('courseCards');
+        if (!container) return;
+
+        const countsMap = new Map(
+            (courseCounts || []).map(c => [normalizeForCompare(c.course || ''), Number(c.count) || 0])
+        );
+
+        const uniqueCourses = Array.from(new Set((courseNames || []).filter(Boolean).map(course => String(course).trim())))
+            .map(label => {
+                const key = normalizeForCompare(label);
+                return {
+                    label,
+                    count: countsMap.get(key) || 0
+                };
+            })
+            .filter(course => course.label)
+            .sort((a, b) => a.label.localeCompare(b.label));
+
+        container.innerHTML = uniqueCourses.map(course => `
+            <button type="button" class="course-card" data-course="${escapeJsString(course.label)}">
+                <span class="course-card-label">${escapeHtml(course.label)}</span>
+                <strong>${course.count}</strong>
+                <small>question paper${course.count === 1 ? '' : 's'}</small>
+            </button>
+        `).join('');
+
+        container.querySelectorAll('.course-card').forEach(button => {
+            button.addEventListener('click', function() {
+                window.jumpToCourse(this.getAttribute('data-course') || '');
+            });
+        });
     }
 
     window.jumpToCourse = function(courseLabel) {
@@ -2145,7 +2070,8 @@ document.addEventListener('DOMContentLoaded', function() {
         const loadMoreBtn = document.getElementById('loadMoreBtn');
         const searchTerm = document.getElementById('searchInput').value.trim();
         const filtersActive = hasActivePyqFilters();
-        if (endIndex < filteredPyqs.length || (!searchTerm && !filtersActive && pyqHasMore)) {
+        const moreSearchPages = searchState && searchState.page < searchState.totalPages;
+        if (endIndex < filteredPyqs.length || moreSearchPages || (!searchTerm && !filtersActive && pyqHasMore)) {
             loadMoreBtn.style.display = 'inline-block';
         } else {
             loadMoreBtn.style.display = 'none';
@@ -2258,7 +2184,32 @@ document.addEventListener('DOMContentLoaded', function() {
                 showEmailVerificationPrompt();
                 return;
             }
-            if (pyqHasMore && !document.getElementById('searchInput').value.trim() && !hasActivePyqFilters()) {
+            const searchTerm = document.getElementById('searchInput').value.trim();
+            const filtersActive = hasActivePyqFilters();
+
+            // Load more search results from the Worker API
+            if ((searchTerm || filtersActive) && searchState) {
+                if (searchState.page < searchState.totalPages) {
+                    try {
+                        const nextPage = searchState.page + 1;
+                        const result = await searchPyqs(buildSearchParams(
+                            searchState.query, searchState.filters, searchState.sort, nextPage, itemsPerPage
+                        ));
+                        const more = processAndSortItems(result.items || []);
+                        filteredPyqs = [...filteredPyqs, ...more];
+                        searchState.page = result.page || nextPage;
+                        searchState.totalPages = result.totalPages || searchState.totalPages;
+                        searchState.total = result.total || searchState.total;
+                    } catch (err) {
+                        console.error('Load more search results failed:', err);
+                    }
+                }
+                currentPage++;
+                renderPYQs();
+                return;
+            }
+
+            if (pyqHasMore) {
                 await loadCollectionPage('pyqs', true);
             }
             currentPage++;
@@ -2291,13 +2242,27 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Search function — gated: free browse of first 20, but search/filters require login (saves 50K reads + drives signups)
+    // Build API search params from the current UI state.
+    // NOTE: the frontend "Year" dropdown is actually the Semester selector,
+    // so we map it to the API `semester` parameter.
+    function buildSearchParams(searchTerm, filters, sort, page, limit) {
+        const params = { page: String(page), limit: String(limit), sort: sort || 'newest' };
+        if (searchTerm) params.q = searchTerm;
+        if (filters.course) params.course = filters.course;
+        if (filters.year) params.semester = filters.year;
+        if (filters.session) params.session = filters.session;
+        return params;
+    }
+
+    // Search function — gated (existing behavior), but searches now run
+    // server-side in the Worker against its KV-cached search index.
+    // No full Firestore collection reads.
     window.performSearch = async function() {
         const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
         const filters = getPyqFilterState();
         const filtersActive = hasActivePyqFilters();
 
-        // 🔒 GATE: search & filters require login — prevents anon full-collection reads
+        // 🔒 GATE: search & filters require login (existing behavior preserved)
         if ((searchTerm || filtersActive) && !currentUser) {
             openSearchGateModal();
             return;
@@ -2311,78 +2276,38 @@ document.addEventListener('DOMContentLoaded', function() {
         const activeTabEl = document.querySelector('.nav-link.active');
         const activeTab = activeTabEl ? activeTabEl.getAttribute('data-bs-target') : '#nav-pyq';
 
-        // Helper: ZERO-READ search if cache hit — else 1 server read then cache for 15 mins
-        async function fetchAndFilterCollection(collectionName, filterFn) {
-            if (collectionName !== 'pyqs') {
-                try {
-                    showLoading('pyqList');
-                    const snap = await db.collection(collectionName).get({ source: 'server' });
-                    const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    const processed = processAndSortItems(items);
-                    return processed.filter(filterFn);
-                } catch (err) {
-                    console.error('Search error fetching from server:', err);
-                    return [];
-                }
-            }
-            try {
-                showLoading('pyqList');
-                // 1️⃣ Try session/local cache first — 0 reads
-                let cached = getCachedPyqsFull();
-                if (cached && Array.isArray(cached) && cached.length) {
-                    return cached.filter(filterFn);
-                }
-                // 2️⃣ Check stale fallback while we refetch
-                const stale = getCachedPyqsStaleFallback();
-                // 3️⃣ Fetch once from server and cache for next searches
-                const snap = await db.collection(collectionName).get({ source: 'server' });
-                const items = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                const processed = processAndSortItems(items);
-                setCachedPyqsFull(processed);
-                return processed.filter(filterFn);
-            } catch (err) {
-                console.error('Search error fetching from server:', err);
-                // fallback to stale cache if server fails (offline)
-                const stale = getCachedPyqsStaleFallback();
-                if (stale) {
-                    try { return stale.filter(filterFn); } catch(e){}
-                }
-                return [];
-            }
-        }
-
         if (activeTab === '#nav-pyq') {
             if (!searchTerm && !filtersActive) {
-                // Empty search — show cached/paginated data with current sort
+                // Empty search — show paginated browse data with current sort
                 filteredPyqs = applyPyqSorting([...allData.pyqs]);
                 currentPage = 1;
+                searchState = null;
                 updatePyqResultsBar();
                 renderPYQs();
                 return;
             }
 
-            // Query server for all PYQs, then filter by search text and selected filters.
-            const results = await fetchAndFilterCollection('pyqs', pyq => {
-                const title = (pyq.title || '').toLowerCase();
-                const session = (pyq.session || '').toLowerCase();
-                const semester = getPyqSemesterValue(pyq);
-                const year = String(pyq.year || extractYearFromTitle(pyq.title || ''));
-
-                // Normalize course/title for robust matching (handles B.Com vs BCom etc.)
-                const courseNormalized = normalizeForCompare(pyq.course || pyq.category || '');
-                const titleNormalized = normalizeForCompare(pyq.title || '');
-
-                const matchesSearch = !searchTerm || title.includes(searchTerm) || courseNormalized.includes(searchTerm) || session.includes(searchTerm) || year.includes(searchTerm);
-                const matchesCourse = !filters.course || courseNormalized.includes(filters.course) || titleNormalized.includes(filters.course);
-                const matchesYear = !filters.year || semester === filters.year;
-                const matchesSession = !filters.session || session.includes(filters.session);
-
-                return matchesSearch && matchesCourse && matchesYear && matchesSession;
-            });
-            filteredPyqs = applyPyqSorting(results);
-            currentPage = 1;
-            updatePyqResultsBar();
-            renderPYQs();
+            showLoading('pyqList');
+            const sort = getSortValue();
+            try {
+                const result = await searchPyqs(buildSearchParams(searchTerm, filters, sort, 1, itemsPerPage));
+                const items = processAndSortItems(result.items || []);
+                filteredPyqs = items;
+                searchState = {
+                    query: searchTerm,
+                    filters,
+                    sort,
+                    page: result.page || 1,
+                    totalPages: result.totalPages || 1,
+                    total: result.total || 0
+                };
+                currentPage = 1;
+                updatePyqResultsBar();
+                renderPYQs();
+            } catch (err) {
+                console.error('Search failed:', err);
+                showEmptyState('pyqList', 'Search is temporarily unavailable. Please try again.');
+            }
         }
     };
 

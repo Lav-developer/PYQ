@@ -1,5 +1,5 @@
 // Service Worker for DSMNRU Academic Archive PWA
-const CACHE_NAME = 'dsmnru-archive-v5';
+const CACHE_NAME = 'dsmnru-archive-v6';
 const urlsToCache = [
   '/',
   '/index.html',
@@ -24,8 +24,20 @@ self.addEventListener('install', event => {
   );
 });
 
-// Fetch Event - Serve from cache when offline
+// Fetch Event - Serve from cache when offline.
+// API calls (/api/* or the configured Worker URL) are ALWAYS fetched from the
+// network — the Cloudflare Worker handles caching, so the SW must never serve
+// stale API responses.
 self.addEventListener('fetch', event => {
+  const requestUrl = new URL(event.request.url);
+  const isApiCall = requestUrl.pathname.startsWith('/api/') ||
+    (typeof self.__DSMNRU_API_HOST === 'string' && requestUrl.hostname === self.__DSMNRU_API_HOST);
+
+  if (isApiCall) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request)
       .then(response => {

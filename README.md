@@ -42,6 +42,7 @@
 - [🛠️ Tech Stack](#%EF%B8%8F-tech-stack)
 - [📂 Project Structure](#-project-structure)
 - [🚀 Quick Start](#-quick-start)
+- [☁️ Cloudflare Worker API (new architecture)](#%EF%B8%8F-cloudflare-worker-api-new-architecture)
 - [🔧 Environment & Firebase Setup](#-environment--firebase-setup)
 - [📡 Data Model & Collections](#-data-model--collections)
 - [🔐 Firestore Security Rules](#-firestore-security-rules)
@@ -119,10 +120,12 @@
 | Layer | Tech |
 |---|---|
 | Frontend | HTML5, CSS3 (Manrope + FKGroteskNeue, glassmorphism), vanilla JS, Bootstrap 5.3, Font Awesome 6, SweetAlert2 |
-| Backend | Firebase Auth (compat 9.22.1), Firestore, Storage (compat), `enablePersistence({synchronizeTabs:true})` |
-| PWA | `sw.js` (cache-first), `manifest.json`, `sitemap.xml`, `robots.txt` |
+| Backend (public data) | **Cloudflare Worker API** (`worker/`) — Firestore REST via service account, Cloudflare Cache API + KV, rate limiting |
+| Backend (user-scoped) | Firebase Auth (compat 9.22.1), Firestore, Storage (compat), `enablePersistence({synchronizeTabs:true})` |
+| PWA | `sw.js` (cache-first, API bypass), `manifest.json`, `sitemap.xml`, `robots.txt` |
 | Tools | jsPDF 2.5.1 (image→PDF), PapaParse 5.4.1 (CSV), Normalize.css |
-| Hosting | Netlify (`dsmnru-pyq.netlify.app`) + Firebase |
+| Hosting | Netlify (`dsmnru-pyq.netlify.app`) + Cloudflare Workers (free) + Firebase |
+| PDF storage | Archive.org / Catbox (unchanged) |
 
 ---
 
@@ -146,6 +149,13 @@
 ├── tools.html          # SGPA / Attendance / Planner
 ├── links.html          # University portals
 ├── contributors.html   # Contributors grid
+├── _redirects          # Netlify → Worker /api/* proxy (optional)
+├── ARCHITECTURE.md     # New Worker architecture, API docs, migration/rollback
+├── worker/             # Cloudflare Worker API (free tier)
+│   ├── wrangler.toml   # Worker config (KV binding, vars)
+│   ├── src/            # index.js (routes), firestore.js, cache.js, search.js,
+│   │                   # auth.js, rateLimit.js, validation.js, cors.js
+│   └── test/           # worker.test.js + frontend smoke tests + read simulation
 └── img/Logo.png
 ```
 
@@ -169,6 +179,43 @@ npx serve .
 > **PWA install** needs HTTPS — works on `localhost` and Netlify, not on `file://`.
 
 ---
+
+## ☁️ Cloudflare Worker API (new architecture)
+
+> **Public data no longer flows directly from Firestore to the browser.** All
+> public reads (PYQ list, search, filters, paper detail, contributors,
+> homepage, stats) go through a **Cloudflare Worker** that serves from the
+> **Cloudflare Cache API** and **Cloudflare KV**, with **Firestore as the
+> source of truth**. This keeps Firestore reads near zero under traffic.
+
+```
+Netlify Frontend → Cloudflare Worker → Edge Cache / KV → Firestore (only on cache miss)
+```
+
+- Worker code: [`worker/`](worker/) (`wrangler.toml`, `src/*`, tests)
+- Deployment & secrets: [`worker/README.md`](worker/README.md)
+- Full design, API reference, migration & rollback: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Firestore read simulation (OLD vs NEW): [`worker/test/performance-simulation.md`](worker/test/performance-simulation.md)
+- The browser still uses the Firebase SDK **only** for user-scoped data
+  (auth, profile, comments, feedback, uploads, view increments) and admin
+  writes. PDFs remain on Archive.org / Catbox — untouched.
+
+Run the Worker test suite:
+
+```bash
+cd worker
+npm install
+node test/worker.test.js        # 69 assertions, mocked Firestore
+```
+
+Frontend smoke tests (need `jsdom`):
+
+```bash
+cd worker
+npm install --no-save jsdom
+node test/frontend-smoke-test.cjs
+node test/paper-smoke-test.cjs
+```
 
 ## 🔧 Environment & Firebase Setup
 
@@ -300,16 +347,37 @@ Glassmorphism dark theme (`styles.css` tokens: `--color-primary` teal, `--color-
 
 ## ⚡ Caching & Quota Saving (50K Reads)
 
-**Problem:** `pyqs.get()` on every search = `N reads × searches` → hits 50K/day.
+**Problem (OLD):** `pyqs.get()` from the browser on every search = `N reads ×
+searches` → hits 50K/day.
 
-**Fix (signed-in only, anon gated):**
-- `sessionStorage` (instant, 0 reads on refresh) + `localStorage TTL 15m` (`dsmnru_pyqs_full_v1`) + `enablePersistence({synchronizeTabs:true})`
-- **Homepage:** Cache hit → 0 reads, miss → 12 reads (`orderBy createdAt limit 6` + `orderBy views limit 6`) vs N, lazy full fetch only for signed-in
-- **Search/Filters:** Cache hit → 0 reads filter locally, miss → 1 full fetch then cached
-- **Paper Related:** Cache hit → 0 reads fuzzy filter, else 12 reads
-- **Gate:** Search/Filters/Load More/paper preview require `login + verified` → anon never triggers full fetch
+**Fix (NEW):** the browser calls the Cloudflare Worker API instead of reading
+Firestore. The Worker serves public data from the **Cloudflare Cache API**
+(edge, whole responses) and **KV** (compact search index, per-item docs,
+contributors, courses, homepage) with Firestore only touched on cache miss.
 
-**Tune:** `PYQS_CACHE_TTL_MS = 15*60*1000` in `script.js`/`paper.js`; `clearPyqsCache()` to force refresh.
+- **Browse/Search/Filters:** served from the Worker's KV search index — **0
+  Firestore reads** for every user once the index is warm. The index is
+  refreshed by **admin invalidation** (`POST /api/invalidate`) — a 7-day
+  hard-TTL acts only as a safety fallback. There is **no aggressive
+  short-cycle rebuild**.
+- **Paper detail:** KV-cached per item (1 h); **1 read** only on first-ever
+  view of a paper, then 0 for everyone else
+- **Contributors:** KV-cached (1 h); 1 read per hour
+- **Homepage (recent/trending/course counts/stats):** KV-cached (5 min)
+- **Admin invalidation:** `POST /api/invalidate` (header `X-Api-Key`)
+  bumps the invalidation timestamp; the next request serves the stale
+  index while a single-flight background rebuild (`ctx.waitUntil`) runs
+  via the Worker. If the key is not set, admin changes propagate at the
+  next read after the cache hard-TTL (safe fallback).
+- **View increments / comments / feedback / uploads / auth:** still direct
+  Firestore (user-scoped writes or ≤30-doc scoped reads — not full collections)
+
+Pagination correctness uses a composite cursor (`[primaryFieldValue,
+__name__]`) so duplicate primary orderBy values (e.g. `views`) never
+skip or duplicate rows across pages.
+
+See [`worker/test/performance-simulation.md`](worker/test/performance-simulation.md)
+for the read-count table (311 → 10,000 PYQs, 100 users).
 
 ---
 

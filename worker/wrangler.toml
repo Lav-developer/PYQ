@@ -1,0 +1,34 @@
+# wrangler.toml — DSMNRU PYQ Archive Worker
+# Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+
+name = "dsmnru-pyq-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# ─── KV Namespace ─────────────────────────────────────────────────
+# Create it first (one-time):
+#   npx wrangler kv:namespace create PYQ_CACHE
+# Then paste the returned `id` below.
+# Example: id = "abc123..."
+[[kv_namespaces]]
+binding = "PYQ_CACHE"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# ─── Plaintext Variables ──────────────────────────────────────────
+[vars]
+FIREBASE_PROJECT_ID = "dsmnru-data"
+# Comma-separated list of allowed CORS origins
+ALLOWED_ORIGINS = "http://localhost:8000,http://localhost:5000,http://localhost:3000,https://dsmnru-pyq.netlify.app,https://lav-developer.github.io"
+
+# ─── Secrets (set via CLI, NEVER commit) ──────────────────────────
+#   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
+#     → paste the FULL contents of your Firebase service account JSON file
+#   npx wrangler secret put ADMIN_API_KEY
+#     → paste a long random string used to authorize POST /api/invalidate
+#
+# FIREBASE_SERVICE_ACCOUNT_JSON and ADMIN_API_KEY are injected as secrets.
+# They are NOT defined in this file for security reasons.
+
+# ─── Routes ───────────────────────────────────────────────────────
+# If you want the Worker to answer on your custom domain/subdomain:
+# routes = [{ pattern = "api.dsmnru-pyq.netlify.app/*", zone_name = "dsmnru-pyq.netlify.app" }]

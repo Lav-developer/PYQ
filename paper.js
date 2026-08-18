@@ -16,24 +16,33 @@
     const db = firebase.firestore();
     const auth = firebase.auth();
 
-    // ===== CLIENT CACHE (shared with index — 0 reads on related if cache hit) =====
-    const PYQS_CACHE_KEY = 'dsmnru_pyqs_full_v1';
-    const PYQS_CACHE_TIME_KEY = 'dsmnru_pyqs_full_time_v1';
-    const PYQS_SESSION_KEY = 'dsmnru_pyqs_session_v1';
-    const PYQS_CACHE_TTL_MS = 15 * 60 * 1000;
-    function getCachedPyqsFullForPaper() {
-        try {
-            const sess = sessionStorage.getItem(PYQS_SESSION_KEY);
-            if (sess) { try { return JSON.parse(sess); } catch(e){} }
-            const raw = localStorage.getItem(PYQS_CACHE_KEY);
-            const t = parseInt(localStorage.getItem(PYQS_CACHE_TIME_KEY) || '0', 10);
-            if (!raw || !t) return null;
-            if (Date.now() - t > PYQS_CACHE_TTL_MS) return null;
-            const data = JSON.parse(raw);
-            try { sessionStorage.setItem(PYQS_SESSION_KEY, raw); } catch(e){}
-            return data;
-        } catch(e){ return null; }
-    }
+    // ===== API ACCESS (Cloudflare Worker) =====
+    // Paper data and related papers come from the Worker API (KV/edge-cached).
+    // NOTE: script.js (loaded first on paper.html) already declares top-level
+    // API_BASE_URL/apiGet/fetchPyqById/searchPyqs. We scope our copies inside
+    // this IIFE with a unique name to avoid `const` redeclaration errors
+    // across classic scripts in real browsers.
+    const _paperApi = (function () {
+        const base = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
+            ? window.DSMNRU_API_URL
+            : '/api';
+
+        async function apiGet(path, params) {
+            const query = params ? '?' + new URLSearchParams(params).toString() : '';
+            const res = await fetch(base + path + query, {
+                headers: { 'Accept': 'application/json' }
+            });
+            if (!res.ok) {
+                throw new Error('API error ' + res.status);
+            }
+            return res.json();
+        }
+
+        return {
+            fetchPyqById: (id) => apiGet('/pyqs/' + encodeURIComponent(id)),
+            searchPyqs: (params) => apiGet('/pyqs/search', params),
+        };
+    })();
 
     // Verification helpers (must match script.js logic)
     function isGoogleUserPaper(user) {
@@ -263,28 +272,24 @@
         extraEl.style.display = 'none';
         relatedSectionEl.style.display = 'none';
 
-        // Try cache first then server for speed
-        let snap = null;
+        // Fetch the paper from the Worker API — the Worker serves it from its
+        // KV/edge cache, falling back to a single Firestore document read.
+        let data;
         try {
-            snap = await db.collection('pyqs').doc(id).get({ source: 'cache' });
-            if(!snap.exists){
-                snap = await db.collection('pyqs').doc(id).get({ source: 'server' });
-            } else {
-                // refresh in background
-                db.collection('pyqs').doc(id).get({ source: 'server' }).then(s=>{ if(s.exists) {/* silently updated */}}).catch(()=>{});
-            }
+            data = await _paperApi.fetchPyqById(id);
         } catch(e){
-            snap = await db.collection('pyqs').doc(id).get({ source: 'server' });
+            console.error('Paper fetch failed:', e.message);
+            showError('Failed to load paper.', 'Unable to reach the archive right now. Please try again later.');
+            return;
         }
 
-        if(!snap || !snap.exists){
+        if(!data || !data.id){
             showError('Paper not found', 'The paper with ID "'+escapeHtml(id)+'" does not exist. It may have been deleted or the link is incorrect.');
             return;
         }
-        const data = { id: snap.id, ...snap.data() };
         currentPaper = normalizePaper(data);
         renderPaper(currentPaper);
-        // increment views
+        // increment views (write to Firestore directly — user-scoped write)
         incrementViews(currentPaper.id);
         // load related and comments
         loadRelated(currentPaper);
@@ -586,93 +591,45 @@
         } catch(e){}
     }
 
-    // Related papers — cache-first (0 reads if homepage already cached full list)
+    // Related papers — served by the Worker API search endpoint, which runs
+    // against the KV-cached search index (no full Firestore collection reads).
     async function loadRelated(p){
         relatedSectionEl.style.display = 'block';
         relatedGridEl.innerHTML = `<div class="skeleton-box" style="height:90px;"></div><div class="skeleton-box" style="height:90px;"></div><div class="skeleton-box" style="height:90px;"></div>`;
         relatedSubtitleEl.textContent = 'Fetching related papers...';
         try {
-            // 0️⃣ Check session/local cache first — 0 reads
-            const cachedFull = getCachedPyqsFullForPaper();
-            if (cachedFull && Array.isArray(cachedFull) && cachedFull.length) {
-                let items = cachedFull.filter(item => item.id !== p.id);
-                // filter by course fuzzy
-                if (p.course) {
-                    const normCourse = String(p.course).toLowerCase().trim().replace(/[^a-z0-9]/g,'');
-                    const filtered = items.filter(it => {
-                        const c = String(it.course||it.category||'').toLowerCase().replace(/[^a-z0-9]/g,'');
-                        const t = String(it.title||'').toLowerCase();
-                        return c.includes(normCourse) || t.includes(normCourse);
-                    });
-                    if (filtered.length) items = filtered;
-                }
-                // prioritize same semester + sort by views
-                if (p.semester) {
-                    const semLow = String(p.semester).toLowerCase();
-                    items.sort((a,b)=>{
-                        const aSem = String(a.semester||'').toLowerCase() === semLow ? 0 : 1;
-                        const bSem = String(b.semester||'').toLowerCase() === semLow ? 0 : 1;
-                        if (aSem!==bSem) return aSem-bSem;
-                        return (b.views||0)-(a.views||0);
-                    });
-                } else {
-                    items.sort((a,b)=> (b.views||0)-(a.views||0));
-                }
-                items = items.slice(0,6);
-                if (items.length) {
-                    relatedSubtitleEl.textContent = `More from ${escapeHtml(p.course || 'this course')}${p.semester ? ' • '+escapeHtml(p.semester):''} — ${items.length} papers (from cache, 0 reads)`;
-                    relatedGridEl.innerHTML = items.map(item=>{
-                        const href = `paper.html?id=${encodeURIComponent(item.id)}`;
-                        const sem = item.semester ? `<span><i class="fas fa-layer-group"></i> ${escapeHtml(item.semester)}</span>` : '';
-                        const sess = item.session ? `<span><i class="fas fa-calendar"></i> ${escapeHtml(item.session)}</span>` : '';
-                        const views = item.views ? `<span><i class="fas fa-eye"></i> ${item.views}</span>` : '';
-                        return `<a class="related-card" href="${href}"><h4>${escapeHtml(item.title || 'Untitled paper')}</h4><p>${escapeHtml(item.course || '')} ${escapeHtml(item.semester||'')} ${escapeHtml(item.session||'')}</p><div class="related-meta">${views} ${sem} ${sess}</div></a>`;
-                    }).join('');
-                    return;
-                }
-                // if cache existed but no related found, fall through to server
+            // Query the Worker search index for papers in the same course
+            const params = { limit: '12', sort: 'popular' };
+            if (p.course) params.course = p.course;
+            const result = await _paperApi.searchPyqs(params);
+            let items = (result.items || []).filter(item => item.id !== p.id);
+
+            // If no course match, fall back to most popular papers overall
+            if (items.length === 0) {
+                const fallback = await _paperApi.searchPyqs({ limit: '12', sort: 'popular' });
+                items = (fallback.items || []).filter(item => item.id !== p.id);
             }
 
-            let q = null;
-            if(p.course){
-                q = db.collection('pyqs').where('course','==', p.course).limit(12);
-            } else {
-                q = db.collection('pyqs').orderBy('title').limit(12);
-            }
-            let snap;
-            try { snap = await q.get({ source:'server' }); } catch(e){ snap = await db.collection('pyqs').limit(18).get(); }
-            let items = snap.docs.map(d=> ({ id:d.id, ...d.data()} )).filter(item=> item.id !== p.id);
-            if(items.length===0 && p.course){
-                const allSnap = await db.collection('pyqs').limit(30).get();
-                const all = allSnap.docs.map(d=>({id:d.id,...d.data()}));
-                const normCourse = String(p.course).toLowerCase().trim();
-                items = all.filter(it=>{
-                    const c = String(it.course||'').toLowerCase().trim();
-                    const t = String(it.title||'').toLowerCase();
-                    return (c.includes(normCourse) || t.includes(normCourse)) && it.id !== p.id;
-                }).slice(0,12);
-            }
-            // prioritize same semester
-            if(p.semester){
+            // prioritize same semester + sort by views (same behavior as before)
+            if (p.semester) {
                 const semLow = String(p.semester).toLowerCase();
                 items.sort((a,b)=>{
                     const aSem = String(a.semester||'').toLowerCase() === semLow ? 0 : 1;
                     const bSem = String(b.semester||'').toLowerCase() === semLow ? 0 : 1;
-                    if(aSem!==bSem) return aSem-bSem;
+                    if (aSem!==bSem) return aSem-bSem;
                     return (b.views||0)-(a.views||0);
                 });
             } else {
                 items.sort((a,b)=> (b.views||0)-(a.views||0));
             }
             items = items.slice(0,6);
-            if(items.length===0){
+            if (items.length === 0) {
                 relatedGridEl.innerHTML = `<div class="comment-empty" style="grid-column:1/-1;"><i class="fas fa-folder-open"></i> No related papers found for this course yet.<br><a href="index.html" style="color:#9cecf3; font-weight:700;">Browse all papers</a></div>`;
                 relatedSubtitleEl.textContent = 'No related papers yet';
                 return;
             }
             relatedSubtitleEl.textContent = `More from ${escapeHtml(p.course || 'this course')}${p.semester ? ' • '+escapeHtml(p.semester):''} — ${items.length} papers`;
             relatedGridEl.innerHTML = items.map(item=>{
-                const link = getPrimaryLink(item) || getSecondaryLink(item);
                 const href = `paper.html?id=${encodeURIComponent(item.id)}`;
                 const sem = item.semester ? `<span><i class="fas fa-layer-group"></i> ${escapeHtml(item.semester)}</span>` : '';
                 const sess = item.session ? `<span><i class="fas fa-calendar"></i> ${escapeHtml(item.session)}</span>` : '';

@@ -20,10 +20,13 @@ service cloud.firestore {
     }
 
     // ─────────────────────────────────────────
-    // PYQs — public read, admin write, signed-in users can +1 views (forces signup + saves quota)
+    // PYQs — NO direct public reads (all public data flows through the
+    // Cloudflare Worker API, which authenticates with a service account that
+    // bypasses these rules). Admin can read/write; verified users can still
+    // +1 views directly from the browser.
     // ─────────────────────────────────────────
     match /pyqs/{doc} {
-      allow read: if true;
+      allow read: if isAdminByEmail();
       allow create, delete: if isAdminByEmail();
       // Admin can do any update; verified users (email verified) can only increment `views` by 1
       allow update: if isAdminByEmail() || (isVerified() && (
@@ -39,8 +42,9 @@ service cloud.firestore {
       ));
     }
 
+    // Contributors — likewise served by the Worker API; admin-only direct reads
     match /contributors/{doc}{
-      allow read: if true;
+      allow read: if isAdminByEmail();
       allow create, update, delete: if isAdminByEmail();
     }
 
