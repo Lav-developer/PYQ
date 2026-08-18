@@ -359,7 +359,7 @@ export async function getAllDocuments(collectionId, options = {}) {
       limit: pageSize,
       select,
       startAtRaw: lastOrderByRawValues
-        ? [...lastOrderByRawValues, { stringValue: lastDocName }]
+        ? [...lastOrderByRawValues, { referenceValue: lastDocName }]
         : null,
       tiebreakerField,
     });
