@@ -23,19 +23,43 @@
     // this IIFE with a unique name to avoid `const` redeclaration errors
     // across classic scripts in real browsers.
     const _paperApi = (function () {
-        const base = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
-            ? window.DSMNRU_API_URL
-            : '/api';
+        // window.DSMNRU_API_URL is the Worker origin. Routes live under /api.
+        const raw = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
+            ? String(window.DSMNRU_API_URL).trim()
+            : '';
+        const trimmed = raw.replace(/\/+$/, '');
+        const base = !trimmed ? '/api' : (/\/api$/i.test(trimmed) ? trimmed : trimmed + '/api');
 
         async function apiGet(path, params) {
             const query = params ? '?' + new URLSearchParams(params).toString() : '';
-            const res = await fetch(base + path + query, {
-                headers: { 'Accept': 'application/json' }
-            });
-            if (!res.ok) {
-                throw new Error('API error ' + res.status);
+            const url = base.replace(/\/+$/, '') + path + query;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(function() { controller.abort(); }, 20000);
+            try {
+                const res = await fetch(url, {
+                    headers: { 'Accept': 'application/json' },
+                    signal: controller.signal
+                });
+                if (!res.ok) {
+                    let detail = '';
+                    try {
+                        const errBody = await res.json();
+                        if (errBody && errBody.error) detail = errBody.error;
+                    } catch (parseErr) { /* ignore */ }
+                    console.error('Paper API error', res.status, path, detail || '');
+                    throw new Error(detail || ('API error ' + res.status));
+                }
+                return await res.json();
+            } catch (err) {
+                if (err && err.name === 'AbortError') {
+                    console.error('Paper API request timed out:', path);
+                    throw new Error('Request timed out. Please try again.');
+                }
+                console.error('Paper API request failed:', path, err && err.message);
+                throw err;
+            } finally {
+                clearTimeout(timeoutId);
             }
-            return res.json();
         }
 
         return {

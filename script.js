@@ -30,19 +30,91 @@ db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
 //
 // Set the Worker URL via window.DSMNRU_API_URL (see index.html/paper.html)
 // or via a Netlify `_redirects` proxy of `/api/*` to the Worker.
-const API_BASE_URL = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
-    ? window.DSMNRU_API_URL
-    : '/api';
+//
+// window.DSMNRU_API_URL is the Worker *origin* (no /api). Worker routes all
+// live under `/api/...`, so we append `/api` here. Without that, search
+// hits `/pyqs/search` which the Worker treats as GET /pyqs/:id ("search")
+// instead of the search endpoint — the list can still work via a `/pyqs`
+// alias while search/filter hang or 404 forever.
+function resolveApiBaseUrl(raw) {
+    const configured = (raw == null ? '' : String(raw)).trim();
+    if (!configured) return '/api';
+    const base = configured.replace(/\/+$/, '');
+    return /\/api$/i.test(base) ? base : base + '/api';
+}
+const API_BASE_URL = resolveApiBaseUrl(
+    (typeof window !== 'undefined' && window.DSMNRU_API_URL) ? window.DSMNRU_API_URL : ''
+);
 
-async function apiGet(path, params) {
-    const query = params ? '?' + new URLSearchParams(params).toString() : '';
-    const res = await fetch(API_BASE_URL + path + query, {
-        headers: { 'Accept': 'application/json' }
-    });
-    if (!res.ok) {
-        throw new Error('API error ' + res.status);
+function buildApiUrl(path, params) {
+    const cleanPath = path.charAt(0) === '/' ? path : '/' + path;
+    const filtered = {};
+    if (params) {
+        Object.keys(params).forEach(function(key) {
+            const value = params[key];
+            if (value !== undefined && value !== null && value !== '') {
+                filtered[key] = String(value);
+            }
+        });
     }
-    return res.json();
+    const query = Object.keys(filtered).length ? ('?' + new URLSearchParams(filtered).toString()) : '';
+    return API_BASE_URL.replace(/\/+$/, '') + cleanPath + query;
+}
+
+if (typeof window !== 'undefined') {
+    window.resolveApiBaseUrl = resolveApiBaseUrl;
+    window.buildApiUrl = buildApiUrl;
+    window.DSMNRU_RESOLVED_API_BASE = API_BASE_URL;
+}
+
+async function apiGet(path, params, options) {
+    const url = buildApiUrl(path, params);
+    const opts = options || {};
+    const timeoutMs = typeof opts.timeoutMs === 'number' ? opts.timeoutMs : 20000;
+    const controller = new AbortController();
+    const onAbort = function() {
+        try { controller.abort(); } catch (e) { /* ignore */ }
+    };
+    if (opts.signal) {
+        if (opts.signal.aborted) {
+            const aborted = new Error('Search request was cancelled');
+            aborted.name = 'AbortError';
+            throw aborted;
+        }
+        opts.signal.addEventListener('abort', onAbort);
+    }
+    const timeoutId = setTimeout(onAbort, timeoutMs);
+    try {
+        const res = await fetch(url, {
+            headers: { 'Accept': 'application/json' },
+            signal: controller.signal
+        });
+        if (!res.ok) {
+            let detail = '';
+            try {
+                const errBody = await res.json();
+                if (errBody && errBody.error) detail = errBody.error;
+            } catch (parseErr) { /* ignore non-JSON error bodies */ }
+            console.error('API error', res.status, path, detail || '');
+            const error = new Error(detail || ('API error ' + res.status));
+            error.status = res.status;
+            throw error;
+        }
+        return await res.json();
+    } catch (err) {
+        if (err && err.name === 'AbortError') {
+            const aborted = new Error('Search request was cancelled');
+            aborted.name = 'AbortError';
+            throw aborted;
+        }
+        console.error('API request failed:', path, err && err.message);
+        throw err;
+    } finally {
+        clearTimeout(timeoutId);
+        if (opts.signal) {
+            opts.signal.removeEventListener('abort', onAbort);
+        }
+    }
 }
 
 // Paginated PYQ list from the Worker (page/limit/sort/filters)
@@ -51,8 +123,8 @@ async function fetchPyqsPage(page, limit, sort) {
 }
 
 // Server-side search over the Worker's KV-cached search index
-async function searchPyqs(params) {
-    return apiGet('/pyqs/search', params);
+async function searchPyqs(params, options) {
+    return apiGet('/pyqs/search', params, options);
 }
 
 // Single PYQ full document (includes file/server URLs)
@@ -1464,6 +1536,34 @@ function getSortValue() {
     return sel ? sel.value : 'newest';
 }
 
+function extractYearFromTitle(title) {
+    const yearMatch = String(title || '').match(/\{(\d{4})/);
+    return yearMatch ? parseInt(yearMatch[1], 10) : 0;
+}
+
+function getPyqTimestampValue(pyq) {
+    const candidate = pyq && (pyq.createdAt || pyq.uploadedAt || pyq.addedAt);
+    if (!candidate) return 0;
+    if (typeof candidate.toDate === 'function') return candidate.toDate().getTime();
+    const parsed = Date.parse(candidate);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function getRecentSortValue(pyq) {
+    const timestamp = getPyqTimestampValue(pyq);
+    if (timestamp) return timestamp;
+    const sessionMatch = String(pyq && pyq.session ? pyq.session : '').match(/(\d{4})/);
+    if (sessionMatch) return parseInt(sessionMatch[1], 10);
+    return extractYearFromTitle((pyq && pyq.title) || '');
+}
+
+function escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, function(char) {
+        const entities = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+        return entities[char] || char;
+    });
+}
+
 function applyPyqSorting(list) {
     const sort = getSortValue();
     const arr = [...list];
@@ -1542,6 +1642,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Tracks the active server-side search (for Load More of search results)
     let searchState = null;
+    let searchRequestId = 0;
+    let searchAbortController = null;
 
     // Function to extract year from title
     function extractYearFromTitle(title) {
@@ -1657,6 +1759,9 @@ document.addEventListener('DOMContentLoaded', function() {
         const filters = getPyqFilterState();
         return !!(filters.course || filters.year || filters.session);
     }
+    // Used by the top-level results bar (defined outside this DOMContentLoaded).
+    window.hasActivePyqFilters = hasActivePyqFilters;
+    window.getPyqFilterState = getPyqFilterState;
 
     function clearPyqFilters(resetResults = true) {
         const course = document.getElementById('filterCourse');
@@ -2201,6 +2306,9 @@ document.addEventListener('DOMContentLoaded', function() {
                         searchState.totalPages = result.totalPages || searchState.totalPages;
                         searchState.total = result.total || searchState.total;
                     } catch (err) {
+                        if (err && err.name === 'AbortError') {
+                            return;
+                        }
                         console.error('Load more search results failed:', err);
                     }
                 }
@@ -2258,7 +2366,9 @@ document.addEventListener('DOMContentLoaded', function() {
     // server-side in the Worker against its KV-cached search index.
     // No full Firestore collection reads.
     window.performSearch = async function() {
-        const searchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+        const rawSearch = (document.getElementById('searchInput') && document.getElementById('searchInput').value) || '';
+        const searchTerm = rawSearch.toLowerCase().trim();
+        const queryForApi = searchTerm.length >= 2 ? searchTerm : '';
         const filters = getPyqFilterState();
         const filtersActive = hasActivePyqFilters();
 
@@ -2273,40 +2383,71 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
+        // Homepage is PYQ-only (no tabs). Ignore leftover nav-link targets.
         const activeTabEl = document.querySelector('.nav-link.active');
         const activeTab = activeTabEl ? activeTabEl.getAttribute('data-bs-target') : '#nav-pyq';
+        if (activeTab && activeTab !== '#nav-pyq') {
+            return;
+        }
 
-        if (activeTab === '#nav-pyq') {
-            if (!searchTerm && !filtersActive) {
-                // Empty search — show paginated browse data with current sort
-                filteredPyqs = applyPyqSorting([...allData.pyqs]);
-                currentPage = 1;
-                searchState = null;
-                updatePyqResultsBar();
-                renderPYQs();
+        if (!queryForApi && !filtersActive) {
+            if (searchAbortController) {
+                try { searchAbortController.abort(); } catch (e) { /* ignore */ }
+                searchAbortController = null;
+            }
+            searchRequestId += 1;
+            filteredPyqs = applyPyqSorting([...allData.pyqs]);
+            currentPage = 1;
+            searchState = null;
+            updatePyqResultsBar();
+            renderPYQs();
+            return;
+        }
+
+        showLoading('pyqList');
+        const sort = getSortValue();
+        const requestId = ++searchRequestId;
+        if (searchAbortController) {
+            try { searchAbortController.abort(); } catch (e) { /* ignore */ }
+        }
+        searchAbortController = new AbortController();
+        const thisController = searchAbortController;
+
+        try {
+            const result = await searchPyqs(
+                buildSearchParams(queryForApi, filters, sort, 1, itemsPerPage),
+                { signal: thisController.signal }
+            );
+            if (requestId !== searchRequestId) return;
+            const items = processAndSortItems((result && result.items) || []);
+            filteredPyqs = items;
+            searchState = {
+                query: queryForApi,
+                filters,
+                sort,
+                page: result.page || 1,
+                totalPages: result.totalPages || 1,
+                total: result.total || 0
+            };
+            currentPage = 1;
+            updatePyqResultsBar();
+            renderPYQs();
+        } catch (err) {
+            if (requestId !== searchRequestId || (err && err.name === 'AbortError')) {
                 return;
             }
-
-            showLoading('pyqList');
-            const sort = getSortValue();
-            try {
-                const result = await searchPyqs(buildSearchParams(searchTerm, filters, sort, 1, itemsPerPage));
-                const items = processAndSortItems(result.items || []);
-                filteredPyqs = items;
-                searchState = {
-                    query: searchTerm,
-                    filters,
-                    sort,
-                    page: result.page || 1,
-                    totalPages: result.totalPages || 1,
-                    total: result.total || 0
-                };
-                currentPage = 1;
-                updatePyqResultsBar();
-                renderPYQs();
-            } catch (err) {
-                console.error('Search failed:', err);
-                showEmptyState('pyqList', 'Search is temporarily unavailable. Please try again.');
+            console.error('Search failed:', err);
+            showEmptyState('pyqList', 'Search is temporarily unavailable. Please try again.');
+        } finally {
+            if (searchAbortController === thisController) {
+                searchAbortController = null;
+            }
+            if (requestId === searchRequestId) {
+                const listEl = document.getElementById('pyqList');
+                if (listEl && listEl.querySelector('.loading-skeleton')) {
+                    console.error('Search finished but the list was still in a loading state — showing an error.');
+                    showEmptyState('pyqList', 'Search is temporarily unavailable. Please try again.');
+                }
             }
         }
     };
