@@ -138,8 +138,8 @@ export async function getSearchIndex({ forceRebuild = false } = {}) {
   // by KV storage, but on KV-restore from another isolate we re-check by
   // timestamp defensively.
   const ageMs = Date.now() - lastBuiltAt;
-  if (ageMs > INDEX_HARD_TTL) {
-    console.log(`Search index stale by age (${ageMs}ms > ${INDEX_HARD_TTL}ms)`);
+  if (ageMs > INDEX_HARD_TTL * 1000) {
+    console.log(`Search index stale by age (${ageMs}ms > ${INDEX_HARD_TTL * 1000}ms)`);
     return {
       index: cached,
       fresh: false,
