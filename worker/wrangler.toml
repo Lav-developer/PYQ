@@ -12,7 +12,7 @@ compatibility_date = "2025-01-01"
 # Example: id = "abc123..."
 [[kv_namespaces]]
 binding = "PYQ_CACHE"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "2ed47415f9df497ab26bcb50d5478323"
 
 # ─── Plaintext Variables ──────────────────────────────────────────
 [vars]
