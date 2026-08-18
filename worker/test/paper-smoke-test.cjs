@@ -17,6 +17,7 @@ const dom = new JSDOM(html, {
   pretendToBeVisual: true,
 });
 const { window } = dom;
+window.DSMNRU_API_URL = 'https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev';
 window.matchMedia = window.matchMedia || (() => ({ matches: true, addListener() {}, removeListener() {} }));
 window.scrollTo = () => {};
 window.confirm = () => true;

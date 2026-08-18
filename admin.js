@@ -23,9 +23,14 @@ let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedb
 // Set API_INVALIDATE_KEY to the same value as the Worker's ADMIN_API_KEY
 // secret. If left as the placeholder, invalidation is skipped and changes
 // appear after the cache TTL (safe fallback — no aggressive refresh).
-const API_BASE_URL = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
-    ? window.DSMNRU_API_URL
-    : '/api';
+const API_BASE_URL = (function () {
+    const raw = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
+        ? String(window.DSMNRU_API_URL).trim()
+        : '';
+    if (!raw) return '/api';
+    const trimmed = raw.replace(/\/+$/, '');
+    return /\/api$/i.test(trimmed) ? trimmed : trimmed + '/api';
+})();
 const API_INVALIDATE_KEY = 'REPLACE_WITH_ADMIN_API_KEY';
 
 function invalidateApiCache() {
