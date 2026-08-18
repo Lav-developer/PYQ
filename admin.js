@@ -16,6 +16,34 @@ const db = firebase.firestore();
 const storage = firebase.storage();
 let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedback: [] };
 
+// ===== API CACHE INVALIDATION (Cloudflare Worker) =====
+// After content changes, purge the Worker's KV/edge cache so the public site
+// reflects the change quickly (instead of waiting for the TTL).
+//
+// Set API_INVALIDATE_KEY to the same value as the Worker's ADMIN_API_KEY
+// secret. If left as the placeholder, invalidation is skipped and changes
+// appear after the cache TTL (safe fallback — no aggressive refresh).
+const API_BASE_URL = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
+    ? window.DSMNRU_API_URL
+    : '/api';
+const API_INVALIDATE_KEY = 'REPLACE_WITH_ADMIN_API_KEY';
+
+function invalidateApiCache() {
+    if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
+        console.log('API cache invalidation skipped — set API_INVALIDATE_KEY in admin.js');
+        return;
+    }
+    fetch(API_BASE_URL + '/invalidate', {
+        method: 'POST',
+        headers: { 'X-Api-Key': API_INVALIDATE_KEY }
+    })
+        .then(res => {
+            if (res.ok) console.log('API cache invalidated');
+            else console.warn('Cache invalidation failed:', res.status);
+        })
+        .catch(err => console.warn('Cache invalidation error:', err.message));
+}
+
 /**
  * Checks if a user is an admin by attempting to read a document
  * that only admins have access to, based on Firestore security rules.
@@ -892,6 +920,7 @@ function addItem(type, item) {
             allData[type].push({ id: docRef.id, ...item });
             renderLists();
             alert('Item added successfully!');
+            if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
         })
         .catch(error => {
             console.error('Error adding item:', error);
@@ -910,6 +939,7 @@ function editItem(type, index, item) {
             allData[type][index] = { id: existing.id, ...item };
             renderLists();
             alert('Item updated successfully!');
+            if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
         })
         .catch(error => {
             console.error('Error updating item:', error);
@@ -935,6 +965,7 @@ function deleteItem(type, index) {
                 allData[type].splice(idx, 1);
                 renderLists();
                 alert('Item deleted successfully!');
+                if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
             })
             .catch(error => {
                 console.error('Error deleting item:', error);
@@ -1005,6 +1036,7 @@ window.deletePyqById = function(id) {
             renderPyqs();
             updateDashboardStats();
             alert('Item deleted successfully!');
+            invalidateApiCache();
         })
         .catch(error => {
             console.error('Error deleting PYQ:', error);
@@ -1356,6 +1388,7 @@ window.editContributor = function(id, name, avatar, role) {
     })
     .then(() => {
         loadContributors();
+        invalidateApiCache();
     })
     .catch(error => {
         console.error('Error updating contributor:', error);
@@ -1368,6 +1401,7 @@ window.deleteContributor = function(id, name) {
         db.collection('contributors').doc(id).delete()
             .then(() => {
                 loadContributors();
+                invalidateApiCache();
             })
             .catch(error => {
                 console.error('Error deleting contributor:', error);
@@ -1416,6 +1450,7 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(() => {
                 addContributorForm.reset();
                 loadContributors();
+                invalidateApiCache();
             })
             .catch(error => {
                 console.error('Error adding contributor:', error);

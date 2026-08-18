@@ -1,0 +1,12 @@
+# Netlify → Cloudflare Worker API proxy
+# Replace the target with your deployed Worker URL, OR set window.DSMNRU_API_URL
+# in the HTML pages to call the Worker directly (recommended for rate limiting,
+# since the user's real IP is preserved when the browser calls the Worker).
+#
+# Option A (this file): proxy /api/* to the Worker.
+#   /api/*  https://dsmnru-pyq-api.YOUR_SUBDOMAIN.workers.dev/api/:splat  200
+#
+# Option B (no proxy): remove this file, and in index.html / paper.html /
+# contributors.html set:
+#   <script>window.DSMNRU_API_URL = "https://dsmnru-pyq-api.YOUR_SUBDOMAIN.workers.dev";</script>
+# before script.js is loaded.
