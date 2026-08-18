@@ -1,11 +1,24 @@
 /**
  * Multi-layer cache for the Cloudflare Worker:
+ *
  * 1. Cloudflare Cache API (edge cache) — whole API responses
  * 2. Cloudflare KV — structured data (search index, contributors, courses)
+ *
+ * Refresh strategy:
+ *  - Cached entries store `_cachedAt` to track when they were built.
+ *  - Admin calls `POST /api/invalidate`, which stamps `INVALIDATION` in KV
+ *    with the current timestamp.
+ *  - The search index compares `_cachedAt` vs the invalidation timestamp on
+ *    each request. If `lastInvalidatedAt > _cachedAt`, the cache is stale:
+ *    we serve the stale data immediately and trigger a background rebuild
+ *    (single-flight, non-blocking via `ctx.waitUntil`).
+ *  - A very long hard TTL (INDEX_HARD_TTL, default 7 days) acts as a SAFETY
+ *    FALLBACK only, in case the Worker process is restarted and the
+ *    invalidation timestamp is somehow lost. Under normal traffic, no
+ *    full-collection rebuild happens on a short timer — only on admin
+ *    invalidation. This directly addresses the previous "aggressive 10-min
+ *    full-database refresh" pattern.
  */
-
-const DEFAULT_KV_TTL = 300;
-const LONG_KV_TTL = 3600;
 
 const CACHE_NAMESPACE = 'pyq';
 
@@ -17,7 +30,18 @@ export const KV_KEYS = {
   PYQ_ITEM: (id) => `${CACHE_NAMESPACE}:pyqs:item:${id}`,
   STATS: `${CACHE_NAMESPACE}:stats`,
   INVALIDATION: `${CACHE_NAMESPACE}:invalidation:timestamp`,
+  // KV-based rebuild lock — prevents thundering-herd rebuilds across
+  // Worker isolates after an invalidation.
+  REBUILD_LOCK: `${CACHE_NAMESPACE}:rebuild:lock`,
 };
+
+export const DEFAULT_KV_TTL = 300;      // 5 minutes for derived KV documents
+export const LONG_KV_TTL = 3600;        // 1 hour for moderately static data
+export const VERY_LONG_KV_TTL = 86400;  // 24 hours — homepage, contributors
+// SAFETY FALLBACK ONLY. The search index normally lives for as long as the
+// admin wants (invalidated manually). This 7-day hard TTL is the last-resort
+// refresh trigger — it must NOT be the primary mechanism.
+export const INDEX_HARD_TTL = 7 * 24 * 60 * 60;
 
 export function getCacheKey(request) {
   return new Request(request.url, request);
@@ -95,6 +119,63 @@ export async function deleteKV(key) {
   }
 }
 
+/**
+ * Return the most recent global invalidation timestamp as a number
+ * (ms since epoch). Returns 0 if no invalidation has happened.
+ */
+export async function getInvalidationTimestamp() {
+  if (typeof PYQ_CACHE === 'undefined') return 0;
+  try {
+    const ts = await PYQ_CACHE.get(KV_KEYS.INVALIDATION, 'text');
+    const n = ts ? parseInt(ts, 10) : 0;
+    return Number.isFinite(n) ? n : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Acquire (or wait for) a cross-isolate rebuild lock. Returns true if this
+ * caller should run the rebuild, false if another isolate is already running
+ * it. The lock auto-expires after a safe duration to prevent wedged locks.
+ */
+export async function acquireRebuildLock(ttlSeconds = 60) {
+  if (typeof PYQ_CACHE === 'undefined') return true;
+  try {
+    const existing = await PYQ_CACHE.get(KV_KEYS.REBUILD_LOCK, 'text');
+    if (existing && Number(existing) > Date.now() - ttlSeconds * 1000) {
+      return false;
+    }
+    await PYQ_CACHE.put(
+      KV_KEYS.REBUILD_LOCK,
+      String(Date.now()),
+      { expirationTtl: ttlSeconds }
+    );
+    return true;
+  } catch (err) {
+    console.warn('Rebuild lock error:', err.message);
+    return true; // Fail open: if we can't lock, allow the rebuild
+  }
+}
+
+export async function releaseRebuildLock() {
+  await deleteKV(KV_KEYS.REBUILD_LOCK);
+}
+
+/**
+ * Inform the cache that a bulk refresh should happen on next read.
+ *
+ * IMPORTANT: this does NOT delete the SEARCH_INDEX. The Worker serves the
+ * stale index to the very next request (stale-while-revalidate) and triggers
+ * a single-flight background rebuild via `runBackgroundRebuild`. This avoids:
+ *  - Cold-cache latency spikes on the first request after invalidation
+ *    (which previously had to do a full Firestore sweep synchronously)
+ *  - Multiple cold rebuilds racing each other across concurrent requests
+ *
+ * Derived/aggregated caches (homepage summary, contributors, stats, courses)
+ * ARE cleared because they will be recomputed from the rebuilt index on next
+ * read.
+ */
 export async function invalidateAll() {
   const timestamp = Date.now().toString();
 
@@ -102,19 +183,18 @@ export async function invalidateAll() {
     await PYQ_CACHE.put(KV_KEYS.INVALIDATION, timestamp);
   }
 
-  const keysToClear = [
-    KV_KEYS.SEARCH_INDEX,
+  const derivedKeysToClear = [
     KV_KEYS.CONTRIBUTORS,
     KV_KEYS.COURSES,
     KV_KEYS.HOMEPAGE,
     KV_KEYS.STATS,
   ];
 
-  for (const key of keysToClear) {
+  for (const key of derivedKeysToClear) {
     await deleteKV(key);
   }
 
-  console.log(`Cache invalidated at ${timestamp}`);
+  console.log(`Cache invalidated at ${timestamp} (stale-while-revalidate)`);
 }
 
-export { DEFAULT_KV_TTL, LONG_KV_TTL };
+export { KV_KEYS as KEYS };

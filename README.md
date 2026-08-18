@@ -356,16 +356,25 @@ Firestore. The Worker serves public data from the **Cloudflare Cache API**
 contributors, courses, homepage) with Firestore only touched on cache miss.
 
 - **Browse/Search/Filters:** served from the Worker's KV search index — **0
-  Firestore reads** for every user once the index is warm (10-min TTL, rebuilt
-  once for all users, or on admin invalidation)
+  Firestore reads** for every user once the index is warm. The index is
+  refreshed by **admin invalidation** (`POST /api/invalidate`) — a 7-day
+  hard-TTL acts only as a safety fallback. There is **no aggressive
+  short-cycle rebuild**.
 - **Paper detail:** KV-cached per item (1 h); **1 read** only on first-ever
   view of a paper, then 0 for everyone else
 - **Contributors:** KV-cached (1 h); 1 read per hour
 - **Homepage (recent/trending/course counts/stats):** KV-cached (5 min)
-- **Admin changes:** `POST /api/invalidate` purges KV/edge caches so updates
-  appear immediately (falls back to TTL if the key isn't configured)
+- **Admin invalidation:** `POST /api/invalidate` (header `X-Api-Key`)
+  bumps the invalidation timestamp; the next request serves the stale
+  index while a single-flight background rebuild (`ctx.waitUntil`) runs
+  via the Worker. If the key is not set, admin changes propagate at the
+  next read after the cache hard-TTL (safe fallback).
 - **View increments / comments / feedback / uploads / auth:** still direct
   Firestore (user-scoped writes or ≤30-doc scoped reads — not full collections)
+
+Pagination correctness uses a composite cursor (`[primaryFieldValue,
+__name__]`) so duplicate primary orderBy values (e.g. `views`) never
+skip or duplicate rows across pages.
 
 See [`worker/test/performance-simulation.md`](worker/test/performance-simulation.md)
 for the read-count table (311 → 10,000 PYQs, 100 users).

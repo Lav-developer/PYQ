@@ -1,11 +1,29 @@
 /**
  * Firestore REST API client for Cloudflare Workers.
+ *
+ * Robustness notes:
+ *  - Pagination cursors are composite: [primaryFieldValue, __name__]. The
+ *    `__name__` tiebreaker is mandatory for correctness when the primary
+ *    orderBy field is non-unique (e.g. `views`, `createdAt` for duplicate
+ *    timestamps). Real Firestore orders by the listed fields lex-ascending
+ *    for `startAt`, so a missing tiebreaker would skip or duplicate rows.
+ *  - Cursor values preserve their original Firestore type by extracting from
+ *    the raw REST `fields` map (not the unwrapped plain object). This is
+ *    important for timestamps: a `timestampValue` cursor must round-trip
+ *    back as `{timestampValue: ...}`, never as `{stringValue: ...}`.
  */
 import { getAccessToken, clearTokenCache } from './auth.js';
 
 const FIRESTORE_BASE = 'https://firestore.googleapis.com/v1';
 
-function extractFieldValue(fields, fieldPath) {
+// ── Field extraction helpers ──────────────────────────────────────
+
+/**
+ * Extract a plain JS value from a Firestore `fields` map.
+ * Returns the unwrapped primitive (string, number, boolean, ISO timestamp
+ * string, etc.). Use `extractRawFieldValue` if you need the original type.
+ */
+export function extractFieldValue(fields, fieldPath) {
   if (!fields || !fieldPath) return null;
   const value = fields[fieldPath];
   if (!value) return null;
@@ -14,15 +32,33 @@ function extractFieldValue(fields, fieldPath) {
   if ('doubleValue' in value) return parseFloat(value.doubleValue);
   if ('booleanValue' in value) return value.booleanValue;
   if ('timestampValue' in value) return value.timestampValue;
+  if ('nullValue' in value) return null;
   return null;
 }
 
+/**
+ * Extract the RAW Firestore Value object (preserves type info needed to
+ * build a valid `startAt.values` cursor). Returns null if missing.
+ */
+export function extractRawFieldValue(fields, fieldPath) {
+  if (!fields || !fieldPath) return null;
+  const value = fields[fieldPath];
+  return value && typeof value === 'object' ? value : null;
+}
+
+/**
+ * Convert a Firestore REST document into a plain JS object, preserving the
+ * document name (for cursor use) via a hidden `_firestoreName` field.
+ */
 export function documentToObject(doc) {
   if (!doc || !doc.name) return null;
   const nameParts = doc.name.split('/');
   const docId = nameParts[nameParts.length - 1];
   const fields = doc.fields || {};
-  const obj = { id: docId };
+  const obj = {
+    id: docId,
+    _firestoreName: doc.name,
+  };
 
   for (const [key, value] of Object.entries(fields)) {
     if ('stringValue' in value) {
@@ -64,19 +100,43 @@ export function documentToObject(doc) {
   return obj;
 }
 
+/**
+ * Convert a plain JS value to a Firestore REST `Value` object.
+ * Detects ISO-8601 timestamps so an extracted `timestampValue` string
+ * round-trips back as `timestampValue` (not `stringValue`) when used as
+ * a cursor value.
+ */
 function toFieldValue(value) {
   if (value === null || value === undefined) return { nullValue: null };
-  if (typeof value === 'string') return { stringValue: value };
+  if (typeof value === 'boolean') return { booleanValue: value };
   if (typeof value === 'number') {
     if (Number.isInteger(value)) return { integerValue: String(value) };
     return { doubleValue: value };
   }
-  if (typeof value === 'boolean') return { booleanValue: value };
+  if (typeof value === 'string') {
+    // Firestore REST returns timestamps as ISO-8601 UTC strings.
+    // Detect and re-emit as timestampValue for correct cursor typing.
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(value)) {
+      return { timestampValue: value };
+    }
+    return { stringValue: value };
+  }
   if (Array.isArray(value)) {
     return { arrayValue: { values: value.map(toFieldValue) } };
   }
   return { stringValue: String(value) };
 }
+
+/**
+ * Convert a raw Firestore REST `Value` object to a `Value` suitable for
+ * `startAt.values`. Used for cursors where we already have the raw value.
+ */
+function rawToFieldValue(rawValue) {
+  if (!rawValue || typeof rawValue !== 'object') return { nullValue: null };
+  return rawValue;
+}
+
+// ── Structured query construction ─────────────────────────────────
 
 function buildFilterClause({ field, op, value }) {
   if (op === 'IN') {
@@ -97,7 +157,23 @@ function buildFilterClause({ field, op, value }) {
   };
 }
 
-function buildStructuredQuery({ from, where = [], orderBy = [], limit = 20, select = null, startAt = null }) {
+/**
+ * Build a structured query. If `tiebreakerField` is set and the caller
+ * supplies `startAtRaw`, an extra `orderBy` is appended and the startAt
+ * values are extended with the tiebreaker value. This guarantees stable
+ * pagination across pages even when the primary orderBy field has
+ * duplicated values.
+ */
+function buildStructuredQuery({
+  from,
+  where = [],
+  orderBy = [],
+  limit = 20,
+  select = null,
+  startAt = null,
+  startAtRaw = null,
+  tiebreakerField = null,
+}) {
   const query = { from: [{ collectionId: from }] };
 
   if (where.length === 1) {
@@ -117,6 +193,16 @@ function buildStructuredQuery({ from, where = [], orderBy = [], limit = 20, sele
       direction: o.direction || 'ASCENDING',
     }));
   }
+  if (tiebreakerField) {
+    // Always add the tiebreaker with the same direction as the first
+    // orderBy (or ASCENDING if none). `__name__` is the document path.
+    const dir = orderBy.length > 0 ? (orderBy[0].direction || 'ASCENDING') : 'ASCENDING';
+    query.orderBy = query.orderBy || [];
+    query.orderBy.push({
+      field: { fieldPath: tiebreakerField },
+      direction: dir,
+    });
+  }
 
   if (limit) {
     query.limit = limit;
@@ -126,10 +212,15 @@ function buildStructuredQuery({ from, where = [], orderBy = [], limit = 20, sele
     query.select = { fields: select.map((f) => ({ fieldPath: f })) };
   }
 
-  if (startAt && startAt.length > 0) {
+  if (startAtRaw && startAtRaw.length > 0) {
+    query.startAt = {
+      values: startAtRaw.map(rawToFieldValue),
+      before: true,
+    };
+  } else if (startAt && startAt.length > 0) {
     query.startAt = {
       values: startAt.map((v) => toFieldValue(v)),
-      before: false,
+      before: true,
     };
   }
 
@@ -147,6 +238,12 @@ function getProjectId() {
   throw new Error('FIREBASE_PROJECT_ID is not configured');
 }
 
+// ── Public API ─────────────────────────────────────────────────────
+
+/**
+ * Execute a structured query against Firestore. Returns both converted
+ * plain documents AND the raw REST document objects (for cursor building).
+ */
 export async function runQuery(collectionId, options = {}) {
   const {
     where = [],
@@ -154,11 +251,22 @@ export async function runQuery(collectionId, options = {}) {
     limit = 20,
     select = null,
     startAt = null,
+    startAtRaw = null,
+    tiebreakerField = '__name__',
   } = options;
 
   const token = await getAccessToken();
   const projectId = getProjectId();
-  const structuredQuery = buildStructuredQuery({ from: collectionId, where, orderBy, limit, select, startAt });
+  const structuredQuery = buildStructuredQuery({
+    from: collectionId,
+    where,
+    orderBy,
+    limit,
+    select,
+    startAt,
+    startAtRaw,
+    tiebreakerField,
+  });
 
   const url = `${FIRESTORE_BASE}/projects/${projectId}/databases/(default)/documents:runQuery`;
 
@@ -182,14 +290,18 @@ export async function runQuery(collectionId, options = {}) {
 
   const data = await response.json();
   const documents = [];
+  const rawDocuments = [];
   for (const item of data) {
     if (item.document) {
       const obj = documentToObject(item.document);
-      if (obj) documents.push(obj);
+      if (obj) {
+        documents.push(obj);
+        rawDocuments.push(item.document);
+      }
     }
   }
 
-  return { documents };
+  return { documents, rawDocuments };
 }
 
 export async function getDocument(collectionId, docId) {
@@ -219,18 +331,37 @@ export async function getDocument(collectionId, docId) {
   return documentToObject(doc);
 }
 
+/**
+ * Fetch ALL documents from a collection using cursor pagination with a
+ * composite cursor (primary orderBy field + `__name__` tiebreaker).
+ * Uses the raw REST `fields` to build the cursor so types are preserved
+ * (important for timestamp ordering).
+ *
+ * Returns plain converted documents (without the `_firestoreName` field
+ * since callers don't need it).
+ */
 export async function getAllDocuments(collectionId, options = {}) {
-  const { orderBy = [], select = null } = options;
+  const {
+    orderBy = [],
+    select = null,
+    pageSize = 300,
+    maxPages = 100,
+    tiebreakerField = '__name__',
+  } = options;
   let allDocs = [];
-  let startAt = null;
+  let lastOrderByRawValues = null;
+  let lastDocName = null;
   let page = 0;
 
-  while (page < 50) {
+  while (page < maxPages) {
     const result = await runQuery(collectionId, {
       orderBy,
-      limit: 300,
+      limit: pageSize,
       select,
-      startAt,
+      startAtRaw: lastOrderByRawValues
+        ? [...lastOrderByRawValues, { stringValue: lastDocName }]
+        : null,
+      tiebreakerField,
     });
 
     if (result.documents.length === 0) {
@@ -239,29 +370,37 @@ export async function getAllDocuments(collectionId, options = {}) {
 
     allDocs = allDocs.concat(result.documents);
 
-    if (result.documents.length < 300) {
+    if (result.documents.length < pageSize) {
       break;
     }
 
-    // Build the next cursor from the last document's orderBy values.
-    // `documents` are plain objects (already converted), so read the
-    // field directly from the object.
-    const lastDoc = result.documents[result.documents.length - 1];
-    if (orderBy.length > 0 && lastDoc) {
-      const cursor = orderBy.map((o) => {
-        const val = lastDoc[o.field];
-        return val !== null && val !== undefined ? val : lastDoc.id;
+    // Build the next cursor from the LAST document in this page.
+    // Use the RAW REST fields to preserve types (timestamp stays timestamp).
+    const lastRawDoc = result.rawDocuments[result.rawDocuments.length - 1];
+    const lastRawFields = lastRawDoc.fields || {};
+    const lastObj = result.documents[result.documents.length - 1];
+
+    if (orderBy.length > 0 && lastRawDoc) {
+      const rawValues = orderBy.map((o) => {
+        const raw = extractRawFieldValue(lastRawFields, o.field);
+        if (raw) return raw;
+        // Fallback to id if field is missing
+        return { stringValue: lastObj.id };
       });
-      startAt = cursor;
+      lastOrderByRawValues = rawValues;
+      lastDocName = lastRawDoc.name;
     } else {
-      // Fallback: no orderBy — break to avoid infinite loop
+      // No orderBy — can't build a meaningful cursor
       break;
     }
 
     page += 1;
   }
 
-  return allDocs;
+  return allDocs.map((d) => {
+    delete d._firestoreName;
+    return d;
+  });
 }
 
 export async function setDocument(collectionId, docId, data) {
@@ -293,5 +432,3 @@ export async function setDocument(collectionId, docId, data) {
   const doc = await response.json();
   return documentToObject(doc);
 }
-
-export { extractFieldValue };

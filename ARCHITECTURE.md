@@ -145,25 +145,82 @@ totalPages }`. Errors return `{ error }` with appropriate status (400/401/404/
 
 ## 6. Cache strategy & invalidation
 
-**Edge (Cloudflare Cache API):** full GET responses, TTL 60 s (search) … 1 h
-(courses), with `stale-while-revalidate`.
+### Hard rule: no aggressive short-cycle rebuilds
 
-**KV:**
-- `pyq:search:index` — compact metadata for all PYQs (id, title, course,
-  semester, session, branch, subject, year, views, recency) — **10-min TTL**
-- `pyq:pyqs:item:<id>` — full doc incl. file URLs — **1-h TTL**
-- `pyq:contributors:list` — **1-h TTL**
-- `pyq:courses:list` — **24-h TTL**
-- `pyq:homepage:summary`, `pyq:stats` — **5/10-min TTL**
+The previous "every N minutes rebuild the entire PYQ collection from
+Firestore" architecture is **gone**. Under normal traffic the cache stays
+warm and **does not perform any rebuild**. Rebuilds happen only when
+explicitly triggered.
 
-**Invalidation:**
-- Admin content changes → `POST /api/invalidate` with the API key clears the
-  KV keys above and stamps an invalidation timestamp. `admin.js` calls this
-  automatically after PYQ/contributor add/edit/delete (set
-  `API_INVALIDATE_KEY` to match the Worker secret).
-- If the key is not set, admin changes appear after the TTL (safe fallback —
-  **no aggressive full-database refresh**, the old every-few-minutes refresh
-  is removed).
+### Refresh order of precedence
+
+1. **Admin invalidation** (`POST /api/invalidate` from `admin.js`).
+   Stamps an invalidation timestamp in KV; the next request detects
+   `lastInvalidatedAt > lastBuiltAt`, **serves the stale index** to the
+   response, and triggers a **single-flight, non-blocking background
+   rebuild** via `ctx.waitUntil`. Derived caches (`homepage`, `stats`,
+   `contributors`) are also cleared at this point so they recompute from
+   the fresh index on the next read.
+
+2. **Per-isolate dedup** of the background rebuild via a module-level
+   promise (`inIsolateRebuildPromise`) — at most one rebuild in flight per
+   Cloudflare isolate even on thundering-herd invalidation.
+
+3. **Cross-isolate dedup** via a KV `REBUILD_LOCK` (60 s TTL safety) — at
+   most one rebuild across all isolates.
+
+4. **Hard-TTL safety fallback ONLY** — `INDEX_HARD_TTL` in `cache.js`
+   defaults to **7 days**. This is the worst-case safety net for a
+   scenario where the Worker process is restarted and the invalidation
+   timestamp is somehow lost. It is **never** the primary refresh
+   mechanism.
+
+5. If the KV cache is genuinely empty (cold start, fresh deploy, or
+   explicit purge), the very first request performs a **synchronous**
+   rebuild — but again, only once per isolate lifetime, and restricted by
+   the KV lock across isolates.
+
+### Edge cache TTLs
+
+| Endpoint | TTL |
+|---|---|
+| `/api/pyqs` (list) | 120 s |
+| `/api/pyqs/:id` (detail) | 120 s |
+| `/api/pyqs/search` | 60 s |
+| `/api/homepage` | 120 s |
+| `/api/stats` | 600 s |
+| `/api/contributors` | 600 s |
+| `/api/courses` | 3600 s |
+
+### KV TTLs
+
+- `pyq:search:index` — **7 days** (hard safety fallback; index is normally
+  refreshed by admin invalidation, not by TTL)
+- `pyq:pyqs:item:<id>` — **1 h** (per-item cache; deletions propagate after
+  TTL or admin invalidation)
+- `pyq:contributors:list` — **1 h**
+- `pyq:courses:list` — **24 h**
+- `pyq:homepage:summary`, `pyq:stats` — **5 / 10 min**
+
+### Robust pagination cursor
+
+Firestore REST pagination uses a composite cursor `[primaryValue, __name__]`.
+The `__name__` tiebreaker (the full document path string) guarantees
+stable pagination even when the primary `orderBy` field is non-unique
+(e.g. `views` where many docs share a value, or duplicate creation
+timestamps). Cursor values preserve their original Firestore type
+(`timestampValue` stays `timestampValue`, not `stringValue`) so timestamps
+order correctly across pages.
+
+### "No duplicate reads per request" guarantee
+
+In a single request — even a cold-cache homepage request —
+**only one** collection sweep happens (the search-index build). The
+homepage endpoint derives `recent`, `trending`, `courseCounts`, and
+`stats` from that index. It never reads the `contributors` collection.
+The contributors endpoint only reads its own collection when its KV
+cache misses. There is no cross-collection Firestore read inside any
+single request.
 
 ## 7. Failure handling
 
@@ -199,24 +256,65 @@ totalPages }`. Errors return `{ error }` with appropriate status (400/401/404/
 
 See `worker/test/performance-simulation.md` for the full table. Summary:
 
-- 100 users, cold cache: **~N + C + U** reads (N = PYQ count, U = distinct
-  papers opened), vs **~200N** before.
-- 100 users, warm cache: **0 reads** for browse/search/homepage/contributors;
-  **1 read per distinct paper** opened.
+- 100 users, cold cache: **~N + C + U** reads (N = PYQ count, C = contributors,
+  U = distinct papers opened), vs **~200N** before.
+- 100 users, warm cache: **0 reads** for browse/search/homepage; **1 read per
+  distinct paper** opened; **0 reads** for `contributors` after the first
+  cache miss.
 - 311 PYQs → ~412 reads cold / ~0 warm (old: ~62K).
 - 10,000 PYQs → ~10,101 cold / ~0 warm (old: ~2M).
 
-The system no longer requires a full 10,000-document Firestore read for every
-user; the index rebuild (10-min TTL, or only on admin invalidation) is the
-only collection-scale read, and it is shared by all users.
+The system no longer requires a full 10,000-document Firestore read for
+every user; the index rebuild is **driven by admin invalidation only**
+(no short-cycle rebuild), and a single rebuild is shared by all users
+via the stale-while-revalidate pattern.
 
 ## 11. Testing
 
-`cd worker && node test/worker.test.js` — 69 assertions against a mocked
-Firestore (311 PYQs, 5 contributors):
+`cd worker && node test/worker.test.js` — **90 assertions** against a
+mocked Firestore, exercising the full refresh-strategy contract:
 
-health, list pagination (incl. limit/page capping), filters, search (incl.
-short-query 400, HTML stripping, year search), sorting, single-item
-(200/404/400), contributors, courses, homepage, stats, **cache-hit = 0
-Firestore reads**, KV item caching, rate limiting (429), invalid routes,
-method not allowed, cache invalidation (200 with key / 401 without), CORS.
+**Endpoints & behavior:** health, list (incl. limit/page capping,
+defaults, capping), filters (course, semester, session, combined),
+search (incl. short-query 400, HTML stripping, year search), sorting
+(az/za/popular, invalid sort fallback), single-item (200/404/400),
+contributors, courses, homepage, stats, CORS, invalid routes and
+methods, rate-limit 429.
+
+**Cache accounting (the critical new coverage):**
+- **Cold cache** — first request triggers exactly one index sweep (311
+  PYQs = 2 pages; 10,000 PYQs = 34 pages); zero contributor reads during
+  a homepage request
+- **Warm cache** — zero additional Firestore reads across browse, search,
+  homepage, stats, contributors for the lifetime of the cache
+- **Cache expiry (safety fallback)** — expiring the KV entry triggers a
+  rebuild on next read, subsequent reads are 0
+- **Admin invalidation** (stale-while-revalidate) — the next request
+  after `/api/invalidate` is served immediately with **zero synchronous
+  Firestore reads** for the serving path; the rebuild happens in the
+  background and writes the fresh index; subsequent requests are 0
+- **No duplicate reads per request** — homepage cold path never reads
+  the contributors collection; the Worker reads each collection at most
+  once per request
+
+**Pagination correctness:**
+- **Tiebreaker** — verified with 100 docs that share the same
+  `views` value: paginating through all 100 with `sort=popular` and
+  `limit=25` covers every id exactly once (validates the
+  `[primaryValue, __name__]` composite cursor)
+- **Timestamp typing** — `toFieldValue` detects ISO-8601 strings and
+  emits `timestampValue` so cursors round-trip correctly for timestamp
+  orderBy fields
+- **Scale** — 311, 1,000, 5,000 and 10,000 simulated PYQs each verified
+  to build the index in `ceil(N/300)` pages with all ids retrievable
+  via search
+
+**Other:**
+- Rate-limiting 429 under burst
+- Cache invalidation auth (200 with key, 401 without)
+- Invalid route + POST-on-GET 405
+
+**Frontend smoke:** `node test/frontend-smoke-test.cjs` jsdom test that
+`index.html` + `script.js` render the API-driven PYQ list (9 assertions).
+`node test/paper-smoke-test.cjs` for `paper.html` + `paper.js` (5
+assertions).

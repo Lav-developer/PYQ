@@ -1,15 +1,21 @@
 /**
  * Lightweight search index for PYQ metadata.
  *
- * The index is built from Firestore once per TTL and cached in KV.
- * Search/filter/sort operations run against the KV-cached index,
- * so no Firestore reads are needed for the vast majority of searches.
+ * Refresh strategy (safe under traffic — no aggressive full-database refresh):
+ *  - Primary refresh trigger: admin `POST /api/invalidate`. The Worker
+ *    records the timestamp in KV; subsequent reads detect staleness and
+ *    serve the old data while a background rebuild updates the index.
+ *  - Safety fallback only: a very long hard TTL (7 days, configured in
+ *    cache.js) plus staleness comparison against `_cachedAt` ensures the
+ *    index eventually refreshes even if invalidation is missed.
+ *  - During normal traffic the cache stays warm and NEVER triggers a full
+ *    Firestore collection rebuild. This directly replaces the previous
+ *    "10-minute full-rebuild on TTL expiry" architecture.
  */
 
 import { getAllDocuments } from './firestore.js';
-import { KV_KEYS, getFromKV, setKV } from './cache.js';
-
-const INDEX_TTL = 600; // 10 minutes
+import { KV_KEYS, getFromKV, setKV, DEFAULT_KV_TTL } from './cache.js';
+import { getInvalidationTimestamp, INDEX_HARD_TTL } from './cache.js';
 
 function normalize(str) {
   if (!str) return '';
@@ -40,7 +46,6 @@ function extractSortTimestamp(pyq) {
     }
     if (typeof val === 'number' && val > 0) return val;
   }
-  if (pyq._sortTimestamp) return pyq._sortTimestamp;
   return 0;
 }
 
@@ -59,8 +64,14 @@ function buildIndexItem(pyq) {
   };
 }
 
+/**
+ * Build a fresh index by reading the entire PYQS collection from Firestore
+ * (using cursor pagination with `__name__` tiebreaker). Stores in KV.
+ */
 export async function buildSearchIndex() {
   console.log('Building search index from Firestore...');
+  // Order by title for deterministic pagination; the `__name__` tiebreaker
+  // (added by getAllDocuments) prevents duplicates when titles collide.
   const docs = await getAllDocuments('pyqs', {
     orderBy: [{ field: 'title', direction: 'ASCENDING' }],
   });
@@ -73,27 +84,115 @@ export async function buildSearchIndex() {
     count: index.length,
     _cachedAt: Date.now(),
   };
-  await setKV(KV_KEYS.SEARCH_INDEX, cacheData, INDEX_TTL);
+  // Use a very long hard TTL — the index should be invalidated explicitly
+  // by the admin, not by a short clock-driven refresh.
+  await setKV(KV_KEYS.SEARCH_INDEX, cacheData, INDEX_HARD_TTL);
   console.log(`Search index built: ${index.length} items, cached in KV`);
 
   return cacheData;
 }
 
-export async function getSearchIndex({ forceRefresh = false } = {}) {
-  if (!forceRefresh) {
-    const cached = await getFromKV(KV_KEYS.SEARCH_INDEX);
-    if (cached && cached.items && cached.items.length > 0) {
-      console.log(`Search index cache HIT: ${cached.items.length} items`);
-      return cached;
-    }
+/**
+ * Get the current search index. Decides whether to return cached fresh,
+ * serve stale + signal a background rebuild, or force a synchronous rebuild
+ * (only when nothing is cached at all — first deploy).
+ *
+ * Returns:
+ *   {
+ *     index: <cached|fresh object>,
+ *     fresh: <boolean>,              // true if cache is up to date
+ *     needsBackgroundRebuild: <boolean>,
+ *     reason: 'cold'|'fresh'|'stale-invalidated'|'stale-aged'
+ *   }
+ */
+export async function getSearchIndex({ forceRebuild = false } = {}) {
+  const cached = await getFromKV(KV_KEYS.SEARCH_INDEX);
+  const invalidationTs = await getInvalidationTimestamp();
+
+  if (forceRebuild) {
+    const fresh = await buildSearchIndex();
+    return { index: fresh, fresh: true, needsBackgroundRebuild: false, reason: 'forced' };
   }
 
-  console.log('Search index cache MISS — building from Firestore');
-  return await buildSearchIndex();
+  // First-ever deploy / never built: build synchronously (nothing to serve stale)
+  if (!cached || !cached.items || cached.items.length === 0) {
+    console.log('Search index cold: building from Firestore (first deploy)');
+    const fresh = await buildSearchIndex();
+    return { index: fresh, fresh: true, needsBackgroundRebuild: false, reason: 'cold' };
+  }
+
+  const lastBuiltAt = cached._cachedAt || 0;
+
+  // Stale due to admin invalidation since last build
+  if (invalidationTs > lastBuiltAt) {
+    console.log(`Search index stale: invalidated at ${invalidationTs}, built at ${lastBuiltAt}`);
+    return {
+      index: cached,
+      fresh: false,
+      needsBackgroundRebuild: true,
+      reason: 'stale-invalidated',
+    };
+  }
+
+  // Safety fallback: the hard TTL has elapsed. Real hard TTL is enforced
+  // by KV storage, but on KV-restore from another isolate we re-check by
+  // timestamp defensively.
+  const ageMs = Date.now() - lastBuiltAt;
+  if (ageMs > INDEX_HARD_TTL) {
+    console.log(`Search index stale by age (${ageMs}ms > ${INDEX_HARD_TTL}ms)`);
+    return {
+      index: cached,
+      fresh: false,
+      needsBackgroundRebuild: true,
+      reason: 'stale-aged',
+    };
+  }
+
+  // Fresh: serve without triggering any rebuild
+  return { index: cached, fresh: true, needsBackgroundRebuild: false, reason: 'fresh' };
 }
 
+/**
+ * Run a background rebuild (intended to be passed to `ctx.waitUntil`).
+ * Uses an in-isolate promise dedup plus a KV lock for cross-isolate dedup
+ * to guarantee a single rebuild even when many concurrent requests arrive
+ * after an invalidation.
+ */
+let inIsolateRebuildPromise = null;
+
+export function getInIsolateRebuildPromise() {
+  return inIsolateRebuildPromise;
+}
+
+export async function runBackgroundRebuild() {
+  // Per-isolate dedup — multiple concurrent reads in the same isolate share
+  // the same Promise. Different isolates coordinate via the KV lock.
+  if (inIsolateRebuildPromise) {
+    return inIsolateRebuildPromise;
+  }
+  inIsolateRebuildPromise = (async () => {
+    const { acquireRebuildLock, releaseRebuildLock } = await import('./cache.js');
+    const gotLock = await acquireRebuildLock();
+    if (!gotLock) {
+      console.log('Background rebuild: another isolate already holds the lock — skipping');
+      return;
+    }
+    try {
+      await buildSearchIndex();
+    } catch (err) {
+      console.error('Background rebuild failed:', err.message);
+    } finally {
+      await releaseRebuildLock();
+      inIsolateRebuildPromise = null;
+    }
+  })();
+  return inIsolateRebuildPromise;
+}
+
+// ── Search/filter/sort operations on a (possibly stale) index ──────
+
 export function searchIndex(index, { query, course, semester, session, year, sort, page, limit }) {
-  let items = index.items || [];
+  let items = (index && index.items) || [];
 
   if (query) {
     const qNorm = normalizeForCompare(query);
@@ -173,12 +272,12 @@ function sortItems(items, sort) {
 }
 
 export function getRecentItems(index, count = 6) {
-  const items = [...(index.items || [])];
+  const items = [...((index && index.items) || [])];
   return items.sort((a, b) => (b.ts || 0) - (a.ts || 0)).slice(0, count);
 }
 
 export function getTrendingItems(index, count = 6) {
-  const items = [...(index.items || [])];
+  const items = [...((index && index.items) || [])];
   return items
     .sort((a, b) => (b.v || 0) - (a.v || 0) || (b.ts || 0) - (a.ts || 0))
     .slice(0, count);
@@ -186,7 +285,7 @@ export function getTrendingItems(index, count = 6) {
 
 export function getCourseCounts(index) {
   const counts = {};
-  for (const item of index.items || []) {
+  for (const item of (index && index.items) || []) {
     const course = item.c || 'General';
     counts[course] = (counts[course] || 0) + 1;
   }
@@ -197,5 +296,8 @@ export function getCourseCounts(index) {
 }
 
 export function getItemById(index, id) {
-  return (index.items || []).find((item) => item.id === id) || null;
+  return ((index && index.items) || []).find((item) => item.id === id) || null;
 }
+
+// Keep a reference to the default TTL for any callers that imported it
+export { DEFAULT_KV_TTL };

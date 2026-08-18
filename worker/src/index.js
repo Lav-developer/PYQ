@@ -11,17 +11,33 @@
  *   GET /api/homepage        — Homepage summary (recent, trending, course counts)
  *   GET /api/stats           — Aggregated stats
  *   POST /api/invalidate     — Invalidate cache (admin only, API key protected)
+ *
+ * Cache refresh strategy:
+ *  - Each handler that needs the search index calls `ensureFreshIndex(ctx)`.
+ *    On a hit, return the cached index. On a miss OR on a stale entry
+ *    (strictly marked by an admin invalidation timestamp), the handler
+ *    returns the stale data immediately and `ctx.waitUntil`-schedules a
+ *    single-flight background rebuild. The response itself never waits for
+ *    the rebuild — the next request sees fresh data.
+ *  - There is NO short fixed-clock full-rebuild under normal traffic.
+ *    The previous "every 10 minutes rebuild the entire PYQ collection" was
+ *    removed. A 7-day hard TTL in cache.js acts as a safety fallback only.
+ *  - Within a single request, endpoints do NOT perform duplicate Firestore
+ *    collection reads. `/api/homepage` derives everything from the search
+ *    index and contributors are read only by `/api/contributors`.
  */
 
-import { getDocument } from './firestore.js';
+import { getDocument, getAllDocuments } from './firestore.js';
 import {
   KV_KEYS, getFromKV, setKV,
   getFromEdgeCache, setEdgeCache,
   shouldBypassCache, invalidateAll,
+  VERY_LONG_KV_TTL,
 } from './cache.js';
 import {
   getSearchIndex, searchIndex,
   getRecentItems, getTrendingItems, getCourseCounts,
+  runBackgroundRebuild,
 } from './search.js';
 import { checkRateLimit, getClientIP, normalizeEndpoint } from './rateLimit.js';
 import {
@@ -32,7 +48,7 @@ import { handleOptions, withCors } from './cors.js';
 
 // ─── Request Handler ─────────────────────────────────────────────
 
-async function handleRequest(request) {
+async function handleRequest(request, ctx) {
   const url = new URL(request.url);
   const path = url.pathname;
   const method = request.method;
@@ -77,9 +93,9 @@ async function handleRequest(request) {
   let response;
   try {
     if (path === '/api/pyqs' && method === 'GET') {
-      response = await handlePyqsList(url);
+      response = await handlePyqsList(url, ctx);
     } else if (path === '/api/pyqs/search' && method === 'GET') {
-      response = await handlePyqsSearch(url);
+      response = await handlePyqsSearch(url, ctx);
     } else if (path.match(/^\/api\/pyqs\/([^\/]+)$/) && method === 'GET') {
       const id = decodeURIComponent(path.match(/^\/api\/pyqs\/([^\/]+)$/)[1]);
       response = await handlePyqsSingle(id);
@@ -88,9 +104,9 @@ async function handleRequest(request) {
     } else if (path === '/api/courses' && method === 'GET') {
       response = await handleCourses();
     } else if (path === '/api/homepage' && method === 'GET') {
-      response = await handleHomepage();
+      response = await handleHomepage(ctx);
     } else if (path === '/api/stats' && method === 'GET') {
-      response = await handleStats();
+      response = await handleStats(ctx);
     } else if (path === '/api/invalidate' && method === 'POST') {
       response = await handleInvalidate(request);
     } else {
@@ -113,18 +129,32 @@ async function handleRequest(request) {
   return response;
 }
 
-// ─── Route Handlers ──────────────────────────────────────────────
+// ─── Helpers shared by list/search/homepage/stats handlers ─────────
 
 /**
- * GET /api/pyqs?page=1&limit=20&sort=newest&course=...&semester=...&session=...
- * Serves from the KV-cached search index — zero Firestore reads on cache hit.
+ * Return a search index and (non-blocking) trigger a rebuild if the
+ * stored index is stale. The caller immediately services the response;
+ * the rebuild happens via `ctx.waitUntil` after the response is sent.
+ *
+ * Only ONE rebuild is ever in-flight per Worker isolate (deduped by
+ * `runBackgroundRebuild`) and across isolates (KV lock in cache.js).
  */
-async function handlePyqsList(url) {
+async function ensureFreshIndex(ctx) {
+  const result = await getSearchIndex();
+  if (result.needsBackgroundRebuild && ctx && typeof ctx.waitUntil === 'function') {
+    ctx.waitUntil(runBackgroundRebuild());
+  }
+  return result.index;
+}
+
+// ─── Route Handlers ──────────────────────────────────────────────
+
+async function handlePyqsList(url, ctx) {
   const { page, limit } = parsePagination(url.searchParams);
   const sort = validateSort(url.searchParams.get('sort'));
   const filters = validateFilters(url.searchParams);
 
-  const index = await getSearchIndex();
+  const index = await ensureFreshIndex(ctx);
   if (!index || !index.items || index.items.length === 0) {
     return jsonResponse({ items: [], total: 0, page, limit, totalPages: 0 }, 200);
   }
@@ -149,11 +179,7 @@ async function handlePyqsList(url) {
   }, 200);
 }
 
-/**
- * GET /api/pyqs/search?q=...&course=...&semester=...&session=...&sort=...&page=1&limit=20
- * Serves from the KV-cached search index — zero Firestore reads on cache hit.
- */
-async function handlePyqsSearch(url) {
+async function handlePyqsSearch(url, ctx) {
   const query = sanitizeSearchQuery(url.searchParams.get('q') || '');
   const course = url.searchParams.get('course') || '';
   const semester = url.searchParams.get('semester') || '';
@@ -166,7 +192,7 @@ async function handlePyqsSearch(url) {
     return jsonResponse({ error: 'Search query must be at least 2 characters' }, 400);
   }
 
-  const index = await getSearchIndex();
+  const index = await ensureFreshIndex(ctx);
   if (!index || !index.items || index.items.length === 0) {
     return jsonResponse({ items: [], total: 0, page, limit, totalPages: 0 }, 200);
   }
@@ -191,10 +217,6 @@ async function handlePyqsSearch(url) {
   }, 200);
 }
 
-/**
- * GET /api/pyqs/:id — Full document including file URLs.
- * KV-cached for 1 hour; 1 Firestore read on miss.
- */
 async function handlePyqsSingle(id) {
   if (!isValidDocId(id)) {
     return jsonResponse({ error: 'Invalid document ID' }, 400);
@@ -218,9 +240,6 @@ async function handlePyqsSingle(id) {
   return jsonResponse(doc, 200);
 }
 
-/**
- * GET /api/contributors — KV-cached, 1 Firestore read per hour on miss.
- */
 async function handleContributors() {
   const cached = await getFromKV(KV_KEYS.CONTRIBUTORS);
   if (cached && cached.items) {
@@ -229,9 +248,9 @@ async function handleContributors() {
   }
 
   console.log('KV cache MISS for contributors — fetching from Firestore');
-  const { getAllDocuments } = await import('./firestore.js');
   const docs = await getAllDocuments('contributors', {
     orderBy: [{ field: 'name', direction: 'ASCENDING' }],
+    pageSize: 300,
   });
 
   const items = docs.map((d) => ({
@@ -246,9 +265,6 @@ async function handleContributors() {
   return jsonResponse(items, 200);
 }
 
-/**
- * GET /api/courses — course catalog, KV-cached (very static).
- */
 async function handleCourses() {
   const cached = await getFromKV(KV_KEYS.COURSES);
   if (cached && cached.courses) {
@@ -268,16 +284,20 @@ async function handleCourses() {
 
 /**
  * GET /api/homepage — recent, trending, course counts, stats.
- * Built from the search index (KV), cached separately.
+ *
+ * IMPORTANT: this handler reads ONLY the search index. It does NOT
+ * trigger a contributors Firestore collection read, so there is no
+ * duplicate read in the same request when both `/api/homepage` and
+ * `/api/contributors` are called.
  */
-async function handleHomepage() {
+async function handleHomepage(ctx) {
   const cached = await getFromKV(KV_KEYS.HOMEPAGE);
   if (cached && cached.recent) {
     console.log('KV cache HIT for homepage');
     return jsonResponse(cached, 200);
   }
 
-  const index = await getSearchIndex();
+  const index = await ensureFreshIndex(ctx);
   if (!index || !index.items) {
     return jsonResponse({ recent: [], trending: [], courseCounts: [], stats: {} }, 200);
   }
@@ -302,33 +322,27 @@ async function handleHomepage() {
   return jsonResponse(homepageData, 200);
 }
 
-/**
- * GET /api/stats — total PYQs and course count, KV-cached.
- */
-async function handleStats() {
+async function handleStats(ctx) {
   const cached = await getFromKV(KV_KEYS.STATS);
-  if (cached) {
+  if (cached && cached.totalPyqs !== undefined) {
     return jsonResponse(cached, 200);
   }
 
-  const index = await getSearchIndex();
-  const courseCounts = getCourseCounts(index || { items: [] });
+  const index = await ensureFreshIndex(ctx);
+  if (index && index.items) {
+    const courseCounts = getCourseCounts(index);
+    const stats = {
+      totalPyqs: index.count || 0,
+      totalCourses: courseCounts.length,
+      _cachedAt: Date.now(),
+    };
+    await setKV(KV_KEYS.STATS, stats, 600);
+    return jsonResponse(stats, 200);
+  }
 
-  const stats = {
-    totalPyqs: (index && index.count) || 0,
-    totalCourses: courseCounts.length,
-    _cachedAt: Date.now(),
-  };
-
-  await setKV(KV_KEYS.STATS, stats, 600);
-
-  return jsonResponse(stats, 200);
+  return jsonResponse({ totalPyqs: 0, totalCourses: 0 }, 200);
 }
 
-/**
- * POST /api/invalidate — invalidate all caches.
- * Requires X-Api-Key matching ADMIN_API_KEY.
- */
 async function handleInvalidate(request) {
   const apiKey = request.headers.get('X-Api-Key') || request.headers.get('x-api-key');
   const adminKey = typeof ADMIN_API_KEY !== 'undefined' ? ADMIN_API_KEY : null;
@@ -342,9 +356,6 @@ async function handleInvalidate(request) {
 
 // ─── Helpers ─────────────────────────────────────────────────────
 
-/**
- * Map compact index items to the public API shape.
- */
 function mapIndexItems(items) {
   if (!items || !items.length) return [];
   return items.map((item) => ({
@@ -360,9 +371,6 @@ function mapIndexItems(items) {
   }));
 }
 
-/**
- * Determine edge cache TTL based on the endpoint path.
- */
 function getCacheTTL(path) {
   if (path === '/api/contributors') return 600;
   if (path === '/api/courses') return 3600;
@@ -374,9 +382,6 @@ function getCacheTTL(path) {
   return 60;
 }
 
-/**
- * Create a JSON response.
- */
 function jsonResponse(data, status = 200, extraHeaders = {}) {
   const body = JSON.stringify(data);
   const headers = {
@@ -403,7 +408,7 @@ export default {
     }
 
     try {
-      return await handleRequest(request);
+      return await handleRequest(request, ctx);
     } catch (err) {
       console.error('Unhandled error:', err.message, err.stack);
       return jsonResponse({ error: 'Internal server error' }, 500);

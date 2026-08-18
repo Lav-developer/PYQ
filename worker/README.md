@@ -111,15 +111,20 @@ npx wrangler deploy
 
 - **Edge cache (Cloudflare Cache API):** caches whole GET responses.
   TTLs: list/search 60–120s, item 120s, contributors 600s, courses 1h.
-- **KV:** stores the search index (all compact PYQ metadata, 10 min TTL),
-  per-item full docs (1 h), contributors (1 h), courses (24 h), homepage (5 min).
-- **Invalidation:** `POST /api/invalidate` with `X-Api-Key: <ADMIN_API_KEY>`
-  clears KV cache keys and stamps an invalidation timestamp. Call it from the
-  admin panel after content changes (the admin frontend has a built-in
-  "Refresh API cache" action, or you can call it from an admin script).
-- **Fallback:** if Firestore is down, stale KV data is served when available;
-  otherwise the API returns a 5xx JSON error and the frontend shows a graceful
-  empty/error state (it never fully breaks).
+- **KV:** stores the search index (all compact PYQ metadata; refreshed
+  via admin invalidation — **no short fixed-clock rebuild**, a 7-day
+  hard TTL is the safety fallback only), per-item full docs (1 h),
+  contributors (1 h), courses (24 h), homepage (5 min).
+- **Invalidation (primary refresh trigger):** `POST /api/invalidate`
+  with `X-Api-Key: <ADMIN_API_KEY>` stamps an invalidation timestamp
+  and clears derived caches (homepage / stats / contributors / courses).
+  The next request serves the stale search index to the response and
+  triggers a **single-flight background rebuild** via `ctx.waitUntil`.
+  After that one rebuild, the index is fresh and the system stays warm
+  for any number of users until the next invalidation.
+- **Fallback:** if Firestore is down, stale KV data is served when
+  available; otherwise the API returns a 5xx JSON error and the
+  frontend shows a graceful empty/error state (it never fully breaks).
 
 ## Rate limiting
 
