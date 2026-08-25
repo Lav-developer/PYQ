@@ -4239,3 +4239,13 @@ section[id] {
 .link-category .category-title i {
   color: var(--color-primary);
 }
+
+/* Replaces the Font Awesome Brands webfont on public pages. */
+.brand-google {
+  display: inline-block;
+  color: currentColor;
+  font-family: Arial, sans-serif;
+  font-size: 1em;
+  font-weight: 800;
+  line-height: 1;
+}
