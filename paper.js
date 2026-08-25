@@ -360,7 +360,7 @@
             "description": metaDesc,
             "datePublished": createdAt ? (typeof createdAt.toDate==='function'?createdAt.toDate().toISOString(): String(createdAt)) : undefined,
             "author": {"@type":"Organization","name":"DSMNRU Academic Archive"},
-            "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive","logo":{"@type":"ImageObject","url":"https://dsmnru-pyq.netlify.app/img/Logo.png"}},
+            "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive","logo":{"@type":"ImageObject","url":"https://dsmnru-pyq.netlify.app/img/icon-512.png"}},
             "mainEntityOfPage": {"@type":"WebPage","@id": pageUrl}
         };
         document.getElementById('paperJsonLd').textContent = JSON.stringify(ld);
@@ -573,7 +573,7 @@
         const text = url || window.location.href;
         if(navigator.clipboard && window.isSecureContext){
             navigator.clipboard.writeText(text).then(()=>{
-                Swal.fire({ icon:'success', title:'Link copied!', text: text, timer: 2200, showConfirmButton:false });
+                showAlert({ icon:'success', title:'Link copied!', text: text, timer: 2200, showConfirmButton:false });
             });
         } else {
             // fallback via share modal
@@ -581,7 +581,7 @@
             setTimeout(()=>{
                 const input = document.getElementById('shareLink');
                 input.select(); input.setSelectionRange(0,99999);
-                try { document.execCommand('copy'); Swal.fire('Copied!', 'Link copied to clipboard', 'success'); } catch(e){}
+                try { document.execCommand('copy'); showAlert('Copied!', 'Link copied to clipboard', 'success'); } catch(e){}
             }, 300);
         }
     }
@@ -745,7 +745,7 @@
             if(!currentUser){
                 // prompt login
                 commentErrorEl.style.display='none';
-                Swal.fire({
+                showAlert({
                     title: 'Login required',
                     text: 'You need to login to post a comment.',
                     icon: 'info',
