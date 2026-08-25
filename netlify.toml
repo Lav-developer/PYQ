@@ -1,0 +1,69 @@
+[build]
+  publish = "."
+
+# Static multi-page site: do not add an SPA catch-all. Existing files retain
+# their own URLs and Netlify serves 404.html for unknown paths.
+
+[[redirects]]
+  from = "/index.html"
+  to = "/"
+  status = 301
+  force = true
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "geolocation=(), microphone=(), camera=()"
+    X-Frame-Options = "SAMEORIGIN"
+
+[[headers]]
+  for = "/"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/*.html"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/robots.txt"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/sitemap.xml"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/styles.css"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, must-revalidate"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, must-revalidate"
+
+[[headers]]
+  for = "/img/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800, must-revalidate"
+
+[[headers]]
+  for = "/admin.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow, noarchive"
+
+[[headers]]
+  for = "/paper.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, follow, noarchive"
+
+[[headers]]
+  for = "/tools.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, follow, noarchive"

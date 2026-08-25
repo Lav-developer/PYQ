@@ -11,16 +11,66 @@ const firebaseConfig = {
 
 firebase.initializeApp(firebaseConfig);
 
-// Firebase Storage and Firestore references
-const db = firebase.firestore();
+// Authentication is required for the profile control, but Firestore is not
+// needed to browse public PYQs (those come from the Worker API). Loading the
+// Firestore compat bundle only when an authenticated/write feature is used
+// removes its parse/compile work from the anonymous landing-page critical path.
+let db = null;
 const auth = firebase.auth();
+let firestoreLoadPromise = null;
 
-db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
-    // Multi-tab and unsupported-browser failures are safe to ignore for this app.
-    if (error.code !== 'failed-precondition' && error.code !== 'unimplemented') {
-        console.warn('Firestore persistence unavailable:', error.message);
+function configureFirestore() {
+    if (!db && firebase.firestore) {
+        db = firebase.firestore();
+        db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
+            if (error.code !== 'failed-precondition' && error.code !== 'unimplemented') {
+                console.warn('Firestore persistence unavailable:', error.message);
+            }
+        });
     }
-});
+    return db;
+}
+
+function ensureFirestore() {
+    if (configureFirestore()) return Promise.resolve(db);
+    if (firestoreLoadPromise) return firestoreLoadPromise;
+
+    firestoreLoadPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js';
+        script.async = true;
+        script.onload = () => {
+            const firestore = configureFirestore();
+            if (firestore) resolve(firestore);
+            else reject(new Error('Firestore did not initialize'));
+        };
+        script.onerror = () => reject(new Error('Unable to load Firestore'));
+        document.head.appendChild(script);
+    });
+    return firestoreLoadPromise;
+}
+window.ensureFirestore = ensureFirestore;
+
+
+// SweetAlert is only used after a login, profile, upload or feedback action.
+// Keep the notification UI, but do not parse it for an anonymous archive visit.
+let sweetAlertLoadPromise = null;
+function ensureSweetAlert() {
+    if (window.Swal && typeof window.Swal.fire === 'function') return Promise.resolve(window.Swal);
+    if (sweetAlertLoadPromise) return sweetAlertLoadPromise;
+    sweetAlertLoadPromise = new Promise((resolve, reject) => {
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/sweetalert2@11';
+        script.async = true;
+        script.onload = () => resolve(window.Swal);
+        script.onerror = () => reject(new Error('Unable to load notifications'));
+        document.head.appendChild(script);
+    });
+    return sweetAlertLoadPromise;
+}
+function showAlert(...args) {
+    return ensureSweetAlert().then(Swal => Swal.fire(...args));
+}
 
 // ===== API CONFIGURATION (Cloudflare Worker) =====
 // Public data (PYQs, search, contributors, homepage) now comes from the
@@ -262,6 +312,7 @@ function requiresEmailVerification(user) {
 
 async function ensureUserDocumentSynced(user) {
     if (!user) return;
+    await ensureFirestore();
 
     const googleAccount = isGoogleUser(user);
 
@@ -286,6 +337,7 @@ async function ensureUserDocumentSynced(user) {
 
 async function sendSubscriberToMakeOnce(uid, name, email, source) {
     if (!uid || !email) return false;
+    await ensureFirestore();
 
     const userRef = db.collection('users').doc(uid);
     const shouldSend = await db.runTransaction(async transaction => {
@@ -345,7 +397,7 @@ function updateUploadAccessUI() {
 }
 
 // Monitor auth state changes
-auth.onAuthStateChanged(user => {
+auth.onAuthStateChanged(async user => {
     currentUser = user;
     updateUserUI();
     updateUploadAccessUI();
@@ -357,6 +409,8 @@ auth.onAuthStateChanged(user => {
         // will be confirmed after reload
     }
     if (user) {
+        // Load Firestore only for an authenticated visitor before profile sync.
+        try { await ensureFirestore(); } catch (error) { console.warn('Firestore unavailable:', error.message); }
         // Check if email is verified
         user.reload()
             .then(async () => {
@@ -414,15 +468,22 @@ function updateUserUI() {
 
 // Profile dropdown toggle
 function toggleProfileDropdown() {
+    const profileButton = document.getElementById('profileBtn');
+
     const dropdown = document.getElementById('profileDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    const isOpen = dropdown.style.display === 'none';
+    dropdown.style.display = isOpen ? 'block' : 'none';
+    if (profileButton) profileButton.setAttribute('aria-expanded', String(isOpen));
 }
 
 // Close dropdown when clicking outside
 document.addEventListener('click', function(event) {
     const profileSection = document.querySelector('.user-profile-section');
     if (!profileSection.contains(event.target)) {
-        document.getElementById('profileDropdown').style.display = 'none';
+        const dropdown = document.getElementById('profileDropdown');
+        if (dropdown) dropdown.style.display = 'none';
+        const profileButton = document.getElementById('profileBtn');
+        if (profileButton) profileButton.setAttribute('aria-expanded', 'false');
     }
 });
 
@@ -463,7 +524,7 @@ async function signInWithGoogle(providerEntryPoint) {
         document.getElementById('loginForm').reset();
         document.getElementById('signupForm').reset();
 
-        Swal.fire({
+        showAlert({
             title: 'Signed in with Google',
             text: providerEntryPoint === 'signup' ? 'Your Google account was created and signed in.' : 'You are now signed in with your Google account.',
             icon: 'success'
@@ -482,7 +543,7 @@ async function signInWithGoogle(providerEntryPoint) {
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
         } else {
-            Swal.fire('Error', message, 'error');
+            showAlert('Error', message, 'error');
         }
     }
 }
@@ -502,10 +563,10 @@ document.getElementById('loginForm').addEventListener('submit', async function(e
         document.getElementById('loginForm').reset();
         
         if (!requiresEmailVerification(result.user)) {
-            Swal.fire('Success', 'Logged in successfully!', 'success');
+            showAlert('Success', 'Logged in successfully!', 'success');
             try { updatePyqFilterUI(); populateCourseFilter(); } catch (e) {}
         } else {
-            Swal.fire({
+            showAlert({
                 title: 'Welcome Back!',
                 html: '<p>Your email is not verified yet.</p><p>Please verify your email to unlock all features.</p>',
                 icon: 'info'
@@ -638,6 +699,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         }
 
         // Create user document in Firestore
+        await ensureFirestore();
         await db.collection('users').doc(user.uid).set({
             uid: user.uid,
             email: email,
@@ -660,7 +722,7 @@ document.getElementById('signupForm').addEventListener('submit', async function(
         document.getElementById('signupForm').reset();
         
         // Show success message with verification instruction
-        Swal.fire({
+        showAlert({
             title: 'Account Created!',
             html: isGoogleUser(user)
                 ? '<p>Google account created successfully.</p><p>You can use the app immediately. No email verification is needed.</p>'
@@ -696,6 +758,7 @@ function openProfileModal() {
 
 async function loadUserProfile() {
     if (!currentUser) return;
+    await ensureFirestore();
     
     try {
         await ensureUserDocumentSynced(currentUser);
@@ -845,7 +908,7 @@ document.getElementById('changePasswordForm').addEventListener('submit', async f
 });
 
 function deleteAccountConfirm() {
-    Swal.fire({
+    showAlert({
         title: 'Delete Account?',
         text: 'This action cannot be undone. All your data will be permanently deleted.',
         icon: 'warning',
@@ -859,9 +922,9 @@ function deleteAccountConfirm() {
                 const user = auth.currentUser;
                 await db.collection('users').doc(user.uid).delete();
                 await user.delete();
-                Swal.fire('Deleted', 'Your account has been deleted.', 'success');
+                showAlert('Deleted', 'Your account has been deleted.', 'success');
             } catch (error) {
-                Swal.fire('Error', error.message, 'error');
+                showAlert('Error', error.message, 'error');
             }
         }
     });
@@ -935,7 +998,7 @@ function isVerifiedOrPrompt() {
 }
 
 async function logoutAndChangeEmail() {
-    Swal.fire({
+    showAlert({
         title: 'Use Different Email?',
         html: '<p>This will log you out so you can create a new account with a different email address.</p><p><strong>Note:</strong> Your current unverified account will be deleted.</p>',
         icon: 'question',
@@ -962,7 +1025,7 @@ async function logoutAndChangeEmail() {
                 // Sign out
                 await auth.signOut();
                 
-                Swal.fire({
+                showAlert({
                     title: 'Account Deleted',
                     text: 'Your account has been deleted. You can now sign up with a different email.',
                     icon: 'success'
@@ -972,7 +1035,7 @@ async function logoutAndChangeEmail() {
                 });
             } catch (error) {
                 if (error.code === 'auth/requires-recent-login') {
-                    Swal.fire({
+                    showAlert({
                         title: 'Re-authentication Required',
                         text: 'Please log out and log back in to delete your account. Then try again.',
                         icon: 'warning'
@@ -981,7 +1044,7 @@ async function logoutAndChangeEmail() {
                         window.location.reload();
                     });
                 } else {
-                    Swal.fire('Error', error.message, 'error');
+                    showAlert('Error', error.message, 'error');
                 }
             }
         }
@@ -996,7 +1059,7 @@ async function resendVerificationEmail() {
         
         await currentUser.sendEmailVerification();
         
-        Swal.fire({
+        showAlert({
             title: 'Email Sent!',
             text: 'Verification email has been sent to ' + currentUser.email,
             icon: 'success',
@@ -1006,7 +1069,7 @@ async function resendVerificationEmail() {
         resendBtn.disabled = false;
         resendBtn.innerHTML = originalText;
     } catch (error) {
-        Swal.fire('Error', error.message, 'error');
+        showAlert('Error', error.message, 'error');
         resendBtn.disabled = false;
     }
 }
@@ -1025,7 +1088,7 @@ async function checkEmailVerification() {
             const modal = bootstrap.Modal.getInstance(document.getElementById('emailVerificationModal'));
             if (modal) modal.hide();
             
-            Swal.fire({
+            showAlert({
                 title: 'Email Verified!',
                 text: 'Your email has been verified successfully. You now have full access to all features.',
                 icon: 'success'
@@ -1035,14 +1098,14 @@ async function checkEmailVerification() {
             // also reload profile and allow actions
             try { await ensureUserDocumentSynced(currentUser); loadUserProfile(); } catch(e){}
         } else {
-            Swal.fire({
+            showAlert({
                 title: 'Email Not Verified Yet',
                 text: 'Please check your email and click the verification link. Then try again.',
                 icon: 'info'
             });
         }
     } catch (error) {
-        Swal.fire('Error', error.message, 'error');
+        showAlert('Error', error.message, 'error');
     }
 }
 
@@ -1118,7 +1181,7 @@ function openProfileModalFromReminder() {
 
 // ===== LOGOUT FUNCTION =====
 function logout() {
-    Swal.fire({
+    showAlert({
         title: 'Logout?',
         text: 'You will be logged out from your account.',
         icon: 'question',
@@ -1129,9 +1192,9 @@ function logout() {
             try {
                 await auth.signOut();
                 document.getElementById('profileDropdown').style.display = 'none';
-                Swal.fire('Logged Out', 'You have been logged out successfully.', 'success');
+                showAlert('Logged Out', 'You have been logged out successfully.', 'success');
             } catch (error) {
-                Swal.fire('Error', error.message, 'error');
+                showAlert('Error', error.message, 'error');
             }
         }
     });
@@ -1480,6 +1543,7 @@ function setupUserUploadHandler() {
             statusMessage.textContent = 'File uploaded successfully! Saving metadata...';
 
             // Save metadata to Firestore pendingUploads collection
+            await ensureFirestore();
             await db.collection('pendingUploads').add({
                 title: title,
                 course: course,
@@ -2156,7 +2220,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <i class="fas fa-file-pdf"></i>
                     </div>
                     <div class="pyq-details">
-                        <h5 class="pyq-title"><a href="paper.html?id=${encodeURIComponent(pyq.id)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h5>
+                        <h3 class="pyq-title"><a href="paper.html?id=${encodeURIComponent(pyq.id)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h3>
                         <div class="syllabus-meta" style="margin-bottom:8px;">${pills.join('')}</div>
                         <div class="pyq-meta" style="margin-bottom:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:13px; color: var(--color-text-secondary);">
                             <span><i class="fas fa-eye"></i> ${viewCount} views</span>
@@ -2476,9 +2540,10 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        const incrementValue = firebase.firestore.FieldValue.increment(1);
-        db.collection('pyqs').doc(pyqId).set({ views: incrementValue }, { merge: true })
-            .catch(error => {
+        ensureFirestore().then(() => {
+            const incrementValue = firebase.firestore.FieldValue.increment(1);
+            return db.collection('pyqs').doc(pyqId).set({ views: incrementValue }, { merge: true });
+        }).catch(error => {
                 console.warn('Unable to increment views:', error.message);
             });
 
@@ -3366,6 +3431,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             try {
                 // Submit to Firestore
+                await ensureFirestore();
                 await db.collection('feedback').add({
                     type: 'broken_link',
                     title: title,
@@ -3410,6 +3476,7 @@ document.addEventListener('DOMContentLoaded', function() {
             
             try {
                 // Submit to Firestore
+                await ensureFirestore();
                 await db.collection('feedback').add({
                     type: 'pyq_request',
                     course: course,
@@ -3455,4 +3522,15 @@ function showFeedbackSuccess(elementId, message) {
         successEl.textContent = message;
         successEl.style.display = 'block';
     }
+}
+
+
+// Register only the public-shell worker. It does not cache authenticated
+// Firebase data or live API responses (see sw.js).
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function (error) {
+            console.warn('Service worker registration failed:', error);
+        });
+    });
 }

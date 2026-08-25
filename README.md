@@ -119,7 +119,7 @@
 
 | Layer | Tech |
 |---|---|
-| Frontend | HTML5, CSS3 (Manrope + FKGroteskNeue, glassmorphism), vanilla JS, Bootstrap 5.3, Font Awesome 6, SweetAlert2 |
+| Frontend | HTML5, CSS3 (Manrope, glassmorphism), vanilla JS, Bootstrap 5.3, Font Awesome 6, SweetAlert2 |
 | Backend (public data) | **Cloudflare Worker API** (`worker/`) — Firestore REST via service account, Cloudflare Cache API + KV, rate limiting |
 | Backend (user-scoped) | Firebase Auth (compat 9.22.1), Firestore, Storage (compat), `enablePersistence({synchronizeTabs:true})` |
 | PWA | `sw.js` (cache-first, API bypass), `manifest.json`, `sitemap.xml`, `robots.txt` |

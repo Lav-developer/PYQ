@@ -1,10 +1,11 @@
-User-agent: *
-# Disallow admin pages and any uploaded backend endpoints
-Disallow: /admin.html
-Disallow: /admin.js
-Disallow: /cgi-bin/
-
+# Permit crawlers to fetch public documents and rendering assets. Pages that
+# are not index candidates declare noindex; blocking them here would prevent
+# crawlers from seeing that directive. The authenticated admin surface alone
+# is disallowed.
 User-agent: *
 Allow: /
+Disallow: /admin.html
+Disallow: /admin.js
+Disallow: /api/
 
 Sitemap: https://dsmnru-pyq.netlify.app/sitemap.xml

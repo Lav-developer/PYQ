@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DSMNRU PYQ Archive - Previous Year Question Papers</title>
+    <title>DSMNRU PYQ — Previous Year Question Papers</title>
     <meta name="description" content="Download DSMNRU PYQ and previous year question papers for multiple courses. Free academic resources for DSMNRU students.">
     <meta name="keywords" content="DSMNRU, PYQ, previous year question papers, exam papers, study materials">
     <meta name="robots" content="index, follow">
@@ -12,35 +12,36 @@
     <meta name="revisit-after" content="7 days">
     <meta name="distribution" content="global">
     <meta name="rating" content="general">
-    <link rel="icon" href="img/Logo.png" type="image/png">
-    <link rel="shortcut icon" href="img/Logo.png" type="image/png">
+    <link rel="icon" href="/img/icon-192.png" type="image/png">
+    <link rel="shortcut icon" href="/img/icon-192.png" type="image/png">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/fontawesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/solid.min.css">
     <link rel="stylesheet" href="styles.css">
     <link rel="canonical" href="https://dsmnru-pyq.netlify.app/">
     <link rel="alternate" href="https://dsmnru-pyq.netlify.app/" hreflang="en">
-    <link rel="manifest" href="manifest.json">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/img/icon-192.png">
     <meta name="theme-color" content="#0f172a">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="DSMNRU Archive">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
-    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
-    <meta property="og:title" content="DSMNRU PYQ Archive - Previous Year Question Papers">
+
+    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <meta property="og:title" content="DSMNRU PYQ — Previous Year Question Papers">
     <meta property="og:description" content="Browse and download DSMNRU previous year question papers for B.Tech, B.Sc, B.A., B.Com, and more. Free academic resources for DSMNRU students.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://dsmnru-pyq.netlify.app/">
-    <meta property="og:image" content="https://dsmnru-pyq.netlify.app/img/Logo.png">
+    <meta property="og:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png">
     <meta property="og:site_name" content="DSMNRU Academic Archive">
     <meta property="og:locale" content="en_US">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="DSMNRU PYQ Archive - Academic Resources">
     <meta name="twitter:description" content="Free DSMNRU PYQ downloads for students">
-    <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/Logo.png">
+    <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png">
     <meta name="twitter:site" content="@dsmnru_updates">
     <meta name="twitter:creator" content="@dsmnru_updates">
         <script type="application/ld+json">
@@ -49,7 +50,7 @@
             "@type": "Organization",
             "name": "DSMNRU Academic Archive",
             "url": "https://dsmnru-pyq.netlify.app/",
-            "logo": "https://dsmnru-pyq.netlify.app/img/Logo.png"
+            "logo": "https://dsmnru-pyq.netlify.app/img/icon-512.png"
         }
         </script>
         <script type="application/ld+json">
@@ -71,7 +72,7 @@
                 <div class="header-top">
                     <h1><i class="fas fa-graduation-cap"></i> DSMNRU Archive</h1>
                     <div class="user-profile-section">
-                        <button id="profileBtn" class="btn-user-profile" onclick="toggleProfileDropdown()">
+                        <button id="profileBtn" class="btn-user-profile" type="button" aria-label="Open profile menu" aria-haspopup="menu" aria-expanded="false" onclick="toggleProfileDropdown()">
                             <i class="fas fa-user-circle"></i>
                             <span id="userDisplayName">Login</span>
                             <i class="fas fa-chevron-down"></i>
@@ -131,7 +132,7 @@
                             <div class="card-body p-3 p-md-4">
                                 <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
                                     <div>
-                                        <h6 class="mb-1"><i class="fas fa-sliders-h me-1"></i> Filter PYQs</h6>
+                                        <h3 class="h6 mb-1"><i class="fas fa-sliders-h me-1"></i> Filter PYQs</h3>
                                         <small id="filterHint" class="text-muted"><span id="pyqCountBadge">0 papers</span> • Search and filters are free for everyone</small>
                                     </div>
                                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearPyqFilters()">
@@ -200,7 +201,7 @@
     </header>
 
     <!-- Realtime Chat Button -->
-    <div id="chatWidget" class="chat-widget" aria-hidden="true">
+    <div id="chatWidget" class="chat-widget">
         <button id="chatToggleBtn" class="chat-toggle" aria-pressed="false" aria-label="Open chat" onclick="toggleChatWidget()">
             <i class="fas fa-comments"></i>
         </button>
@@ -232,7 +233,7 @@
             <div class="card border-0" style="background: linear-gradient(135deg, rgba(50,184,198,0.12), rgba(15,23,42,0.6)); border: 1px solid rgba(50,184,198,0.2); border-radius: 18px;">
                 <div class="card-body d-flex flex-wrap align-items-center justify-content-between gap-3 p-4">
                     <div>
-                        <h6 class="mb-1"><i class="fas fa-hand-paper me-2" style="color: var(--color-teal-300);"></i>Missing a PYQ?</h6>
+                        <h3 class="h6 mb-1"><i class="fas fa-hand-paper me-2" style="color: var(--color-teal-300);"></i>Missing a PYQ?</h3>
                         <p class="mb-0 text-muted small">Request a paper or report a broken link — we fix it fast.</p>
                     </div>
                     <div class="d-flex gap-2 flex-wrap">
@@ -322,7 +323,7 @@
             <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for DSMNRU students.</p>
             <p class="small text-muted mt-2" style="opacity:0.7; max-width:600px; margin:0 auto;">DSMNRU PYQs only • Not affiliated with DSMNRU University • Papers are contributed by students for educational use.</p>
             <div class="social-links">
-                <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp"><i class="fab fa-whatsapp"></i></a>
+                <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp" aria-label="WhatsApp"><i class="fas fa-comments"></i></a>
             </div>
         </div>
     </footer>
@@ -337,7 +338,7 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
-                    <iframe id="pdfViewer" width="100%" height="500px" frameborder="0"></iframe>
+                    <iframe id="pdfViewer" title="Document preview" width="100%" height="500px" frameborder="0"></iframe>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -362,10 +363,10 @@
                     </div>
                     <div class="social-share-buttons">
                         <a href="#" id="whatsappShare" class="btn btn-success" target="_blank">
-                            <i class="fab fa-whatsapp"></i> WhatsApp
+                            <i class="fas fa-comments"></i> WhatsApp
                         </a>
                         <a href="#" id="telegramShare" class="btn btn-info" target="_blank">
-                            <i class="fab fa-telegram-plane"></i> Telegram
+                            <i class="fas fa-paper-plane"></i> Telegram
                         </a>
                         <a href="#" id="emailShare" class="btn btn-secondary" target="_blank">
                             <i class="fas fa-envelope"></i> Email
@@ -476,7 +477,7 @@
                         <div class="flex-grow-1" style="height: 1px; background: rgba(255,255,255,0.15);"></div>
                     </div>
                     <button type="button" class="btn btn-outline-light w-100" onclick="signInWithGoogle('login')">
-                        <i class="fab fa-google me-2"></i> Continue with Google
+                        <span class="brand-google me-2" aria-hidden="true">G</span> Continue with Google
                     </button>
                     <div class="mt-3 text-center">
                         <p>Don't have an account? <a href="#" onclick="closeLoginModal(); openSignupModal();">Sign up here</a></p>
@@ -519,7 +520,7 @@
                         <div class="flex-grow-1" style="height: 1px; background: rgba(255,255,255,0.15);"></div>
                     </div>
                     <button type="button" class="btn btn-outline-light w-100" onclick="signInWithGoogle('signup')">
-                        <i class="fab fa-google me-2"></i> Sign up with Google
+                        <span class="brand-google me-2" aria-hidden="true">G</span> Sign up with Google
                     </button>
                     <div class="mt-3 text-center">
                         <p>Already have an account? <a href="#" onclick="closeSignupModal(); openLoginModal();">Login here</a></p>
@@ -827,10 +828,10 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
         window.DSMNRU_API_URL = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev";
     </script>
-    <script src="script.js"></script>
+    <script defer src="script.js"></script>
 </body>
 </html>
