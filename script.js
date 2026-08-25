@@ -414,15 +414,22 @@ function updateUserUI() {
 
 // Profile dropdown toggle
 function toggleProfileDropdown() {
+    const profileButton = document.getElementById('profileBtn');
+
     const dropdown = document.getElementById('profileDropdown');
-    dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    const isOpen = dropdown.style.display === 'none';
+    dropdown.style.display = isOpen ? 'block' : 'none';
+    if (profileButton) profileButton.setAttribute('aria-expanded', String(isOpen));
 }
 
 // Close dropdown when clicking outside
 document.addEventListener('click', function(event) {
     const profileSection = document.querySelector('.user-profile-section');
     if (!profileSection.contains(event.target)) {
-        document.getElementById('profileDropdown').style.display = 'none';
+        const dropdown = document.getElementById('profileDropdown');
+        if (dropdown) dropdown.style.display = 'none';
+        const profileButton = document.getElementById('profileBtn');
+        if (profileButton) profileButton.setAttribute('aria-expanded', 'false');
     }
 });
 
@@ -2156,7 +2163,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <i class="fas fa-file-pdf"></i>
                     </div>
                     <div class="pyq-details">
-                        <h5 class="pyq-title"><a href="paper.html?id=${encodeURIComponent(pyq.id)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h5>
+                        <h3 class="pyq-title"><a href="paper.html?id=${encodeURIComponent(pyq.id)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h3>
                         <div class="syllabus-meta" style="margin-bottom:8px;">${pills.join('')}</div>
                         <div class="pyq-meta" style="margin-bottom:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:13px; color: var(--color-text-secondary);">
                             <span><i class="fas fa-eye"></i> ${viewCount} views</span>
@@ -3455,4 +3462,15 @@ function showFeedbackSuccess(elementId, message) {
         successEl.textContent = message;
         successEl.style.display = 'block';
     }
+}
+
+
+// Register only the public-shell worker. It does not cache authenticated
+// Firebase data or live API responses (see sw.js).
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+        navigator.serviceWorker.register('/sw.js').catch(function (error) {
+            console.warn('Service worker registration failed:', error);
+        });
+    });
 }

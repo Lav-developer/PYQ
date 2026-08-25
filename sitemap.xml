@@ -3,31 +3,16 @@
   <url>
     <loc>https://dsmnru-pyq.netlify.app/</loc>
     <changefreq>daily</changefreq>
-    <priority>1.00</priority>
-  </url>
-  <url>
-    <loc>https://dsmnru-pyq.netlify.app/index.html</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.90</priority>
+    <priority>1.0</priority>
   </url>
   <url>
     <loc>https://dsmnru-pyq.netlify.app/contributors.html</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.90</priority>
-  </url>
-  <url>
-    <loc>https://dsmnru-pyq.netlify.app/tools.html</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.90</priority>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
   </url>
   <url>
     <loc>https://dsmnru-pyq.netlify.app/links.html</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.90</priority>
-  </url>
-  <url>
-    <loc>https://dsmnru-pyq.netlify.app/paper.html</loc>
-    <changefreq>daily</changefreq>
-    <priority>0.85</priority>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
   </url>
 </urlset>

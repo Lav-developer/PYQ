@@ -1,63 +1,35 @@
-// Service Worker for DSMNRU Academic Archive PWA
-const CACHE_NAME = 'dsmnru-archive-v6';
-const urlsToCache = [
-  '/',
-  '/index.html',
-  '/paper.html',
-  '/contributors.html',
-  '/tools.html',
-  '/links.html',
-  '/styles.css',
-  '/script.js',
-  '/paper.js',
-  '/courses.json',
-  '/manifest.json'
+// Public-shell service worker. User data and live archive API responses are
+// deliberately never cached here.
+const CACHE_NAME = 'dsmnru-archive-v7';
+const APP_SHELL = [
+  '/', '/contributors.html', '/links.html', '/styles.css', '/manifest.json',
+  '/img/icon-192.png', '/img/icon-512.png', '/img/icon-maskable-512.png'
 ];
 
-// Install Service Worker
 self.addEventListener('install', event => {
-  event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => {
-        return cache.addAll(urlsToCache);
-      })
-  );
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(APP_SHELL)).then(() => self.skipWaiting()));
 });
 
-// Fetch Event - Serve from cache when offline.
-// API calls (/api/* or the configured Worker URL) are ALWAYS fetched from the
-// network — the Cloudflare Worker handles caching, so the SW must never serve
-// stale API responses.
-self.addEventListener('fetch', event => {
-  const requestUrl = new URL(event.request.url);
-  const isApiCall = requestUrl.pathname.startsWith('/api/') ||
-    (typeof self.__DSMNRU_API_HOST === 'string' && requestUrl.hostname === self.__DSMNRU_API_HOST);
+self.addEventListener('activate', event => {
+  event.waitUntil(caches.keys().then(names => Promise.all(names.filter(name => name !== CACHE_NAME).map(name => caches.delete(name)))).then(() => self.clients.claim()));
+});
 
-  if (isApiCall) {
-    event.respondWith(fetch(event.request));
+self.addEventListener('fetch', event => {
+  if (event.request.method !== 'GET') return;
+  const url = new URL(event.request.url);
+  // Firestore/Worker requests may be authenticated or change frequently.
+  if (url.pathname.startsWith('/api/') || url.hostname.endsWith('firebaseio.com') || url.hostname.endsWith('googleapis.com')) return;
+
+  if (event.request.mode === 'navigate') {
+    event.respondWith(fetch(event.request).catch(() => caches.match(event.request).then(hit => hit || caches.match('/'))));
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request)
-      .then(response => {
-        // Return cached version or fetch from network
-        return response || fetch(event.request);
-      })
-  );
-});
-
-// Activate Event - Clean up old caches
-self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys().then(cacheNames => {
-      return Promise.all(
-        cacheNames.map(cacheName => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    })
-  );
+  // Cache only same-origin static assets after a successful network response.
+  if (url.origin === self.location.origin && /\.(?:css|js|png|svg|woff2?)$/i.test(url.pathname)) {
+    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request).then(response => {
+      if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
+      return response;
+    })));
+  }
 });
