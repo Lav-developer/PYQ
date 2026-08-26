@@ -699,6 +699,57 @@
         /* Feedback UI polish */
         .feedback-filter-btn.active { background: var(--admin-primary) !important; color: #134252 !important; border-color: var(--admin-primary) !important; box-shadow: 0 6px 14px rgba(50,184,198,0.25); }
 
+        /* Duplicate-detection assistance inside the review queue */
+        .duplicate-hints {
+            margin-top: 0.9rem;
+            padding: 0.7rem 0.85rem;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, 0.04);
+            border: 1px dashed rgba(230, 129, 97, 0.4);
+        }
+        .dup-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: #f3c1ae;
+        }
+        .dup-note { font-weight: 400; font-size: 0.76rem; color: rgba(245, 245, 245, 0.62); }
+        .dup-loading, .dup-none { font-size: 0.82rem; color: rgba(245, 245, 245, 0.7); }
+        .dup-item {
+            margin-top: 0.6rem;
+            padding-top: 0.55rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .dup-item-head { display: flex; align-items: baseline; gap: 0.5rem; }
+        .dup-item-head a { color: #9cecf3; text-decoration: none; font-weight: 600; }
+        .dup-item-head a:hover { text-decoration: underline; }
+        .dup-confidence {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 0.78rem;
+            font-weight: 700;
+            padding: 0.1rem 0.45rem;
+            border-radius: 999px;
+            flex-shrink: 0;
+        }
+        .dup-confidence-high { background: rgba(255, 84, 89, 0.18); color: #ff9ea1; }
+        .dup-confidence-mid { background: rgba(230, 129, 97, 0.18); color: #f3c1ae; }
+        .dup-confidence-low { background: rgba(50, 184, 198, 0.16); color: #9cecf3; }
+        .dup-item-meta { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.3rem; }
+        .dup-label { font-size: 0.75rem; color: rgba(245, 245, 245, 0.62); }
+        .dup-signal {
+            font-size: 0.74rem;
+            padding: 0.12rem 0.45rem;
+            border-radius: 999px;
+            border: 1px solid transparent;
+        }
+        .dup-signal-ok { background: rgba(52, 211, 153, 0.12); color: #6ee7b7; border-color: rgba(52, 211, 153, 0.28); }
+        .dup-signal-diff { background: rgba(255, 84, 89, 0.12); color: #ff9ea1; border-color: rgba(255, 84, 89, 0.28); }
+        .dup-signal-unknown { background: rgba(255, 255, 255, 0.06); color: rgba(245, 245, 245, 0.62); }
+        .dup-foot { margin-top: 0.6rem; font-size: 0.76rem; color: rgba(245, 245, 245, 0.62); }
+
         /* PYQ submissions review queue (approve / reject / points) */
         .submission-filter-btn.active { background: var(--admin-primary) !important; color: #134252 !important; border-color: var(--admin-primary) !important; box-shadow: 0 6px 14px rgba(50,184,198,0.25); }
         .submission-status { font-weight: 600; }
@@ -1110,6 +1161,7 @@
 
     <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script defer src="points.js"></script>
+    <script defer src="duplicate-check.js"></script>
     <script defer src="admin.js"></script>
 
     <!-- Sitemap generation status (populated by admin.js) -->

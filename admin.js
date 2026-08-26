@@ -1353,9 +1353,143 @@ function renderPendingUploads(submissions) {
                     ${reasonLine}
                     ${reviewedLine}
                 </div>
+                ${isPending ? duplicateHintPlaceholder(data) : ''}
             </article>
         `;
     }).join('');
+
+    // Fill the duplicate hints once the PYQ index is available (async, and
+    // purely additive — it never touches a submission's status or points).
+    renderDuplicateHints(visible);
+}
+
+// ── Duplicate-detection assistance ────────────────────────────────────
+// ADMIN ASSISTANCE ONLY. This never changes a submission's status, never
+// awards or withholds points, and never hides a submission: it lists the most
+// relevant existing PYQs (title-led, course/semester only adjust confidence)
+// so the admin can open the paper and decide — same paper → Reject (0 points),
+// different paper → Approve (+10 points).
+// Matching itself lives in duplicate-check.js (shared, unit-tested).
+
+let duplicateIndex = null;
+let duplicateIndexPromise = null;
+
+/**
+ * Pull the PYQ title/course/semester list from the Worker API first: it is
+ * edge/KV cached and costs zero Firestore reads. Falls back to a direct read
+ * (the admin already has `pyqs` read permission) if the API is unreachable.
+ */
+async function fetchPyqsFromWorkerApi() {
+    const items = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+        const response = await fetch(`${API_BASE_URL}/pyqs?limit=100&page=${page}`, {
+            headers: { Accept: 'application/json' }
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        (data.items || []).forEach(item => items.push({
+            id: item.id,
+            title: item.title || '',
+            course: item.course || '',
+            semester: item.semester || ''
+        }));
+        totalPages = Number(data.totalPages) || 1;
+        page += 1;
+    } while (page <= totalPages && page <= 20); // hard stop: 2000 papers
+    return items;
+}
+
+function fetchDuplicateIndex() {
+    return fetchPyqsFromWorkerApi().catch(error => {
+        console.warn('Duplicate check: Worker API unavailable (' + error.message + ') — reading pyqs directly.');
+        return db.collection('pyqs').get().then(snapshot => snapshot.docs.map(doc => {
+            const data = doc.data() || {};
+            return { id: doc.id, title: data.title || '', course: data.course || '', semester: data.semester || '' };
+        }));
+    });
+}
+
+function loadDuplicateIndex() {
+    if (duplicateIndex) return Promise.resolve(duplicateIndex);
+    if (!duplicateIndexPromise) {
+        duplicateIndexPromise = fetchDuplicateIndex()
+            .then(items => { duplicateIndex = items; return items; })
+            .catch(error => { duplicateIndexPromise = null; throw error; });
+    }
+    return duplicateIndexPromise;
+}
+
+function duplicateSignalBadge(kind, value) {
+    if (kind === 'match') return '<span class="dup-signal dup-signal-ok"><i class="fas fa-check me-1"></i>' + escapeHtml(value) + '</span>';
+    if (kind === 'different') return '<span class="dup-signal dup-signal-diff"><i class="fas fa-xmark me-1"></i>' + escapeHtml(value) + '</span>';
+    return '<span class="dup-signal dup-signal-unknown"><i class="fas fa-question me-1"></i>' + escapeHtml(value) + ' not compared</span>';
+}
+
+function duplicateHintPlaceholder(submission) {
+    const helpers = window.DSMNRUDuplicates;
+    if (!helpers || !helpers.hasText(submission.title)) return '';
+    return `<div class="duplicate-hints" id="duplicateHints-${submission.id}">
+                    <span class="dup-loading"><i class="fas fa-magnifying-glass me-1"></i> Checking for similar PYQs…</span>
+                </div>`;
+}
+
+function setDuplicateHint(submissionId, html) {
+    const el = document.getElementById('duplicateHints-' + submissionId);
+    if (el) el.innerHTML = html;
+}
+
+/** Fill the per-submission hint blocks. Purely additive — no status writes. */
+async function renderDuplicateHints(submissions) {
+    const helpers = window.DSMNRUDuplicates;
+    if (!helpers) return;
+    const targets = (submissions || []).filter(item => submissionStatusOf(item) === 'pending' && helpers.hasText(item.title));
+    if (!targets.length) return;
+
+    let index;
+    try {
+        index = await loadDuplicateIndex();
+    } catch (error) {
+        console.warn('Duplicate check unavailable:', error.message);
+        targets.forEach(item => setDuplicateHint(item.id, '<span class="dup-none">Could not load the PYQ list to compare against.</span>'));
+        return;
+    }
+
+    targets.forEach(submission => {
+        const candidates = helpers.findCandidates(submission, index, { limit: 5 });
+        if (!candidates.length) {
+            setDuplicateHint(submission.id, '<span class="dup-none">No similar PYQs found — you can approve without a duplicate check.</span>');
+            return;
+        }
+
+        const rows = candidates.map(candidate => {
+            const pyq = candidate.pyq;
+            const percent = Math.round(candidate.confidence * 100);
+            const band = candidate.confidence >= 0.75 ? 'dup-confidence-high'
+                : candidate.confidence >= 0.55 ? 'dup-confidence-mid' : 'dup-confidence-low';
+            const courseBadge = duplicateSignalBadge(candidate.course, 'course');
+            const semesterBadge = duplicateSignalBadge(candidate.semester, 'semester');
+            return `<div class="dup-item">
+                        <div class="dup-item-head">
+                            <span class="dup-confidence ${band}">${percent}%</span>
+                            <a href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">${escapeHtml(pyq.title || 'Untitled')}</a>
+                        </div>
+                        <div class="dup-item-meta">
+                            <span class="dup-label">${escapeHtml(helpers.confidenceLabel(candidate.confidence))}</span>
+                            ${courseBadge}
+                            ${semesterBadge}
+                        </div>
+                    </div>`;
+        }).join('');
+
+        setDuplicateHint(submission.id, `<div class="dup-head">
+                        <i class="fas fa-clone me-1"></i> Possible duplicates (${candidates.length})
+                        <span class="dup-note">assistance only — nothing is auto-rejected, you decide</span>
+                    </div>
+                    ${rows}
+                    <div class="dup-foot">Open a paper to compare → same paper: <strong>Reject</strong> (0 points) · different paper: <strong>Approve</strong> (+${rewardPointsValue()} points)</div>`);
+    });
 }
 
 function downloadPendingFile(downloadUrl, fileName) {

@@ -139,6 +139,7 @@
 ├── paper.js            # Paper logic — cache-first related, verification block, same-site preview
 ├── script.js           # Main — auth, cache (session+15m), gated search, upload, tools, feedback
 ├── points.js           # Shared contribution-points helpers (email normalize + reward account key)
+├── duplicate-check.js  # Shared duplicate-matching helpers (title-led, admin assistance only)
 ├── admin.html          # Admin — lazy sections, Feedback inbox, local search
 ├── admin.js            # Admin — CRUD, lazy, CSV, Feedback, id-based delete fix
 ├── styles.css          # Dark glass theme, design tokens, responsive
@@ -217,7 +218,8 @@ cd worker
 npm install --no-save jsdom
 node test/frontend-smoke-test.cjs
 node test/paper-smoke-test.cjs
-node test/contribution-points-test.cjs   # 61 assertions — upload → pending → approve/reject → points
+node test/contribution-points-test.cjs   # 65 assertions — upload → pending → approve/reject → points
+node test/duplicate-detection-test.cjs   # 43 assertions — title-led matching + admin hint UI
 ```
 
 ## 🔧 Environment & Firebase Setup
@@ -383,6 +385,8 @@ field and are treated as `pending`.
 **Content Library:** `Manage PYQs` → local **0-read search** → `Edit` (id-based) / `Delete` (id-based, fixes filtered delete bug) / `Copy Server 1/2`
 
 **Review Queue:** `Pending pyqs to upload` → filters `Pending / Approved / Rejected / All` → `Copy URL` / `Download` / `Delete` + **`Approve`** / **`Reject`**
+
+**Duplicate assistance:** each *pending* card lists up to **5 possible duplicates** from the existing `pyqs` collection, sorted by confidence, with a link to open the paper. Matching is title-led (`duplicate-check.js`: normalized token overlap + a Levenshtein fallback, no AI/embeddings/external APIs); `course` and `semester` only raise or lower confidence **when both records have them** — a missing field is never a mismatch and nothing is ever auto-excluded or auto-rejected. The index comes from the cached Worker API (`/api/pyqs`, zero Firestore reads) and falls back to a direct `pyqs` read. The admin opens the paper and decides: same paper → Reject (0 points), different paper → Approve (+10 points).
 
 **Points:** `Approve` runs one Firestore transaction — status → `approved`, `reviewedAt` / `reviewedBy`, a `point_transactions` ledger entry (id = submission id) and `reward_accounts/{email}` `points += 10`. Approving twice adds **0** the second time. `Reject` stores an optional reason and awards nothing. Approval **never** publishes the PYQ and never touches the temporary gofile file.
 
