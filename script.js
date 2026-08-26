@@ -386,6 +386,7 @@ function updateUploadAccessUI() {
     const uploadSection = document.querySelector('.upload-section');
     const uploadOverlay = document.getElementById('uploadFormLockOverlay');
     const uploadForm = document.getElementById('userUploadForm');
+    prefillUploadEmail();
     if (!uploadSection || !uploadOverlay || !uploadForm) return;
 
     const formControls = uploadForm.querySelectorAll('input, button');
@@ -789,6 +790,107 @@ async function loadUserProfile() {
         }
     } catch (error) {
         console.error('Error loading profile:', error);
+    }
+
+    // Points are independent of the profile document — a contribution can be
+    // rewarded before an account exists, so they live in `reward_accounts`.
+    loadProfileRewards();
+}
+
+// ===== PYQ CONTRIBUTION POINTS (read-only for students) =====
+function rewardTimestampValue(value) {
+    if (!value) return 0;
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function rewardTypeLabel(type) {
+    if (window.DSMNRUPoints && type === window.DSMNRUPoints.PYQ_UPLOAD_REWARD_TYPE) return 'PYQ Contribution';
+    return String(type || 'Reward');
+}
+
+async function loadProfileRewards() {
+    // Only index.html renders the points card — skip the reads elsewhere.
+    if (!document.getElementById('profilePointsCard')) return;
+    const valueEl = document.getElementById('profilePointsValue');
+    const historyEl = document.getElementById('profilePointsHistory');
+    const helpers = window.DSMNRUPoints;
+
+    if (!helpers || !currentUser || !currentUser.email) {
+        if (valueEl) valueEl.textContent = '0';
+        if (historyEl) {
+            historyEl.innerHTML = '<div class="pyq-points-empty">Sign in with the email you used to contribute to see your points.</div>';
+        }
+        return;
+    }
+
+    const email = helpers.normalizeRewardEmail(currentUser.email);
+    const accountKey = helpers.rewardAccountKey(email);
+    if (valueEl) valueEl.textContent = '…';
+    if (historyEl) historyEl.innerHTML = '<div class="pyq-points-empty">Loading…</div>';
+
+    try {
+        await ensureFirestore();
+
+        const accountRef = db.collection('reward_accounts').doc(accountKey);
+        const accountSnap = await accountRef.get();
+        let points = 0;
+
+        if (accountSnap.exists) {
+            const account = accountSnap.data() || {};
+            points = Number(account.points) || 0;
+            // Points earned before this email had an account are linked to the
+            // signed-in user on first visit. Rules only allow the `uid` field
+            // to change here — the balance can never be touched by a client.
+            if (account.uid !== currentUser.uid) {
+                await accountRef.update({ uid: currentUser.uid }).catch(err => {
+                    console.warn('Could not link reward account to this user:', err.message);
+                });
+            }
+        }
+
+        if (valueEl) valueEl.textContent = String(points);
+
+        // Equality-only query → no composite index required. Sorted client-side.
+        const txSnap = await db.collection('point_transactions')
+            .where('email', '==', email)
+            .limit(20)
+            .get();
+
+        const entries = txSnap.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .sort((a, b) => rewardTimestampValue(b.createdAt) - rewardTimestampValue(a.createdAt));
+
+        if (!entries.length) {
+            if (historyEl) {
+                historyEl.innerHTML = '<div class="pyq-points-empty">No contributions yet — upload a PYQ to earn 10 points.</div>';
+            }
+            return;
+        }
+
+        if (historyEl) {
+            historyEl.innerHTML = entries.map(entry => {
+                const amount = Number(entry.amount) || 0;
+                const ts = rewardTimestampValue(entry.createdAt);
+                const dateLabel = ts ? new Date(ts).toLocaleDateString() : '';
+                return ''
+                    + '<div class="pyq-points-entry">'
+                    + `<span class="pyq-points-entry-amount">+${escapeUploadText(amount)}</span>`
+                    + `<span class="pyq-points-entry-label">${escapeUploadText(rewardTypeLabel(entry.type))}</span>`
+                    + `<span class="pyq-points-entry-date">${escapeUploadText(dateLabel)}</span>`
+                    + '</div>';
+            }).join('');
+        }
+    } catch (error) {
+        console.error('Error loading PYQ points:', error);
+        if (valueEl) valueEl.textContent = '—';
+        if (historyEl) {
+            historyEl.innerHTML = '<div class="pyq-points-empty">Could not load your points right now.</div>';
+        }
     }
 }
 
@@ -1414,6 +1516,84 @@ async function convertImagesToPdfUnderLimit(imageFiles, maxBytes, setStatus) {
     throw new Error('Could not generate a PDF under 10MB. Please upload fewer or clearer-compressed images.');
 }
 
+// ── PYQ contribution points (shared with admin.js via points.js) ──────────
+// points.js is the single source of truth for email normalization, the reward
+// account key and the reward amount. Nothing on the public pages may write a
+// points balance — only the admin panel can award points (admin.js), and the
+// Firestore rules reject any other write.
+
+function getPointsHelpers() {
+    if (window.DSMNRUPoints) return window.DSMNRUPoints;
+    throw new Error('Contribution points module is still loading — please refresh and try again.');
+}
+
+function escapeUploadText(value) {
+    return String(value === null || value === undefined ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+// Minimal abuse protection for the public (no sign-in) upload form. It only
+// guards the browser; the real guardrails are the Firestore rules, which
+// reject anything that is not a valid pending submission.
+const UPLOAD_THROTTLE_KEY = 'dsmnruUploadThrottle';
+const UPLOAD_THROTTLE_MIN_GAP_MS = 45 * 1000;
+const UPLOAD_THROTTLE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const UPLOAD_THROTTLE_MAX_PER_WINDOW = 5;
+
+function readUploadThrottleLog() {
+    try {
+        const raw = window.localStorage.getItem(UPLOAD_THROTTLE_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(parsed)) return [];
+        return parsed.filter(entry => Number.isFinite(entry) && Date.now() - entry < UPLOAD_THROTTLE_WINDOW_MS);
+    } catch (error) {
+        return [];
+    }
+}
+
+function getUploadThrottleState() {
+    const log = readUploadThrottleLog();
+    if (log.length >= UPLOAD_THROTTLE_MAX_PER_WINDOW) {
+        const waitMinutes = Math.max(1, Math.ceil((UPLOAD_THROTTLE_WINDOW_MS - (Date.now() - log[0])) / 60000));
+        return {
+            allowed: false,
+            message: `You have already submitted ${log.length} PYQs. Please try again in about ${waitMinutes} minute(s).`
+        };
+    }
+    const last = log.length ? log[log.length - 1] : 0;
+    if (last && Date.now() - last < UPLOAD_THROTTLE_MIN_GAP_MS) {
+        const waitSeconds = Math.ceil((UPLOAD_THROTTLE_MIN_GAP_MS - (Date.now() - last)) / 1000);
+        return {
+            allowed: false,
+            message: `Please wait ${waitSeconds} second(s) before submitting another PYQ.`
+        };
+    }
+    return { allowed: true, message: '' };
+}
+
+function recordUploadThrottle() {
+    try {
+        const log = readUploadThrottleLog();
+        log.push(Date.now());
+        window.localStorage.setItem(UPLOAD_THROTTLE_KEY, JSON.stringify(log.slice(-UPLOAD_THROTTLE_MAX_PER_WINDOW)));
+    } catch (error) {
+        // Storage blocked (private mode) — uploads still work, just unthrottled.
+    }
+}
+
+// Keep the email field pre-filled for signed-in students so a contribution
+// always lands on the reward account they will see in their profile.
+function prefillUploadEmail() {
+    const emailInput = document.getElementById('uploadEmail');
+    if (!emailInput) return;
+    if (currentUser && currentUser.email && !emailInput.value.trim()) {
+        emailInput.value = currentUser.email;
+    }
+}
+
 function setupUserUploadHandler() {
     const uploadForm = document.getElementById('userUploadForm');
     const uploadFileInput = document.getElementById('uploadFile');
@@ -1427,17 +1607,38 @@ function setupUserUploadHandler() {
 
     uploadForm.addEventListener('submit', async function(e) {
         e.preventDefault();
-        if (currentUser && requiresEmailVerification(currentUser)) { showEmailVerificationPrompt(); return; }
-        if (!currentUser) { openLoginModal(); return; }
+        // Contribution uploads are public: no sign-in and no email verification
+        // required. The typed email is the reward identity (points.js).
 
+        let points;
+        try {
+            points = getPointsHelpers();
+        } catch (error) {
+            alert(error.message);
+            return;
+        }
         const uploadName = document.getElementById('uploadName').value.trim();
         const title = document.getElementById('uploadTitle').value;
         const course = document.getElementById('uploadCourse').value;
         const semester = document.getElementById('uploadSemester').value;
+        const rawEmail = (document.getElementById('uploadEmail') || {}).value || '';
+        const rewardEmail = points.normalizeRewardEmail(rawEmail);
         const selectedFiles = Array.from(document.getElementById('uploadFile').files || []);
 
         if (!uploadName) {
             alert('Please enter your name');
+            return;
+        }
+
+        if (!rewardEmail) {
+            alert('Please enter your email — it is used to credit your contribution points.');
+            const emailInput = document.getElementById('uploadEmail');
+            if (emailInput) emailInput.focus();
+            return;
+        }
+
+        if (!points.isValidRewardEmail(rewardEmail)) {
+            alert('Please enter a valid email address.');
             return;
         }
 
@@ -1471,15 +1672,22 @@ function setupUserUploadHandler() {
         const progressDiv = document.getElementById('uploadProgress');
         const progressBar = document.getElementById('uploadProgressBar');
 
+        // Lightweight client-side abuse protection for the public form.
+        const throttle = getUploadThrottleState();
+        if (!throttle.allowed) {
+            alert(throttle.message);
+            return;
+        }
+
         statusDiv.style.display = 'block';
-        statusMessage.textContent = 'Fetching your profile...';
+        statusMessage.textContent = 'Preparing your submission...';
         progressDiv.style.display = 'block';
         progressBar.style.width = '10%';
 
         try {
             const userName = uploadName || (currentUser && (currentUser.displayName || currentUser.email)) || 'Anonymous';
             const userCourse = course || 'General';
-            const userEmail = currentUser ? currentUser.email || '' : '';
+            const userEmail = rewardEmail;
 
             let file;
             if (pdfFiles.length === 1) {
@@ -1550,25 +1758,37 @@ function setupUserUploadHandler() {
                 semester: semester,
                 studentName: userName,
                 studentCourse: userCourse,
+                // Normalized reward identity — the admin approval credits the
+                // +10 points to this email (see admin.js → approveSubmission).
                 studentEmail: userEmail,
+                email: userEmail,
                 userId: currentUser ? currentUser.uid : '',
                 fileName: file.name,
                 downloadUrl: fileUrl,
                 fileSize: file.size,
                 uploadedAt: firebase.firestore.FieldValue.serverTimestamp(),
-                status: 'pending'
+                // Review state only. Points/ledger entries are written by the
+                // admin panel inside a Firestore transaction — never here.
+                status: points.SUBMISSION_STATUS.PENDING
             });
+            recordUploadThrottle();
 
             progressBar.style.width = '100%';
-            statusMessage.innerHTML = '<strong class="text-success">✓ File uploaded successfully! Our team will review it soon.</strong>';
+            statusMessage.innerHTML =
+                '<strong class="text-success">✓ Submission received.</strong><br>' +
+                'Your PYQ is currently under verification.<br>' +
+                `<strong>${escapeUploadText(points.PYQ_UPLOAD_REWARD_POINTS)} points</strong> will be credited to ` +
+                `<code>${escapeUploadText(rewardEmail)}</code> if your submission is approved.`;
             progressDiv.style.display = 'none';
             uploadForm.reset();
             renderSelectedUploadFilesPreview([]);
+            prefillUploadEmail();
 
-            // Hide success message after 5 seconds
+            // Hide success message after a few seconds (kept a little longer
+            // now that it also explains the 10-point reward).
             setTimeout(() => {
                 statusDiv.style.display = 'none';
-            }, 5000);
+            }, 9000);
         } catch (error) {
             console.error('Upload error:', error);
             statusMessage.innerHTML = `<strong class="text-danger">Error: ${error.message}</strong>`;

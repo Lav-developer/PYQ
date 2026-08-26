@@ -19,6 +19,51 @@ service cloud.firestore {
       return request.auth != null && request.auth.token.email_verified == true;
     }
 
+    // Contribution points are mapped by EMAIL (uploaders do not need an
+    // account), so every email is compared in its normalized form:
+    // trim + lowercase. This must stay identical to points.js.
+    function normalizedEmail(value) {
+      return value.trim().lower();
+    }
+
+    // True when the signed-in user owns the reward data described by `data`
+    // (a reward_accounts doc or a point_transactions doc).
+    function ownsRewardEmail(data) {
+      return isSignedIn()
+             && request.auth.token.email is string
+             && 'email' in data
+             && data.email is string
+             && data.email == normalizedEmail(request.auth.token.email);
+    }
+
+    // A public (no sign-in) contribution: a PENDING submission only. The
+    // client can never set a review state, a reward flag or a points field.
+    function isValidPendingSubmission() {
+      return request.resource.data.title is string
+             && request.resource.data.title.size() > 2
+             && request.resource.data.title.size() <= 200
+             && request.resource.data.studentName is string
+             && request.resource.data.studentName.size() >= 2
+             && request.resource.data.studentName.size() <= 80
+             && request.resource.data.status == 'pending'
+             && request.resource.data.studentEmail is string
+             && request.resource.data.studentEmail.size() <= 160
+             && request.resource.data.studentEmail.matches('^[^@\\s]+@[^@\\s]+\\.[^@\\s]{2,}$')
+             && request.resource.data.downloadUrl is string
+             && request.resource.data.downloadUrl.size() > 10
+             && request.resource.data.downloadUrl.size() <= 500
+             && request.resource.data.downloadUrl.matches('https://[a-z0-9.-]+\\.gofile\\.io/.+')
+             && request.resource.data.fileName is string
+             && request.resource.data.fileName.size() <= 200
+             // Review state + points are written by the admin panel only.
+             && !('pointsAwarded' in request.resource.data)
+             && !('pointsTransactionId' in request.resource.data)
+             && !('pointsAmount' in request.resource.data)
+             && !('reviewedAt' in request.resource.data)
+             && !('reviewedBy' in request.resource.data)
+             && !('rejectionReason' in request.resource.data);
+    }
+
     // ─────────────────────────────────────────
     // PYQs — NO direct public reads (all public data flows through the
     // Cloudflare Worker API, which authenticates with a service account that
@@ -68,16 +113,36 @@ service cloud.firestore {
                     && (isOwner(userId) || isAdminByEmail());
     }
 
-    // pendingUploads — only admin can read; anyone can create a valid pending doc
+    // pendingUploads (PYQ submissions / review queue) — only the admin can
+    // read, update or delete. Anyone (no sign-in required) may create a valid
+    // PENDING submission; the status can never be anything but pending and no
+    // points/review field can be written by a client.
     match /pendingUploads/{doc} {
       allow read: if isAdminByEmail();
-      allow create: if isVerified()
-                    && request.resource.data.title is string
-                    && request.resource.data.title.size() > 2
-                    && request.resource.data.studentName is string
-                    && request.resource.data.downloadUrl is string
-                    && request.resource.data.downloadUrl.size() > 10;
+      allow create: if isValidPendingSubmission();
       allow update, delete: if isAdminByEmail();
+    }
+
+    // ─────────────────────────────────────────
+    // NEW: PYQ Contribution Points — email-based reward accounts + ledger.
+    // Balances are ONLY ever written by the admin panel (admin.js) inside a
+    // Firestore transaction; a signed-in student may read their own account
+    // and link it to their own uid, and nothing more.
+    // ─────────────────────────────────────────
+    match /reward_accounts/{accountKey} {
+      allow read: if isAdminByEmail() || ownsRewardEmail(resource.data);
+      allow create, delete: if isAdminByEmail();
+      allow update: if isAdminByEmail()
+                    || (ownsRewardEmail(resource.data)
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['uid'])
+                        && request.resource.data.uid == request.auth.uid);
+    }
+
+    // One document per rewarded submission (doc id = submission id), which is
+    // what makes double-rewarding a submission impossible.
+    match /point_transactions/{transactionId} {
+      allow read: if isAdminByEmail() || ownsRewardEmail(resource.data);
+      allow create, update, delete: if isAdminByEmail();
     }
 
     // ─────────────────────────────────────────

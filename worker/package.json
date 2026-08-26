@@ -10,7 +10,11 @@
     "tail": "wrangler tail",
     "test": "node test/worker.test.js",
     "test:frontend": "node test/frontend-smoke-test.cjs",
-    "test:paper": "node test/paper-smoke-test.cjs"
+    "test:paper": "node test/paper-smoke-test.cjs",
+    "test:points": "node test/contribution-points-test.cjs",
+    "test:duplicates": "node test/duplicate-detection-test.cjs",
+    "test:admin-ia": "node test/admin-ia-test.cjs",
+    "test:duplicate-freshness": "node test/duplicate-index-freshness-test.cjs"
   },
   "devDependencies": {
     "jsdom": "^24.0.0",

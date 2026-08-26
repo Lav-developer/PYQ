@@ -221,7 +221,7 @@
     </ul>
     <div class="text-center mt-3 d-flex flex-column align-items-center gap-2">
         <button id="loadMoreBtn" class="btn btn-primary" style="display:none;"><i class="fas fa-chevron-down me-2"></i>Load More</button>
-        <small class="text-muted" style="opacity:0.7;">Tip: Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to focus search</small>
+        <small class="text-muted">Tip: Press <kbd>Ctrl</kbd> + <kbd>K</kbd> to focus search</small>
     </div>
 </div>
                 </section>
@@ -255,7 +255,11 @@
                             <h5 class="mb-0"><i class="fas fa-cloud-upload-alt"></i> Help us grow the collection</h5>
                         </div>
                         <div class="card-body">
-                            <p class="text-muted mb-4">Share your question papers to help fellow DSMNRU students</p>
+                            <p class="text-muted mb-1">Share your question papers to help fellow DSMNRU students</p>
+                            <p class="upload-points-note mb-4">
+                                <i class="fas fa-trophy me-1"></i> Earn 10 points for every approved PYQ.
+                                <span class="upload-points-sub">Points are currently being collected. Redemption will be available in a future rewards update.</span>
+                            </p>
                             <div class="upload-form-shell">
                                 <form id="userUploadForm">
                                     <div class="mb-3">
@@ -265,6 +269,15 @@
                                     <div class="mb-3">
                                         <label for="uploadName" class="form-label">Your Name <span class="text-danger">*</span></label>
                                         <input type="text" class="form-control" id="uploadName" placeholder="Enter your name" required>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="uploadEmail" class="form-label">Your Email <span class="text-danger">*</span></label>
+                                        <input type="email" class="form-control" id="uploadEmail" placeholder="you@example.com" autocomplete="email" required>
+                                        <small class="form-text text-muted d-block mt-2">
+                                            <i class="fas fa-trophy me-1" style="color: var(--color-teal-300);"></i>
+                                            Earn <strong>10 points</strong> for every approved PYQ. Points are credited to this
+                                            email — no account needed.
+                                        </small>
                                     </div>
                                     <div class="row">
                                         <div class="col-md-6 mb-3">
@@ -321,7 +334,7 @@
     <footer class="footer">
         <div class="footer-content">
             <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for DSMNRU students.</p>
-            <p class="small text-muted mt-2" style="opacity:0.7; max-width:600px; margin:0 auto;">DSMNRU PYQs only • Not affiliated with DSMNRU University • Papers are contributed by students for educational use.</p>
+            <p class="small text-muted mt-2" style="max-width:600px; margin:0 auto;">DSMNRU PYQs only • Not affiliated with DSMNRU University • Papers are contributed by students for educational use.</p>
             <div class="social-links">
                 <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp" aria-label="WhatsApp"><i class="fas fa-comments"></i></a>
             </div>
@@ -539,6 +552,17 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body">
+                    <!-- PYQ Contribution Points (email-based reward account) -->
+                    <div class="pyq-points-card mb-4" id="profilePointsCard">
+                        <div class="pyq-points-head">
+                            <span class="pyq-points-label"><i class="fas fa-trophy"></i> PYQ Points</span>
+                            <strong class="pyq-points-value" id="profilePointsValue">–</strong>
+                        </div>
+                        <p class="pyq-points-note mb-0" id="profilePointsNote">
+                            Points are currently being collected. Redemption will be available in a future rewards update.
+                        </p>
+                        <div class="pyq-points-history" id="profilePointsHistory" aria-live="polite"></div>
+                    </div>
                     <form id="profileForm">
                         <div class="mb-3">
                             <label for="profileName" class="form-label">Full Name</label>
@@ -832,6 +856,7 @@
     <script>
         window.DSMNRU_API_URL = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev";
     </script>
+    <script defer src="points.js"></script>
     <script defer src="script.js"></script>
 </body>
 </html>

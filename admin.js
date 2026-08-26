@@ -16,6 +16,10 @@ const db = firebase.firestore();
 const storage = firebase.storage();
 let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedback: [] };
 
+// The signed-in admin (set in onAuthStateChanged after the rules-based admin
+// check). Required before any submission review action.
+let currentAdmin = null;
+
 // ===== API CACHE INVALIDATION (Cloudflare Worker) =====
 // After content changes, purge the Worker's KV/edge cache so the public site
 // reflects the change quickly (instead of waiting for the TTL).
@@ -34,6 +38,9 @@ const API_BASE_URL = (function () {
 const API_INVALIDATE_KEY = 'REPLACE_WITH_ADMIN_API_KEY';
 
 function invalidateApiCache() {
+    // Content changed — the duplicate-matching index must not outlive it.
+    if (typeof invalidateDuplicateIndex === 'function') invalidateDuplicateIndex();
+
     if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
         console.log('API cache invalidation skipped — set API_INVALIDATE_KEY in admin.js');
         return;
@@ -110,12 +117,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 return; // Stop execution for non-admins
             }
             // User is signed in
+            currentAdmin = user;
             updateCsvWidgetVisibility(user);
             document.getElementById('loginSection').style.display = 'none';
             document.getElementById('adminSection').style.display = 'block';
+            setAdminIdentity(user);
             loadData();
+            showAdminView(window.location.hash.replace('#', '') || 'dashboard');
         } else {
             // User is signed out
+            currentAdmin = null;
             updateCsvWidgetVisibility(null);
             resetLazyLoadState();
             document.getElementById('loginSection').style.display = 'block';
@@ -433,6 +444,11 @@ function resetLazyLoadState() {
     usersLoaded = false;
     contributorsLoaded = false;
     feedbackLoaded = false;
+    dashboardOverviewRequested = false;
+    rewardsLoaded = false;
+    knownPyqTotal = null;
+    currentAdminView = null;
+    closeAdminSidebar();
 }
 
 // function generateSitemap() {
@@ -533,20 +549,38 @@ function updateDashboardStats() {
         }
     };
 
-    setCount('pyqsCount', allData.pyqs.length);
-    setCount('pyqsHeaderCount', allData.pyqs.length);
-    setCount('usersCount', allData.users.length);
-    setCount('usersHeaderCount', allData.users.length);
-    setCount('pendingCount', allData.pendingUploads.length);
-    setCount('pendingHeaderCount', allData.pendingUploads.length);
-    setCount('contributorsCount', allData.contributors.length);
-    setCount('contributorsHeaderCount', allData.contributors.length);
+    // `allData.pendingUploads` holds every submission (pending + reviewed);
+    // the hero/header counts still mean "waiting for review".
+    const counts = getSubmissionCounts();
+
+    // Until a collection has been opened we show "—" (or the Worker API total
+    // for PYQs, which costs no Firestore reads) instead of a misleading 0.
+    const pyqTotal = pyqsLoaded ? allData.pyqs.length : (knownPyqTotal === null ? '—' : knownPyqTotal);
+    setCount('pyqsCount', pyqTotal);
+    setCount('pyqsHeaderCount', pyqTotal);
+    setCount('usersCount', usersLoaded ? allData.users.length : '—');
+    setCount('usersHeaderCount', usersLoaded ? allData.users.length : '—');
+    setCount('pendingCount', counts.pending);
+    setCount('pendingHeaderCount', counts.pending);
+    setCount('submissionPendingCount', counts.pending);
+    setCount('submissionApprovedCount', counts.approved);
+    setCount('submissionRejectedCount', counts.rejected);
+    setCount('contributorsCount', contributorsLoaded ? allData.contributors.length : '—');
+    setCount('contributorsHeaderCount', contributorsLoaded ? allData.contributors.length : '—');
+
+    // Sidebar badges: pending submissions and (once loaded) feedback.
+    setNavBadge('navPendingBadge', counts.pending);
+    setNavBadge('navFeedbackBadge', allData.feedback ? allData.feedback.length : 0);
 
     // Update feedback count if available
     const feedbackCountElement = document.getElementById('feedbackCount');
     if (feedbackCountElement) {
-        feedbackCountElement.textContent = allData.feedback ? allData.feedback.length : '0';
+        feedbackCountElement.textContent = feedbackLoaded ? allData.feedback.length : '—';
     }
+    const feedbackHeader = document.getElementById('feedbackHeaderCount');
+    if (feedbackHeader) feedbackHeader.textContent = feedbackLoaded ? allData.feedback.length : '0';
+
+    if (typeof updateStatLoadButtons === 'function') updateStatLoadButtons();
 }
 
 // Convert any Firestore value into a CSV-safe string (timestamps, arrays, objects)
@@ -671,8 +705,8 @@ async function refreshCollectionAfterCsvImport(collectionName) {
     }
 
     if (collectionName === 'pendingUploads') {
-        const snapshot = await db.collection('pendingUploads').where('status', '==', 'pending').get();
-        allData.pendingUploads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Review queue now holds every submission (pending + reviewed).
+        loadPendingUploads();
         renderLists();
     }
 }
@@ -1145,72 +1179,392 @@ window.deleteUser = function(uid, name) {
                 });
         });
     });
-// Pending Uploads Management
+// Pending Uploads Management — PYQ submissions + contribution points
+// ─────────────────────────────────────────────────────────────────────
+// The review queue holds every submission (pending / approved / rejected).
+//   Approve → status approved + reviewedAt/reviewedBy + exactly +10 points to
+//             the uploader's normalized email + a ledger entry (idempotent).
+//   Reject  → status rejected + reviewedAt/reviewedBy + no points, ever.
+// Approval NEVER publishes a PYQ — permanent publishing stays the manual
+// "Quick create" flow below, exactly as before.
+
+let submissionFilter = 'pending';
+const submissionActionBusy = new Set();
+
+function submissionStatusOf(doc) {
+    if (window.DSMNRUPoints) return window.DSMNRUPoints.submissionStatus(doc && doc.status);
+    const raw = String((doc && doc.status) || 'pending').trim().toLowerCase();
+    return (raw === 'approved' || raw === 'rejected') ? raw : 'pending';
+}
+
+function submissionEmailOf(doc) {
+    if (window.DSMNRUPoints) return window.DSMNRUPoints.submissionEmail(doc);
+    return String((doc && (doc.studentEmail || doc.email)) || '').trim().toLowerCase();
+}
+
+function rewardPointsValue() {
+    return window.DSMNRUPoints ? window.DSMNRUPoints.PYQ_UPLOAD_REWARD_POINTS : 10;
+}
+
+function getSubmissionCounts() {
+    const counts = { pending: 0, approved: 0, rejected: 0 };
+    allData.pendingUploads.forEach(doc => {
+        const status = submissionStatusOf(doc);
+        if (counts[status] !== undefined) counts[status] += 1;
+    });
+    return counts;
+}
+
+function uploadTimestampValue(doc) {
+    const value = doc && doc.uploadedAt;
+    if (!value) return 0;
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function reviewTimestampValue(doc) {
+    const value = doc && doc.reviewedAt;
+    if (!value) return 0;
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function loadPendingUploads() {
-    db.collection('pendingUploads').where('status', '==', 'pending').get()
+    // Every submission (all statuses), newest first. Bounded read so the
+    // review queue stays cheap as approved/rejected history grows.
+    return db.collection('pendingUploads').limit(300).get()
         .then(snapshot => {
-            allData.pendingUploads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const pendingCount = allData.pendingUploads.length;
-            updateDashboardStats();
-            
-            if (pendingCount === 0) {
-                document.getElementById('pendingUploadsList').innerHTML = '';
-                document.getElementById('noPendingMessage').style.display = 'block';
-            } else {
-                document.getElementById('noPendingMessage').style.display = 'none';
-                renderPendingUploads(allData.pendingUploads);
-            }
+            allData.pendingUploads = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => uploadTimestampValue(b) - uploadTimestampValue(a));
+            renderPendingUploads(allData.pendingUploads);
         })
         .catch(error => {
             console.error('Error loading pending uploads:', error);
         });
 }
 
-function renderPendingUploads(pendingDocs) {
+function filterSubmissions(filter) {
+    submissionFilter = filter || 'pending';
+    document.querySelectorAll('.submission-filter-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-filter') === submissionFilter;
+        btn.classList.toggle('active', isActive);
+        btn.classList.toggle('btn-primary', isActive);
+        btn.classList.toggle('btn-outline-success', !isActive && btn.getAttribute('data-filter') === 'approved');
+        btn.classList.toggle('btn-outline-danger', !isActive && btn.getAttribute('data-filter') === 'rejected');
+        btn.classList.toggle('btn-outline-light', !isActive && (btn.getAttribute('data-filter') === 'all' || btn.getAttribute('data-filter') === 'pending'));
+    });
+    renderPendingUploads(allData.pendingUploads);
+}
+
+function submissionStatusBadge(status) {
+    if (status === 'approved') {
+        return '<span class="resource-pill submission-status submission-status-approved"><i class="fas fa-circle-check me-1"></i> Approved</span>';
+    }
+    if (status === 'rejected') {
+        return '<span class="resource-pill submission-status submission-status-rejected"><i class="fas fa-circle-xmark me-1"></i> Rejected</span>';
+    }
+    return '<span class="resource-pill submission-status submission-status-pending"><i class="fas fa-hourglass-half me-1"></i> Pending</span>';
+}
+
+function setSubmissionCardBusy(docId, busy) {
+    const card = document.querySelector('[data-submission-id="' + docId + '"]');
+    if (!card) return;
+    card.querySelectorAll('button').forEach(btn => { btn.disabled = !!busy; });
+}
+
+function renderPendingUploads(submissions) {
     const list = document.getElementById('pendingUploadsList');
+    const noPendingMessage = document.getElementById('noPendingMessage');
     if (!list) return;
 
-    if (!pendingDocs.length) {
-        list.innerHTML = '<div class="resource-empty">No pending uploads found.</div>';
-        updateDashboardStats();
+    const all = Array.isArray(submissions) ? submissions : allData.pendingUploads;
+    const visible = all.filter(doc => submissionFilter === 'all' || submissionStatusOf(doc) === submissionFilter);
+
+    updateDashboardStats();
+
+    if (!visible.length) {
+        list.innerHTML = '';
+        if (noPendingMessage) {
+            noPendingMessage.style.display = 'block';
+            noPendingMessage.textContent = submissionFilter === 'pending'
+                ? 'No pending uploads at the moment.'
+                : 'No ' + submissionFilter + ' submissions yet.';
+        }
         return;
     }
 
-    list.innerHTML = pendingDocs.map((doc, index) => {
-        // doc is already a converted object with { id, ...data }
+    if (noPendingMessage) noPendingMessage.style.display = 'none';
+
+    list.innerHTML = visible.map((doc, index) => {
         const data = doc;
-        const uploadDate = data.uploadedAt ? new Date(data.uploadedAt.toDate()).toLocaleString() : 'Unknown';
+        const status = submissionStatusOf(data);
+        const isPending = status === 'pending';
+        const uploadedAt = uploadTimestampValue(data);
+        const uploadDate = uploadedAt ? new Date(uploadedAt).toLocaleString() : 'Unknown';
+        const reviewedAt = reviewTimestampValue(data);
+        const email = submissionEmailOf(data);
+        const reward = rewardPointsValue();
+
+        let pointsLine = '';
+        if (status === 'approved') {
+            const awarded = data.pointsAwarded === true ? '+' + reward : '0';
+            pointsLine = '<div>Points: <strong>' + awarded + '</strong>'
+                + (email ? ' → <code>' + escapeHtml(email) + '</code>' : '')
+                + (data.pointsTransactionId ? ' <span class="text-muted">(txn ' + escapeHtml(data.pointsTransactionId) + ')</span>' : '')
+                + '</div>';
+        } else if (status === 'pending') {
+            pointsLine = '<div class="text-muted">Points: +' + reward + ' on approval</div>';
+        } else {
+            pointsLine = '<div class="text-muted">Points: 0 (rejected)</div>';
+        }
+
+        const reasonLine = status === 'rejected' && data.rejectionReason
+            ? '<div>Reason: ' + escapeHtml(data.rejectionReason) + '</div>'
+            : '';
+        const reviewedLine = data.reviewedBy
+            ? '<div class="text-muted">Reviewed by ' + escapeHtml(data.reviewedBy) + (reviewedAt ? ' • ' + new Date(reviewedAt).toLocaleString() : '') + '</div>'
+            : '';
+
+        const reviewButtons = isPending
+            ? `<button class="btn btn-sm btn-success" onclick="approveSubmission('${doc.id}')">
+                    <i class="fas fa-check me-1"></i> Approve <span class="btn-points">+${reward}</span>
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="rejectSubmission('${doc.id}')">
+                    <i class="fas fa-ban me-1"></i> Reject <span class="btn-points">0</span>
+                </button>`
+            : '';
+
         return `
-            <article class="resource-card">
+            <article class="resource-card" data-submission-id="${doc.id}" data-status="${status}">
                 <div class="resource-top">
                     <div>
-                        <div class="resource-kicker">Pending upload ${index + 1}</div>
+                        <div class="resource-kicker">${escapeHtml(status)} submission ${index + 1}</div>
                         <h5 class="resource-title">${escapeHtml(data.title)}</h5>
                         <div class="resource-meta">
+                            ${submissionStatusBadge(status)}
                             <span class="resource-pill">${escapeHtml(data.course || 'N/A')}</span>
                             <span class="resource-pill">${escapeHtml(data.semester || 'N/A')}</span>
                         </div>
                     </div>
                     <div class="resource-actions">
-                        <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(data.downloadUrl || '')})'>Copy URL</button>
-                        <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${data.fileName.replace(/'/g, "\\'")}')">
+                        ${reviewButtons}
+                        <button class="btn btn-sm btn-outline-info" onclick="previewPendingFile('${data.downloadUrl}')">
+                            <i class="fas fa-eye me-1"></i> Preview
+                        </button>
+                        <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${String(data.fileName || '').replace(/'/g, "\\'")}')">
                             <i class="fas fa-download me-1"></i> Download
                         </button>
+                        <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(data.downloadUrl || '')})'>Copy URL</button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deletePendingUpload('${doc.id}')">
                             <i class="fas fa-trash me-1"></i> Delete
                         </button>
                     </div>
                 </div>
                 <div class="resource-detail">
-                    <div>File: <code>${escapeHtml(data.fileName)}</code></div>
-                    <div>Uploaded by: <strong>${escapeHtml(data.studentName || 'Anonymous')}</strong></div>
+                    <div>File: <code>${escapeHtml(data.fileName || 'unnamed-file')}</code></div>
+                    <div>Uploaded by: <strong>${escapeHtml(data.studentName || 'Anonymous')}</strong>${email ? ' • <code>' + escapeHtml(email) + '</code>' : ''}</div>
                     <div>${escapeHtml(uploadDate)}</div>
+                    ${pointsLine}
+                    ${reasonLine}
+                    ${reviewedLine}
                 </div>
+                ${isPending ? duplicateHintPlaceholder(data) : ''}
             </article>
         `;
     }).join('');
 
-    updateDashboardStats();
+    // Fill the duplicate hints once the PYQ index is available (async, and
+    // purely additive — it never touches a submission's status or points).
+    renderDuplicateHints(visible);
+}
+
+// ── Duplicate-detection assistance ────────────────────────────────────
+// ADMIN ASSISTANCE ONLY. This never changes a submission's status, never
+// awards or withholds points, and never hides a submission: it lists the most
+// relevant existing PYQs (title-led, course/semester only adjust confidence)
+// so the admin can open the paper and decide — same paper → Reject (0 points),
+// different paper → Approve (+10 points).
+// Matching itself lives in duplicate-check.js (shared, unit-tested).
+
+let duplicateIndex = null;
+let duplicateIndexPromise = null;
+let duplicateIndexSource = null;   // 'firestore' (authoritative) | 'api-cache' (may lag)
+
+/**
+ * Pull the PYQ title/course/semester list from the Worker API first: it is
+ * edge/KV cached and costs zero Firestore reads. Falls back to a direct read
+ * (the admin already has `pyqs` read permission) if the API is unreachable.
+ */
+async function fetchPyqsFromWorkerApi() {
+    const items = [];
+    let page = 1;
+    let totalPages = 1;
+    do {
+        const response = await fetch(`${API_BASE_URL}/pyqs?limit=100&page=${page}`, {
+            headers: { Accept: 'application/json' }
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        (data.items || []).forEach(item => items.push({
+            id: item.id,
+            title: item.title || '',
+            course: item.course || '',
+            semester: item.semester || ''
+        }));
+        totalPages = Number(data.totalPages) || 1;
+        page += 1;
+    } while (page <= totalPages && page <= 20); // hard stop: 2000 papers
+    return items;
+}
+
+function duplicateFieldsFrom(doc) {
+    return {
+        id: doc.id,
+        title: doc.title || '',
+        course: doc.course || '',
+        semester: doc.semester || ''
+    };
+}
+
+/**
+ * Duplicate matching MUST see every published PYQ, so it reads the source of
+ * truth. The Worker's /api/pyqs list is served from a KV search index that is
+ * only rebuilt on admin invalidation (skipped while API_INVALIDATE_KEY is the
+ * placeholder) or after the 7-day hard TTL — it answers 200 OK while silently
+ * omitting recently published papers, which is exactly how an exact duplicate
+ * went missing. The API is therefore only a last-resort fallback, and when it
+ * is used the admin is told the list may be incomplete.
+ */
+function fetchDuplicateIndex() {
+    // Reuse the library already in memory (opening "All PYQs" loads it).
+    if (pyqsLoaded && Array.isArray(allData.pyqs) && allData.pyqs.length) {
+        duplicateIndexSource = 'firestore';
+        return Promise.resolve(allData.pyqs.map(duplicateFieldsFrom));
+    }
+    return db.collection('pyqs').get()
+        .then(snapshot => {
+            duplicateIndexSource = 'firestore';
+            return snapshot.docs.map(doc => duplicateFieldsFrom({ id: doc.id, ...(doc.data() || {}) }));
+        })
+        .catch(error => {
+            console.warn('Duplicate check: direct pyqs read failed (' + error.message + ') — falling back to the cached Worker API.');
+            return fetchPyqsFromWorkerApi().then(items => {
+                duplicateIndexSource = 'api-cache';
+                return items;
+            });
+        });
+}
+
+/** Drop the cached index (called on every PYQ add/edit/delete/import). */
+function invalidateDuplicateIndex() {
+    duplicateIndex = null;
+    duplicateIndexPromise = null;
+    duplicateIndexSource = null;
+}
+
+function loadDuplicateIndex() {
+    if (duplicateIndex) return Promise.resolve(duplicateIndex);
+    if (!duplicateIndexPromise) {
+        duplicateIndexPromise = fetchDuplicateIndex()
+            .then(items => { duplicateIndex = items; return items; })
+            .catch(error => { duplicateIndexPromise = null; throw error; });
+    }
+    return duplicateIndexPromise;
+}
+
+function duplicateSignalBadge(kind, value) {
+    if (kind === 'match') return '<span class="dup-signal dup-signal-ok"><i class="fas fa-check me-1"></i>' + escapeHtml(value) + '</span>';
+    if (kind === 'different') return '<span class="dup-signal dup-signal-diff"><i class="fas fa-xmark me-1"></i>' + escapeHtml(value) + '</span>';
+    return '<span class="dup-signal dup-signal-unknown"><i class="fas fa-question me-1"></i>' + escapeHtml(value) + ' not compared</span>';
+}
+
+function duplicateHintPlaceholder(submission) {
+    const helpers = window.DSMNRUDuplicates;
+    if (!helpers || !helpers.hasText(submission.title)) return '';
+    return `<div class="duplicate-hints" id="duplicateHints-${submission.id}">
+                    <span class="dup-loading"><i class="fas fa-magnifying-glass me-1"></i> Checking for similar PYQs…</span>
+                </div>`;
+}
+
+function setDuplicateHint(submissionId, html) {
+    const el = document.getElementById('duplicateHints-' + submissionId);
+    if (el) el.innerHTML = html;
+}
+
+/** Fill the per-submission hint blocks. Purely additive — no status writes. */
+async function renderDuplicateHints(submissions) {
+    const helpers = window.DSMNRUDuplicates;
+    if (!helpers) return;
+    // Duplicate matching is only useful (and only worth its read) inside the
+    // Review Queue workspace — the dashboard reuses the same renderer for its
+    // "needs attention" summary and must stay read-light.
+    const reviewView = document.getElementById('view-review');
+    if (!reviewView || !reviewView.classList.contains('active')) return;
+    const targets = (submissions || []).filter(item => submissionStatusOf(item) === 'pending' && helpers.hasText(item.title));
+    if (!targets.length) return;
+
+    let index;
+    try {
+        index = await loadDuplicateIndex();
+    } catch (error) {
+        console.warn('Duplicate check unavailable:', error.message);
+        targets.forEach(item => setDuplicateHint(item.id, '<span class="dup-none">Could not load the PYQ list to compare against.</span>'));
+        return;
+    }
+
+    targets.forEach(submission => {
+        const candidates = helpers.findCandidates(submission, index, { limit: 5 });
+        if (!candidates.length) {
+            setDuplicateHint(submission.id, '<span class="dup-none">No similar PYQs found — you can approve without a duplicate check.</span>');
+            return;
+        }
+
+        const rows = candidates.map(candidate => {
+            const pyq = candidate.pyq;
+            const percent = Math.round(candidate.confidence * 100);
+            const band = candidate.confidence >= 0.75 ? 'dup-confidence-high'
+                : candidate.confidence >= 0.55 ? 'dup-confidence-mid' : 'dup-confidence-low';
+            const courseBadge = duplicateSignalBadge(candidate.course, 'course');
+            const semesterBadge = duplicateSignalBadge(candidate.semester, 'semester');
+            return `<div class="dup-item">
+                        <div class="dup-item-head">
+                            <span class="dup-confidence ${band}">${percent}%</span>
+                            <a href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">${escapeHtml(pyq.title || 'Untitled')}</a>
+                            <a class="dup-view" href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">View</a>
+                        </div>
+                        <div class="dup-item-meta">
+                            <span class="dup-label">${escapeHtml(helpers.confidenceLabel(candidate.confidence))}</span>
+                            ${courseBadge}
+                            ${semesterBadge}
+                        </div>
+                    </div>`;
+        }).join('');
+
+        const staleNote = duplicateIndexSource === 'api-cache'
+            ? '<div class="dup-stale"><i class="fas fa-clock-rotate-left me-1"></i> Matched against the cached Worker index — it can lag behind Firestore. Refresh to re-check.</div>'
+            : '';
+        setDuplicateHint(submission.id, `${staleNote}<div class="dup-head">
+                        <i class="fas fa-triangle-exclamation me-1"></i> Possible Existing PYQs (${candidates.length})
+                        <span class="dup-note">warning only — never auto-rejected, you decide</span>
+                    </div>
+                    ${rows}
+                    <div class="dup-foot">Open a paper to compare → same paper: <strong>Reject</strong> (0 points) · different paper: <strong>Approve</strong> (+${rewardPointsValue()} points)</div>`);
+    });
+}
+
+/** Open the temporary gofile page in a new tab so the admin can read the paper. */
+function previewPendingFile(downloadUrl) {
+    if (!downloadUrl) { alert('This submission has no file link.'); return; }
+    window.open(downloadUrl, '_blank', 'noopener');
 }
 
 function downloadPendingFile(downloadUrl, fileName) {
@@ -1237,9 +1591,197 @@ function deletePendingUpload(docId) {
     }
 }
 
-// Global function for onclick
+// ── Approve / Reject (the only path that can award points) ──────────
+
+function requireAdminForReview() {
+    if (!currentAdmin) {
+        alert('Admin sign-in required to review submissions.');
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Find the Firebase account that already owns this email (if any) so an
+ * existing user's profile shows the points immediately. Non-fatal: points
+ * always live on the email-based reward account.
+ */
+async function resolveRewardUid(email) {
+    try {
+        const byEmail = await db.collection('users').where('email', '==', email).limit(1).get();
+        if (!byEmail.empty) {
+            const data = byEmail.docs[0].data() || {};
+            return data.uid || byEmail.docs[0].id;
+        }
+        const bySignupEmail = await db.collection('users').where('signupEmail', '==', email).limit(1).get();
+        if (!bySignupEmail.empty) {
+            const data = bySignupEmail.docs[0].data() || {};
+            return data.uid || bySignupEmail.docs[0].id;
+        }
+    } catch (error) {
+        console.warn('Could not resolve a user for ' + email + ':', error.message);
+    }
+    return null;
+}
+
+async function approveSubmission(docId) {
+    if (!requireAdminForReview()) return;
+    if (submissionActionBusy.has(docId)) return;
+
+    const submission = allData.pendingUploads.find(item => item.id === docId);
+    if (!submission) {
+        alert('Submission not found — refresh the review queue.');
+        return;
+    }
+
+    const email = submissionEmailOf(submission);
+    if (!email || (window.DSMNRUPoints && !window.DSMNRUPoints.isValidRewardEmail(email))) {
+        alert('This submission has no valid email, so points cannot be credited. Delete it instead.');
+        return;
+    }
+
+    const reward = rewardPointsValue();
+    if (!confirm('Approve this PYQ submission?\n\n' + (submission.title || 'Untitled')
+        + '\n\n+' + reward + ' points will be credited to ' + email
+        + '.\nApproval does NOT publish the PYQ — publishing stays manual.')) {
+        return;
+    }
+
+    submissionActionBusy.add(docId);
+    setSubmissionCardBusy(docId, true);
+
+    try {
+        const uid = await resolveRewardUid(email);
+        const accountKey = window.DSMNRUPoints
+            ? window.DSMNRUPoints.rewardAccountKey(email)
+            : email.replace(/[^a-z0-9]/g, '_');
+        const rewardType = window.DSMNRUPoints ? window.DSMNRUPoints.PYQ_UPLOAD_REWARD_TYPE : 'PYQ_UPLOAD_REWARD';
+
+        // One Firestore transaction: submission status + ledger entry + balance.
+        // The ledger document id IS the submission id, so a second approval can
+        // never create a second reward.
+        const result = await db.runTransaction(async (tx) => {
+            const submissionRef = db.collection('pendingUploads').doc(docId);
+            const accountRef = db.collection('reward_accounts').doc(accountKey);
+            const ledgerRef = db.collection('point_transactions').doc(docId);
+
+            const submissionSnap = await tx.get(submissionRef);
+            const accountSnap = await tx.get(accountRef);
+            const ledgerSnap = await tx.get(ledgerRef);
+
+            if (!submissionSnap.exists) throw new Error('Submission no longer exists.');
+
+            const reviewedPatch = {
+                status: 'approved',
+                reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                reviewedBy: currentAdmin.email || '',
+                reviewedByUid: currentAdmin.uid || '',
+                rejectionReason: null
+            };
+
+            const alreadyAwarded = ledgerSnap.exists
+                || submissionSnap.data().pointsAwarded === true
+                || !!submissionSnap.data().pointsTransactionId;
+
+            if (alreadyAwarded) {
+                // Status only — never a second reward for the same submission.
+                tx.update(submissionRef, reviewedPatch);
+                const existing = accountSnap.exists ? (accountSnap.data() || {}) : {};
+                return { awarded: false, points: 0, total: Number(existing.points) || 0 };
+            }
+
+            const account = accountSnap.exists ? (accountSnap.data() || {}) : {};
+            const currentPoints = Number(account.points) || 0;
+            const now = firebase.firestore.FieldValue.serverTimestamp();
+
+            tx.set(ledgerRef, {
+                email: email,
+                amount: reward,
+                type: rewardType,
+                submissionId: docId,
+                rewardAccountKey: accountKey,
+                uid: uid || account.uid || null,
+                createdBy: currentAdmin.email || '',
+                createdAt: now
+            });
+
+            tx.set(accountRef, {
+                email: email,
+                points: currentPoints + reward,
+                uid: uid || account.uid || null,
+                createdAt: account.createdAt || now,
+                updatedAt: now
+            }, { merge: true });
+
+            tx.update(submissionRef, Object.assign({}, reviewedPatch, {
+                pointsAwarded: true,
+                pointsTransactionId: docId,
+                pointsAmount: reward,
+                pointsEmail: email
+            }));
+
+            return { awarded: true, points: reward, total: currentPoints + reward };
+        });
+
+        alert(result.awarded
+            ? 'Approved — +' + result.points + ' points credited. Balance: ' + result.total + '.'
+            : 'Approved — points were already awarded for this submission, so nothing extra was credited. Balance: ' + result.total + '.');
+    } catch (error) {
+        console.error('Error approving submission:', error);
+        alert('Could not approve this submission: ' + error.message);
+    } finally {
+        submissionActionBusy.delete(docId);
+        loadPendingUploads();
+    }
+}
+
+async function rejectSubmission(docId) {
+    if (!requireAdminForReview()) return;
+    if (submissionActionBusy.has(docId)) return;
+
+    const submission = allData.pendingUploads.find(item => item.id === docId);
+    if (!submission) {
+        alert('Submission not found — refresh the review queue.');
+        return;
+    }
+
+    if (submission.pointsAwarded === true || submission.pointsTransactionId) {
+        alert('This submission was already approved and rewarded. Points are never removed — leaving it as approved.');
+        return;
+    }
+
+    const reason = prompt('Reject this submission? No points will be awarded.\n\nOptional reason (stored on the record):', '');
+    if (reason === null) return; // cancelled
+
+    submissionActionBusy.add(docId);
+    setSubmissionCardBusy(docId, true);
+
+    try {
+        await db.collection('pendingUploads').doc(docId).update({
+            status: 'rejected',
+            reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            reviewedBy: currentAdmin.email || '',
+            reviewedByUid: currentAdmin.uid || '',
+            rejectionReason: reason.trim().slice(0, 300) || null
+        });
+        alert('Submission rejected. No points were awarded.');
+    } catch (error) {
+        console.error('Error rejecting submission:', error);
+        alert('Could not reject this submission: ' + error.message);
+    } finally {
+        submissionActionBusy.delete(docId);
+        loadPendingUploads();
+    }
+}
+
+// Global functions for onclick
 window.downloadPendingFile = downloadPendingFile;
+window.previewPendingFile = previewPendingFile;
+window.invalidateDuplicateIndex = invalidateDuplicateIndex;
 window.deletePendingUpload = deletePendingUpload;
+window.approveSubmission = approveSubmission;
+window.rejectSubmission = rejectSubmission;
+window.filterSubmissions = filterSubmissions;
 
 // Lazy loading functions - only load data when section is expanded
 let pyqsLoaded = false;
@@ -1264,7 +1806,12 @@ window.loadPyqsOnDemand = function() {
 };
 
 window.loadPendingOnDemand = function() {
-    if (pendingLoaded) return;
+    if (pendingLoaded) {
+        // Already in memory (the dashboard loads it) — just re-render so the
+        // duplicate hints appear, without reading the collection again.
+        renderPendingUploads(allData.pendingUploads);
+        return;
+    }
     pendingLoaded = true;
     loadPendingUploads();
 };
@@ -1705,4 +2252,280 @@ document.addEventListener('DOMContentLoaded', function(){
         const firstBtn = document.querySelector('.feedback-filter-btn[data-filter="all"]');
         if (firstBtn) firstBtn.classList.add('active');
     } catch(e){}
+});
+// ══════════════════════════════════════════════════════════════════════
+// ADMIN NAVIGATION — persistent sidebar + focused views
+// ──────────────────────────────────────────────────────────────────────
+// Information architecture only: every workspace below reuses the existing
+// loaders and renderers (no data logic is duplicated). Each view fetches its
+// own data the first time it is opened, so the dashboard stays lightweight.
+// ══════════════════════════════════════════════════════════════════════
+
+const ADMIN_VIEWS = {
+    'dashboard':     { title: 'Dashboard',    load: function () { loadDashboardOverview(); } },
+    'pyqs':          { title: 'All PYQs',     load: function () { window.loadPyqsOnDemand(); } },
+    'add-pyq':       { title: 'Add PYQ' },
+    'bulk-import':   { title: 'Bulk Import' },
+    'review':        { title: 'Review Queue', load: function () { window.loadPendingOnDemand(); } },
+    'contributors':  { title: 'Contributors', load: function () { window.loadContributorsOnDemand(); } },
+    'users':         { title: 'Users',        load: function () { window.loadUsersOnDemand(); } },
+    'feedback':      { title: 'Feedback',     load: function () { window.loadFeedbackOnDemand(); } },
+    'rewards':       { title: 'Rewards',      load: function () { loadRewards(); } },
+    'settings':      { title: 'Settings',     load: function () { renderSettings(); } }
+};
+let currentAdminView = null;
+
+function showAdminView(name, options) {
+    const opts = options || {};
+    const view = ADMIN_VIEWS[name] ? name : 'dashboard';
+
+    document.querySelectorAll('.admin-view').forEach(section => {
+        section.classList.toggle('active', section.getAttribute('data-view') === view);
+    });
+    document.querySelectorAll('.admin-nav-item').forEach(item => {
+        item.classList.toggle('active', item.getAttribute('data-view') === view);
+    });
+
+    const titleEl = document.getElementById('adminPageTitle');
+    if (titleEl) titleEl.textContent = ADMIN_VIEWS[view].title;
+    document.title = ADMIN_VIEWS[view].title + ' · DSMNRU Admin';
+    currentAdminView = view;
+    closeAdminSidebar();
+
+    if (!opts.skipHash && window.location.hash !== '#' + view) {
+        try { window.history.replaceState(null, '', '#' + view); }
+        catch (error) { window.location.hash = view; }
+    }
+
+    const loader = ADMIN_VIEWS[view].load;
+    if (typeof loader === 'function') {
+        try { loader(); } catch (error) { console.error('Could not load "' + view + '":', error); }
+    }
+    window.scrollTo(0, 0);
+}
+
+function toggleAdminSidebar() {
+    document.body.classList.toggle('admin-nav-open');
+}
+
+function closeAdminSidebar() {
+    document.body.classList.remove('admin-nav-open');
+}
+
+function setNavBadge(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const count = Number(value) || 0;
+    el.textContent = count > 99 ? '99+' : String(count);
+    el.classList.toggle('is-zero', count === 0);
+}
+
+function setAdminText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
+function setAdminIdentity(user) {
+    const email = (user && user.email) || '—';
+    setAdminText('adminSignedInEmail', email);
+    setAdminText('settingsAdminEmail', email);
+}
+
+// ── Dashboard: overview only, two bounded reads ───────────────────────
+// 1) pending submissions (the action-critical collection, same bounded query
+//    the Review Queue uses)  2) recent/total PYQs from the Worker API, which
+//    is edge/KV cached and costs zero Firestore reads.
+let dashboardOverviewRequested = false;
+let knownPyqTotal = null;
+
+function loadDashboardOverview(force) {
+    if (dashboardOverviewRequested && !force) {
+        renderRecentSubmissions();
+        return;
+    }
+    dashboardOverviewRequested = true;
+    renderRecentPyqs();
+    Promise.resolve(loadPendingUploads())
+        .then(function () {
+            // The queue data is already in memory — opening the Review Queue
+            // workspace does not need to read the collection again.
+            pendingLoaded = true;
+            renderRecentSubmissions();
+        })
+        .catch(error => console.error('Dashboard: could not load submissions:', error.message));
+}
+
+function renderRecentSubmissions() {
+    const el = document.getElementById('recentSubmissionsList');
+    if (!el) return;
+    const pending = (allData.pendingUploads || []).filter(item => submissionStatusOf(item) === 'pending');
+    if (!pending.length) {
+        el.innerHTML = '<div class="resource-empty">Nothing waiting for review.</div>';
+        return;
+    }
+    el.innerHTML = pending.slice(0, 5).map(item => {
+        const when = uploadTimestampValue(item);
+        return `<article class="resource-card compact-card">
+                    <div class="resource-title-sm">${escapeHtml(item.title || 'Untitled')}</div>
+                    <div class="resource-meta">
+                        <span class="resource-pill">${escapeHtml(item.course || 'no course')}</span>
+                        <span class="resource-pill">${escapeHtml(item.semester || 'no semester')}</span>
+                    </div>
+                    <div class="resource-detail">${escapeHtml(submissionEmailOf(item) || 'no email')}${when ? ' • ' + escapeHtml(new Date(when).toLocaleString()) : ''}</div>
+                </article>`;
+    }).join('');
+}
+
+function renderRecentPyqs() {
+    const el = document.getElementById('recentPyqsList');
+    if (!el) return;
+    fetch(`${API_BASE_URL}/homepage`, { headers: { Accept: 'application/json' } })
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            const recent = (data && data.recent) || [];
+            const stats = (data && data.stats) || {};
+            if (stats && Number.isFinite(Number(stats.totalPyqs))) {
+                knownPyqTotal = Number(stats.totalPyqs);
+                updateDashboardStats();
+            }
+            if (!recent.length) {
+                el.innerHTML = '<div class="resource-empty">No published PYQs yet.</div>';
+                return;
+            }
+            el.innerHTML = recent.map(pyq => `<article class="resource-card compact-card">
+                    <div class="resource-title-sm">
+                        <a href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">${escapeHtml(pyq.title || 'Untitled')}</a>
+                    </div>
+                    <div class="resource-meta">
+                        <span class="resource-pill">${escapeHtml(pyq.course || '—')}</span>
+                        <span class="resource-pill">${escapeHtml(pyq.semester || '—')}</span>
+                        ${pyq.session ? `<span class="resource-pill">${escapeHtml(pyq.session)}</span>` : ''}
+                    </div>
+                </article>`).join('');
+        })
+        .catch(error => {
+            console.warn('Dashboard: Worker API unavailable:', error.message);
+            el.innerHTML = '<div class="resource-empty">Could not reach the Worker API — open “All PYQs” to read from Firestore.</div>';
+        });
+}
+
+/** KPI cards for the collections we deliberately do NOT load on the dashboard. */
+function loadDashboardCount(kind) {
+    if (kind === 'users') window.loadUsersOnDemand();
+    else if (kind === 'contributors') window.loadContributorsOnDemand();
+    else if (kind === 'feedback') window.loadFeedbackOnDemand();
+    updateStatLoadButtons();
+}
+
+function updateStatLoadButtons() {
+    [['users', usersLoaded], ['contributors', contributorsLoaded], ['feedback', feedbackLoaded]].forEach(pair => {
+        const btn = document.querySelector('.stat-link[data-load-count="' + pair[0] + '"]');
+        if (btn) btn.style.display = pair[1] ? 'none' : '';
+    });
+}
+
+// ── Rewards: read-only view over the points ledger ────────────────────
+let rewardsLoaded = false;
+
+function loadRewards(force) {
+    if (rewardsLoaded && !force) return;
+    rewardsLoaded = true;
+    const txEl = document.getElementById('rewardTxList');
+    const accountEl = document.getElementById('rewardAccountsList');
+    [txEl, accountEl].forEach(el => { if (el) el.innerHTML = '<div class="resource-empty">Loading…</div>'; });
+
+    Promise.all([
+        db.collection('point_transactions').orderBy('createdAt', 'desc').limit(25).get(),
+        db.collection('reward_accounts').get()
+    ]).then(results => {
+        const transactions = results[0].docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const accounts = results[1].docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const totalPoints = accounts.reduce((sum, account) => sum + (Number(account.points) || 0), 0);
+        const linked = accounts.filter(account => account.uid).length;
+        setAdminText('rewardPointsIssued', String(totalPoints));
+        setAdminText('rewardAccountsCount', String(accounts.length));
+        setAdminText('rewardLinkedCount', String(linked));
+        setAdminText('rewardTxChip', transactions.length + ' latest');
+        setAdminText('rewardAccountsChip', accounts.length + ' balances');
+
+        if (txEl) {
+            txEl.innerHTML = transactions.length
+                ? transactions.map(tx => {
+                    const when = rewardWhenValue(tx.createdAt);
+                    return `<article class="resource-card compact-card">
+                        <div class="resource-title-sm"><span class="reward-amount">+${escapeHtml(Number(tx.amount) || 0)}</span> ${escapeHtml(tx.email || 'unknown email')}</div>
+                        <div class="resource-detail">${escapeHtml(tx.type || 'REWARD')}${when ? ' • ' + escapeHtml(when) : ''}${tx.submissionId ? ' • submission <code>' + escapeHtml(tx.submissionId) + '</code>' : ''}</div>
+                    </article>`;
+                }).join('')
+                : '<div class="resource-empty">No rewards issued yet.</div>';
+        }
+
+        if (accountEl) {
+            const sorted = accounts.slice().sort((a, b) => (Number(b.points) || 0) - (Number(a.points) || 0));
+            accountEl.innerHTML = sorted.length
+                ? sorted.map(account => `<article class="resource-card compact-card">
+                        <div class="resource-title-sm">${escapeHtml(account.email || account.id)}</div>
+                        <div class="resource-meta">
+                            <span class="resource-pill"><strong>${escapeHtml(Number(account.points) || 0)}</strong> pts</span>
+                            <span class="resource-pill">${account.uid ? 'linked to account' : 'no account yet'}</span>
+                        </div>
+                    </article>`).join('')
+                : '<div class="resource-empty">No reward accounts yet.</div>';
+        }
+    }).catch(error => {
+        console.error('Rewards: load failed:', error);
+        const message = '<div class="alert alert-danger mb-0">Could not load rewards: ' + escapeHtml(error.message) + '</div>';
+        if (txEl) txEl.innerHTML = message;
+        if (accountEl) accountEl.innerHTML = '';
+        rewardsLoaded = false;
+    });
+}
+
+function rewardWhenValue(value) {
+    if (!value) return '';
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.toLocaleString() : '';
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '';
+}
+
+// ── Settings: existing utilities only ─────────────────────────────────
+function renderSettings() {
+    setAdminIdentity(currentAdmin);
+    const configured = !!API_INVALIDATE_KEY && API_INVALIDATE_KEY.indexOf('REPLACE_') !== 0;
+    setAdminText('settingsApiCacheStatus', configured ? 'Key configured' : 'Key not set — invalidation skipped');
+}
+
+function runCacheInvalidation() {
+    if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
+        alert('API_INVALIDATE_KEY is not set in admin.js, so invalidation is skipped. Set it to the Worker’s ADMIN_API_KEY secret to purge the cache on demand.');
+        return;
+    }
+    invalidateApiCache();
+    alert('Cache invalidation requested — the Worker will rebuild its index in the background.');
+}
+
+window.showAdminView = showAdminView;
+window.toggleAdminSidebar = toggleAdminSidebar;
+window.closeAdminSidebar = closeAdminSidebar;
+window.loadDashboardOverview = loadDashboardOverview;
+window.loadDashboardCount = loadDashboardCount;
+window.loadRewards = loadRewards;
+window.renderSettings = renderSettings;
+window.runCacheInvalidation = runCacheInvalidation;
+
+document.addEventListener('DOMContentLoaded', function () {
+    const settingsLogout = document.getElementById('settingsLogoutBtn');
+    if (settingsLogout) settingsLogout.addEventListener('click', function () { auth.signOut(); });
+
+    window.addEventListener('hashchange', function () {
+        const name = window.location.hash.replace('#', '');
+        if (name && name !== currentAdminView) showAdminView(name, { skipHash: true });
+    });
 });

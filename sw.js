@@ -1,6 +1,6 @@
-// Public-shell service worker. User data and live archive API responses are
+// Public-shell service worker. v8 — adds points.js / PYQ contribution points UI. User data and live archive API responses are
 // deliberately never cached here.
-const CACHE_NAME = 'dsmnru-archive-v7';
+const CACHE_NAME = 'dsmnru-archive-v8';
 const APP_SHELL = [
   '/', '/contributors.html', '/links.html', '/styles.css', '/manifest.json',
   '/img/icon-192.png', '/img/icon-512.png', '/img/icon-maskable-512.png'

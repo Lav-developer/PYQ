@@ -85,7 +85,8 @@
 - 📚 **Browse PYQs** — 20 free on load, **View Details** → `paper.html` (locked preview + inline same-site viewer for `archive.org`/`catbox.moe`, never jumps out)
 - 🔍 **Search & Filters** — Course / Semester / Session + Sort (Newest, Most Viewed, A-Z) — gated, 0 reads when cached
 - 📖 **Paper Detail Page** — Breadcrumb, pills (course/sem/session/branch/views), inline preview, **Server 1/2** same-site, **Report**, **Related** (6, cache-first), **Discussion** (comments)
-- 📤 **Upload** — Single PDF or multiple images → auto-merged PDF (jsPDF, 6 quality attempts) → `pendingUploads`
+- 📤 **Upload** — Single PDF or multiple images → auto-merged PDF (jsPDF, 6 quality attempts) → `pendingUploads` (no sign-in required)
+- 🏆 **PYQ Points** — **Earn 10 points for every approved PYQ.** Points are collected against your email (works before you sign up) and show up in your profile with a reward history. *Points are currently being collected. Redemption will be available in a future rewards update.*
 - 🧰 **Student Tools** — SGPA Calculator, Study Planner (reminders), Attendance Tracker (per-date)
 - 📝 **Feedback** — Report Broken Link / Request PYQ → `feedback` collection
 - 🌗 **PWA** — Installable, offline cache (`sw.js v5`), works on `localhost` + HTTPS
@@ -96,7 +97,7 @@
 - ➕ **Quick Create** — Course / Sem / Session / Subject / Branch → auto `title` → `pyqs` with `file`/`file2`
 - 📥 **Bulk CSV Import** — `pyqs` / `contributors` ( `id` → update, else create )
 - 📚 **Content Library** — Card list, local **0-read search** (`#adminPyqSearch`), Copy Server 1/2, Edit/Delete by **doc id** (fixes filtered delete bug)
-- ⏳ **Review Queue** — `pendingUploads` where `status=='pending'` → Download / Delete
+- ⏳ **Review Queue** — every `pendingUploads` submission → filters `Pending / Approved / Rejected / All`, Download / Copy URL / **Approve (+10 points)** / **Reject (0 points)** / Delete
 - 👥 **Contributors** — Add/edit/delete (`PYQs Provider` etc.)
 - 👤 **Users** — Registered profiles, edit role/course/phone, delete
 - 🚩 **Feedback Inbox** — **NEW** `Broken Reports & PYQ Requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved`, realtime `new` pulse, counts in hero
@@ -137,6 +138,8 @@
 ├── paper.html          # Paper Detail — breadcrumb, preview, related, comments (id=gated)
 ├── paper.js            # Paper logic — cache-first related, verification block, same-site preview
 ├── script.js           # Main — auth, cache (session+15m), gated search, upload, tools, feedback
+├── points.js           # Shared contribution-points helpers (email normalize + reward account key)
+├── duplicate-check.js  # Shared duplicate-matching helpers (title-led, admin assistance only)
 ├── admin.html          # Admin — lazy sections, Feedback inbox, local search
 ├── admin.js            # Admin — CRUD, lazy, CSV, Feedback, id-based delete fix
 ├── styles.css          # Dark glass theme, design tokens, responsive
@@ -215,6 +218,10 @@ cd worker
 npm install --no-save jsdom
 node test/frontend-smoke-test.cjs
 node test/paper-smoke-test.cjs
+node test/contribution-points-test.cjs   # 65 assertions — upload → pending → approve/reject → points
+node test/duplicate-detection-test.cjs   # 45 assertions — title-led matching + admin hint UI
+node test/admin-ia-test.cjs              # 68 assertions — sidebar IA, lazy loading, rewards
+node test/duplicate-index-freshness-test.cjs  # 13 — exact-title regression (stale index)
 ```
 
 ## 🔧 Environment & Firebase Setup
@@ -254,7 +261,11 @@ firebase deploy --only firestore:rules
 
 **`contributors`** — `name`, `avatar` (initials), `role` (`PYQs Provider`)
 
-**`pendingUploads`** — `title`, `course`, `semester`, `studentName`, `studentCourse`, `studentEmail`, `userId`, `fileName`, `downloadUrl` (gofile), `fileSize`, `uploadedAt`, `status: 'pending'`
+**`pendingUploads`** (PYQ submissions / review queue) — `title`, `course`, `semester`, `studentName`, `studentCourse`, `studentEmail` (**normalized** — the reward identity), `email` (same value, alias), `userId`, `fileName`, `downloadUrl` (gofile), `fileSize`, `uploadedAt`, `status: 'pending' | 'approved' | 'rejected'`, `reviewedAt`, `reviewedBy`, `reviewedByUid`, `rejectionReason`, `pointsAwarded`, `pointsTransactionId`, `pointsAmount`
+
+**`reward_accounts`** — doc id = normalized email with non-alphanumerics replaced by `_` (`rahul@gmail.com` → `rahul_gmail_com`). Fields: `email`, `points`, `uid` (linked when the contributor signs up), `createdAt`, `updatedAt`
+
+**`point_transactions`** — one document **per rewarded submission** (doc id = submission id): `email`, `amount: 10`, `type: 'PYQ_UPLOAD_REWARD'`, `submissionId`, `rewardAccountKey`, `uid`, `createdBy`, `createdAt`. Because the doc id is the submission id, a submission can never be rewarded twice.
 
 **`feedback`** — `type` (`broken_link` | `pyq_request`), `status: 'new'|'resolved'`, `title`/`course`/`details` or `course`/`subject`/`semester`/`session`, `email`, `userId`, `userEmail`, `createdAt`
 
@@ -279,10 +290,20 @@ match /pyqs/{doc} {
   allow update: if isAdminByEmail() || (isVerified() && diff.hasOnly(['views']) && views+1);
 }
 
-// comments/feedback/pendingUploads: create requires isVerified()
+// comments/feedback: create requires isVerified()
 match /comments/{id} { allow read: true; allow create: if isVerified() && text 3-600 && userId==auth.uid; }
 match /feedback/{id} { allow read: if isAdminByEmail(); allow create: if isVerified() && type in [...] && status=='new'; }
+
+// pendingUploads (submissions): public create of a PENDING doc only — no sign-in,
+// and a client can never write points / review state
+match /pendingUploads/{doc} { allow read/update/delete: if isAdminByEmail(); allow create: if isValidPendingSubmission(); }
+
+// points: admin-only writes; a student can read (and uid-link) their own reward data
+match /reward_accounts/{key}  { allow read: if isAdminByEmail() || ownsRewardEmail(resource.data); allow create, delete: if isAdminByEmail(); allow update: if isAdminByEmail() || (uid-only self link); }
+match /point_transactions/{id}{ allow read: if isAdminByEmail() || ownsRewardEmail(resource.data); allow create, update, delete: if isAdminByEmail(); }
 ```
+
+> ⚠️ Set the real admin email in `isAdminByEmail()` before deploying.
 
 **Deploy after editing `abc@gmail.com` → your email.**
 
@@ -290,35 +311,119 @@ match /feedback/{id} { allow read: if isAdminByEmail(); allow create: if isVerif
 
 ## 📤 Student Upload Flow
 
-1. Fill **Help us grow** → Your Name, Title, Course/Sem, **1 PDF or N images** (≤10 MB final)
+1. Fill **Help us grow** → Your Name, **Your Email (required)**, Title, Course/Sem, **1 PDF or N images** (≤10 MB final). **No sign-in needed.**
 2. Images → `jsPDF` 6 attempts (2000px→900px, 0.9→0.58 quality) → single PDF
-3. PDF → `https://api.gofile.io/servers` → `https://{server}.gofile.io/uploadFile` → `downloadPage` URL
-4. Metadata → `pendingUploads` (`status: pending`)
-5. Admin → *Review Queue* → Download → verify → *Quick Create* → `pyqs` → credited
+3. PDF → `https://api.gofile.io/servers` → `https://{server}.gofile.io/uploadFile` → `downloadPage` URL *(unchanged)*
+4. Metadata → `pendingUploads` (`status: pending`, email normalized to lowercase) → *"Submission received — 10 points will be credited if approved"*
+5. Admin → *Review Queue* → Download → verify → **Approve (+10 points, idempotent)** or **Reject (0 points)**
+6. Publishing stays manual: *Quick Create* → `pyqs` (approval never publishes)
+
+---
+
+## 🏆 PYQ Contribution Points
+
+**Earn 10 points for every approved PYQ.** Points are currently being
+collected; redemption will be available in a future rewards update (they have
+no monetary value today).
+
+```
+Student uploads PDF + email   →   gofile temporary file (unchanged)
+        ↓
+pendingUploads doc  status = "pending"     ← public create, no sign-in
+        ↓
+Admin → Review Queue → Preview/Download (existing gofile link)
+        ↓
+Approve → status "approved" + reviewedAt/reviewedBy + 1 ledger entry + points += 10
+Reject  → status "rejected" + reviewedAt/reviewedBy (+ optional reason) + 0 points
+        ↓
+Student profile → 🏆 PYQ Points + reward history
+```
+
+**Email is the reward identity.** Every email is normalized (`trim` +
+`lowercase`) by `points.js` — the single shared module loaded by both the
+public pages and the admin panel — so `Rahul@gmail.com`, `rahul@gmail.com` and
+`RAHUL@GMAIL.COM` all land on `reward_accounts/rahul_gmail_com`.
+
+**Works before an account exists.** Points are stored on the email-based
+reward account, so a contributor who signs up later (email/password or Google)
+with the same email immediately sees every point already earned. On first
+profile load the account is linked to their `uid` — the rules allow a client to
+change **only** `uid`, never `points`.
+
+**Idempotent by design.** The ledger document id **is** the submission id, and
+approval runs inside a single Firestore transaction that re-reads the ledger
+entry and the `pointsAwarded` flag. A second approval therefore adds `+0` —
+there is no way for one submission to be rewarded twice, even with two admins
+clicking at once.
+
+**Rejected submissions never earn points**, and an already-rewarded submission
+cannot be downgraded to `rejected` from the admin panel.
+
+**Security:** only the admin (rules `isAdminByEmail()`) can read the review
+queue, change a status or write a balance. A public create is limited to a
+`status: 'pending'` document with a valid email and gofile URL, and may not
+contain any points or review field. Points are never sent from, or trusted on,
+the client.
+
+**Manual steps for this feature:** deploy the updated `firestore.rules`
+(`firebase deploy --only firestore:rules`) after setting your real admin email
+in `isAdminByEmail()`. No collection has to be created by hand — Firestore
+creates `reward_accounts` / `point_transactions` on the first write. No data
+migration is required: submissions created before this feature have no `status`
+field and are treated as `pending`.
 
 ---
 
 ## 👨‍💼 Admin Guide
 
-**Login:** `admin.html` → admin email → dashboard. Non-admin auto sign-out.
+**Login:** `admin.html` → admin email → Dashboard. Non-admin auto sign-out. Authorization is unchanged: `isAdminUser()` probes an admin-only read and the Firestore rules (`isAdminByEmail()`) enforce every write.
 
-**Hero:** Lazy — `0 reads on login` → expand a card to fetch. Counts update live.
+### Information architecture
 
-**Quick Create:** Course / Sem / Session / Subject / Branch → auto-title → Server 1 (+ Server 2) → `Add PYQ`
+A **persistent sidebar** replaces the old wall of dashboard cards. Each destination is a focused workspace; only the open view is rendered, and each one fetches its data the first time it is opened (lazy loading preserved — **0 reads on login**).
 
-**Bulk CSV:** Target `pyqs` / `contributors` → choose `.csv` (`collection,id,title,Server 1,Server 2,course,semester,session`) → `Import` (id → update, else add)
+```
+Sidebar
+  Dashboard                 KPIs + recent activity + shortcuts
+  PYQ Management
+    ├─ All PYQs             library, 0-read local search, edit/delete
+    ├─ Add PYQ              the Quick Create form
+    └─ Bulk Import          the CSV import form
+  Review Queue              student submissions → Preview / Download / Approve +10 / Reject
+  Contributors              contributor CRUD
+  Users                     registered profiles + roles
+  Feedback                  broken-link reports + PYQ requests
+  Rewards                   points issued, ledger, balances (read-only)
+  Settings                  session, Worker cache invalidation, CSV backup
+```
 
-**Content Library:** `Manage PYQs` → local **0-read search** → `Edit` (id-based) / `Delete` (id-based, fixes filtered delete bug) / `Copy Server 1/2`
+Desktop keeps the sidebar pinned; below 992px it becomes a drawer behind a hamburger (`.admin-nav-toggle`) with a dismiss backdrop. Views are deep-linkable via the URL hash (`admin.html#review`) and the browser back button works.
 
-**Review Queue:** `Pending pyqs to upload` → `Copy URL` / `Download` / `Delete`
+**Dashboard** is an overview only — no management forms live there. It shows the 5 KPI cards, the submissions waiting for review, the most recently added PYQs, and `[Add PYQ] [Bulk Import] [Review Pending]` shortcuts. It performs exactly two reads: the bounded `pendingUploads` query (the action-critical one) and a cached `GET /api/homepage` for the PYQ total + recent papers (**zero Firestore reads**). User / contributor / feedback counts show `—` until their `Load count` action (or their section) fetches them.
 
-**Contributors:** `People` → Add (name → auto avatar) / Edit / Delete
+**All PYQs:** local **0-read search** → `Edit` (id-based) / `Delete` (id-based) / `Copy Server 1/2`.
 
-**Users:** `Registered profiles` → `Edit` (name/course/phone/role) / `Delete`
+**Add PYQ:** Course / Sem / Session / Subject / Branch → auto-title → Server 1 (+ Server 2) → `Add PYQ`.
 
-**Feedback (NEW):** `Broken reports & PYQ requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh` (real-time `new` pulse)
+**Bulk Import:** target `pyqs` / `contributors` → `.csv` (`collection,id,title,Server 1,Server 2,course,semester,session`) → `Import` (id → update, else add).
 
-**CSV Backup:** Floating `file-csv` button → `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore (not lazy cache)
+**Review Queue:** filters `Pending / Approved / Rejected / All`; each card shows title, uploader email, course, semester, time and status with `[Approve +10] [Reject 0] [Preview] [Download] [Copy URL] [Delete]`. Preview opens the temporary gofile page in a new tab.
+
+**⚠ Possible Existing PYQs:** each *pending* card lists up to **5** similar published papers sorted by confidence, each with a `[View]` link. Matching is title-led (`duplicate-check.js`: normalized token overlap + a Levenshtein fallback — no AI, embeddings or external APIs); `course` and `semester` only raise or lower confidence **when both records have them**, a missing field is never a mismatch, and nothing is ever auto-excluded or auto-rejected. An **identical normalized title always scores 100% and ranks #1**, whatever the optional fields contain.
+
+The candidate list is read from **Firestore, the source of truth** — it reuses the in-memory library when *All PYQs* is already open, otherwise it does one bounded `pyqs` read. The Worker's `/api/pyqs` is only a last-resort fallback (its KV index is rebuilt on invalidation or after a 7-day TTL, so it can silently omit a recently published paper); when the fallback is used the card says so. The index is dropped on every PYQ add/edit/delete/import, and **Re-check duplicates** re-reads on demand. The admin decides: same paper → Reject (0 points), different paper → Approve (+10 points).
+
+**Points:** `Approve` runs one Firestore transaction — status → `approved`, `reviewedAt` / `reviewedBy`, a `point_transactions` ledger entry (id = submission id) and `reward_accounts/{email}` `points += 10`. Approving twice adds **0** the second time. `Reject` stores an optional reason and awards nothing. Approval **never** publishes the PYQ and never touches the temporary gofile file.
+
+**Rewards:** read-only view over the points system — total points issued, contributors rewarded, how many balances are linked to a Firebase account, the 25 newest ledger entries and every balance sorted by points. No redemption, payout or withdrawal exists.
+
+**Contributors:** Add (name → auto avatar) / Edit / Delete.
+
+**Users:** `Edit` (name/course/phone/role) / `Delete`.
+
+**Feedback:** filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh`.
+
+**Settings:** signed-in identity, Worker cache invalidation (`API_INVALIDATE_KEY`) and `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore. The floating `file-csv` shortcut still works too.
 
 ---
 
