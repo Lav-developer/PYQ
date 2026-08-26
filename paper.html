@@ -43,7 +43,7 @@
         .paper-breadcrumb li { display: flex; align-items: center; gap: 6px; }
         .paper-breadcrumb a { color: rgba(110,231,216,0.92); text-decoration: none; font-weight: 600; }
         .paper-breadcrumb a:hover { text-decoration: underline; }
-        .paper-breadcrumb .sep { color: rgba(148,163,184,0.5); }
+        .paper-breadcrumb .sep { color: rgba(148,163,184,0.8); }
         .paper-breadcrumb .current { color: rgba(248,250,252,0.92); font-weight: 700; max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
         .paper-detail-card {
@@ -362,7 +362,7 @@
                         <button class="btn-paper btn-paper-primary" onclick="openSignupModal()"><i class="fas fa-user-plus"></i> Sign Up Free</button>
                         <button class="btn-paper btn-paper-secondary" onclick="openLoginModal()"><i class="fas fa-sign-in-alt"></i> Login</button>
                     </div>
-                    <small style="color: rgba(203,213,225,0.55); display:block; margin-top:10px;">🔒 Preview & download are for members only</small>
+                    <small style="color: rgba(203,213,225,0.8); display:block; margin-top:10px;">🔒 Preview & download are for members only</small>
                 </div>
             </div>
             <div class="paper-detail-head">
@@ -439,7 +439,7 @@
                     <label for="commentText" class="form-label" style="color: rgba(226,232,240,0.9); font-weight:700;">Your comment</label>
                     <textarea id="commentText" class="form-control" rows="3" placeholder="e.g., This paper helped me! Unit 2 was most repeated..." maxlength="600" required></textarea>
                     <div class="d-flex justify-content-between align-items-center mt-2">
-                        <small style="color: rgba(203,213,225,0.55);"><span id="commentCharCount">0</span>/600</small>
+                        <small style="color: rgba(203,213,225,0.8);"><span id="commentCharCount">0</span>/600</small>
                         <button type="submit" class="btn-paper btn-paper-primary"><i class="fas fa-paper-plane"></i> Post Comment</button>
                     </div>
                     <div id="commentError" class="alert alert-danger mt-2" style="display:none;"></div>

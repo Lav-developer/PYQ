@@ -23,7 +23,19 @@
   --color-orange-400: rgba(230, 129, 97, 1);
   --color-orange-500: rgba(168, 75, 47, 1);
 
-  /* RGB versions for opacity control */
+  /* RGB versions for opacity control.
+     These MUST be declared here, in the always-applied :root scope: the
+     semantic tokens below (`--color-text-secondary`, `--color-border`,
+     `--color-card-border`, …) and rules such as `input::placeholder` and
+     `.upload-section .text-muted` interpolate them inside rgba(). When they
+     only existed inside the dark media query, every one of those declarations
+     was invalid at computed-value time whenever the OS was in light mode —
+     the text silently fell back to the inherited (near-black) Bootstrap color
+     and the borders disappeared. */
+  --color-gray-200-rgb: 245, 245, 245;
+  --color-gray-300-rgb: 167, 169, 169;
+  --color-gray-400-rgb: 119, 124, 124;
+  --color-teal-300-rgb: 50, 184, 198;
   --color-brown-600-rgb: 94, 82, 64;
   --color-teal-500-rgb: 33, 128, 141;
   --color-slate-900-rgb: 19, 52, 59;
@@ -43,12 +55,24 @@
   --color-bg-7: rgba(236, 72, 153, 0.08); /* Light pink */
   --color-bg-8: rgba(6, 182, 212, 0.08); /* Light cyan */
 
-  /* Semantic Color Tokens (Light Mode) */
-  /* Force dark-mode tokens as the default so light/dark system modes look identical */
+  /* Semantic Color Tokens — this project ships ONE dark theme, so the base
+     scope must carry the *dark* values (mirrored by the dark media query and
+     by [data-color-scheme] below). Values left at their light-theme defaults
+     here are what made text/borders disappear on the dark surface. */
   --color-background: var(--color-charcoal-700);
   --color-surface: var(--color-charcoal-800);
+
+  /* Text hierarchy on the dark surface. Measured contrast ratios:
+       token                   on #1f2121 (bg)   on #262828 (surface)
+       --color-text            14.84:1           13.60:1   primary
+       --color-text-secondary   5.63:1            5.21:1   secondary
+       --color-text-muted       4.90:1            4.57:1   muted (still AA)
+       --color-text-disabled    2.75:1            2.59:1   disabled (exempt) */
   --color-text: var(--color-gray-200);
-  --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.7);
+  --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.88);
+  --color-text-muted: rgba(var(--color-gray-300-rgb), 0.8);
+  --color-text-disabled: rgba(var(--color-gray-400-rgb), 0.75);
+
   --color-primary: var(--color-teal-300);
   --color-primary-hover: var(--color-teal-400);
   --color-primary-active: var(--color-teal-800);
@@ -59,12 +83,42 @@
   --color-btn-primary-text: var(--color-slate-900);
   --color-card-border: rgba(var(--color-gray-400-rgb), 0.15);
   --color-card-border-inner: rgba(var(--color-gray-400-rgb), 0.15);
-  --color-error: var(--color-red-500);
-  --color-success: var(--color-teal-500);
-  --color-warning: var(--color-orange-500);
-  --color-info: var(--color-slate-500);
+  /* Status colors are used as *text* on the dark surface, so they use the
+     400-step (bright) end of each ramp — the 500-step reads as mud here. */
+  --color-error: var(--color-red-400);
+  --color-success: var(--color-teal-300);
+  --color-warning: var(--color-orange-400);
+  --color-info: var(--color-gray-300);
   --color-focus-ring: rgba(var(--color-teal-500-rgb), 0.4);
   --color-select-caret: rgba(var(--color-slate-900-rgb), 0.8);
+
+  /* Bootstrap 5.3 ships light-theme semantic text variables
+     (`--bs-body-color: #212529`, `--bs-secondary-color: rgba(33,37,41,.75)`, …).
+     This site never switches Bootstrap to its dark theme, so every utility
+     driven by those variables — .text-muted, .form-text, .card content and the
+     .h1–.h6 headings inside it — painted near-black text on the charcoal
+     surface. Binding them to the tokens above fixes all of those at once
+     instead of patching each component. `--bs-body-color` / `--bs-body-bg` are
+     intentionally left alone: the project overrides body/.card/.form-control
+     backgrounds itself, and Bootstrap uses that pair for <kbd>. */
+  --bs-card-color: var(--color-text);
+  --bs-card-border-color: var(--color-card-border);
+  --bs-heading-color: inherit;
+  --bs-secondary-color: var(--color-text-muted);
+  --bs-secondary-color-rgb: var(--color-gray-300-rgb);
+  --bs-tertiary-color: var(--color-text-secondary);
+  --bs-tertiary-color-rgb: var(--color-gray-300-rgb);
+  --bs-emphasis-color: var(--color-white);
+  --bs-emphasis-color-rgb: 255, 255, 255;
+  --bs-code-color: var(--color-teal-300);
+  --bs-link-color: var(--color-primary);
+  --bs-link-color-rgb: var(--color-teal-300-rgb);
+  --bs-link-hover-color: var(--color-primary-hover);
+  --bs-link-hover-color-rgb: 45, 166, 178;
+  --bs-border-color: rgba(var(--color-gray-400-rgb), 0.32);
+  --bs-border-color-translucent: rgba(var(--color-gray-400-rgb), 0.24);
+  --bs-form-valid-color: var(--color-success);
+  --bs-form-invalid-color: var(--color-error);
 
   /* Common style patterns */
   --focus-ring: 0 0 0 3px var(--color-focus-ring);
@@ -74,11 +128,12 @@
   --select-caret-light: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23134252' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
   --select-caret-dark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23f5f5f5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
 
-  /* RGB versions for opacity control */
-  --color-success-rgb: 33, 128, 141;
-  --color-error-rgb: 192, 21, 47;
-  --color-warning-rgb: 168, 75, 47;
-  --color-info-rgb: 98, 108, 113;
+  /* RGB versions of the status colors — same (bright) ramp step as the
+     semantic tokens above, so tinted backgrounds and text stay consistent. */
+  --color-success-rgb: var(--color-teal-300-rgb);
+  --color-error-rgb: var(--color-red-400-rgb);
+  --color-warning-rgb: var(--color-orange-400-rgb);
+  --color-info-rgb: var(--color-gray-300-rgb);
 
   /* Typography */
   --font-family-base: "Manrope", "Inter", -apple-system,
@@ -168,7 +223,10 @@
     --color-background: var(--color-charcoal-700);
     --color-surface: var(--color-charcoal-800);
     --color-text: var(--color-gray-200);
-    --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.7);
+    /* Keep in sync with the base :root text hierarchy (see the ratios there). */
+    --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.88);
+    --color-text-muted: rgba(var(--color-gray-300-rgb), 0.8);
+    --color-text-disabled: rgba(var(--color-gray-400-rgb), 0.75);
     --color-primary: var(--color-teal-300);
     --color-primary-hover: var(--color-teal-400);
     --color-primary-active: var(--color-teal-800);
@@ -275,7 +333,9 @@
   --color-background: var(--color-charcoal-700);
   --color-surface: var(--color-charcoal-800);
   --color-text: var(--color-gray-200);
-  --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.7);
+  --color-text-secondary: rgba(var(--color-gray-300-rgb), 0.88);
+  --color-text-muted: rgba(var(--color-gray-300-rgb), 0.8);
+  --color-text-disabled: rgba(var(--color-gray-400-rgb), 0.75);
   --color-primary: var(--color-teal-300);
   --color-primary-hover: var(--color-teal-400);
   --color-primary-active: var(--color-teal-800);
@@ -286,10 +346,10 @@
   --color-btn-primary-text: var(--color-slate-900);
   --color-card-border: rgba(var(--color-gray-400-rgb), 0.15);
   --color-card-border-inner: rgba(var(--color-gray-400-rgb), 0.15);
-  --color-error: var(--color-red-500);
-  --color-success: var(--color-teal-500);
-  --color-warning: var(--color-orange-500);
-  --color-info: var(--color-slate-500);
+  --color-error: var(--color-red-400);
+  --color-success: var(--color-teal-300);
+  --color-warning: var(--color-orange-400);
+  --color-info: var(--color-gray-300);
   --color-focus-ring: rgba(var(--color-teal-500-rgb), 0.4);
 
   /* RGB versions for light mode */
@@ -583,6 +643,11 @@ select.form-control {
 /* Card component */
 .card {
   background-color: var(--color-surface);
+  /* Bootstrap paints .card content with --bs-body-color (#212529) and shadows
+     --bs-card-color with an empty value, so headings/paragraphs inside a card
+     inherited near-black text on the dark surface. Declare the foreground here
+     (this rule already overrides the card's background and border). */
+  color: var(--color-text);
   border-radius: var(--radius-lg);
   border: 1px solid var(--color-card-border);
   box-shadow: var(--shadow-sm);
@@ -785,7 +850,9 @@ select.form-control {
 :root {
   --primary-color: var(--color-primary);
   --secondary-color: var(--color-teal-300);
-  --accent-color: var(--color-surface);
+  /* Consumed only as a text color (page h1, avatar glyph, .empty-state),
+     so it must be a foreground token — the surface value was invisible. */
+  --accent-color: var(--color-text-secondary);
   --text-color: var(--color-text);
   --dark-bg: var(--color-surface);
   --light-bg: var(--color-background);
@@ -1439,7 +1506,7 @@ body {
 }
 
 .upload-section .form-control::placeholder {
-  color: rgba(var(--color-gray-300-rgb), 0.5);
+  color: rgba(var(--color-gray-300-rgb), 0.85);
 }
 
 .upload-section .form-control:focus {
@@ -2278,13 +2345,13 @@ body {
 
 .btn-tool-secondary {
     background: rgba(var(--color-info-rgb), 0.2);
-    color: var(--color-info);
+    color: var(--color-text);
     border: 1px solid rgba(var(--color-info-rgb), 0.5);
 }
 
 .btn-tool-secondary:hover {
     background: rgba(var(--color-info-rgb), 0.3);
-    color: var(--color-info);
+    color: var(--color-text);
     transform: translateY(-2px);
 }
 
@@ -2528,28 +2595,28 @@ input::placeholder,
 textarea::placeholder,
 select::placeholder,
 .form-control::placeholder {
-  color: rgba(var(--color-gray-300-rgb), 0.78); /* stronger contrast */
+  color: rgba(var(--color-gray-300-rgb), 0.85); /* 4.8:1 on the surface input */
   opacity: 1; /* force visible in some browsers */
 }
 input::-webkit-input-placeholder,
 textarea::-webkit-input-placeholder,
 select::-webkit-input-placeholder,
 .form-control::-webkit-input-placeholder {
-  color: rgba(var(--color-gray-300-rgb), 0.78);
+  color: rgba(var(--color-gray-300-rgb), 0.85);
   opacity: 1;
 }
 input::-moz-placeholder,
 textarea::-moz-placeholder,
 select::-moz-placeholder,
 .form-control::-moz-placeholder {
-  color: rgba(var(--color-gray-300-rgb), 0.78);
+  color: rgba(var(--color-gray-300-rgb), 0.85);
   opacity: 1;
 }
 input:-ms-input-placeholder,
 textarea:-ms-input-placeholder,
 select:-ms-input-placeholder,
 .form-control:-ms-input-placeholder {
-  color: rgba(var(--color-gray-300-rgb), 0.78);
+  color: rgba(var(--color-gray-300-rgb), 0.85);
 }
 
 /* ===== USER PROFILE STYLES ===== */
@@ -3156,19 +3223,19 @@ select:-ms-input-placeholder,
   }
 }
 select::-webkit-input-placeholder,
-.form-control::-webkit-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); }
+.form-control::-webkit-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.85); }
 input::-moz-placeholder,
 textarea::-moz-placeholder,
 select::-moz-placeholder,
-.form-control::-moz-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); opacity:1; }
+.form-control::-moz-placeholder { color: rgba(var(--color-gray-300-rgb), 0.85); opacity:1; }
 input:-ms-input-placeholder,
 textarea:-ms-input-placeholder,
 select:-ms-input-placeholder,
-.form-control:-ms-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); }
+.form-control:-ms-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.85); }
 input::-ms-input-placeholder,
 textarea::-ms-input-placeholder,
 select::-ms-input-placeholder,
-.form-control::-ms-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.78); }
+.form-control::-ms-input-placeholder { color: rgba(var(--color-gray-300-rgb), 0.85); }
 
 /* For inputs that use a white background (search box, newsletter) use darker placeholder */
 .search-box input::placeholder,
@@ -4347,4 +4414,59 @@ section[id] {
   .pyq-points-value { font-size: 1.35rem; }
   .pyq-points-entry { flex-wrap: wrap; }
   .pyq-points-entry-date { margin-left: 0; }
+}
+
+/* ── Dark-theme contrast corrections for un-themed Bootstrap components ──────
+   A few Bootstrap components hard-code light-theme grays/reds in their own
+   component variables, so the global token mapping in :root cannot reach them.
+   Each rule below only re-points Bootstrap's own variables at the existing
+   design tokens — no layout, spacing, radius or shape changes. */
+
+/* "Clear" (filters): Bootstrap's #6c757d on charcoal is only ~3.2:1. */
+.btn-outline-secondary {
+  --bs-btn-color: var(--color-text-secondary);
+  --bs-btn-border-color: rgba(var(--color-gray-400-rgb), 0.45);
+  --bs-btn-hover-color: var(--color-slate-900);
+  --bs-btn-hover-bg: var(--color-gray-300);
+  --bs-btn-hover-border-color: var(--color-gray-300);
+  --bs-btn-active-color: var(--color-slate-900);
+  --bs-btn-active-bg: var(--color-gray-300);
+  --bs-btn-active-border-color: var(--color-gray-300);
+  --bs-btn-disabled-color: var(--color-text-disabled);
+  --bs-btn-disabled-border-color: rgba(var(--color-gray-400-rgb), 0.3);
+  --bs-btn-focus-shadow-rgb: var(--color-gray-300-rgb);
+}
+
+/* Destructive outline buttons (Delete / Reject): #dc3545 is ~4.0:1 here. */
+.btn-outline-danger {
+  --bs-btn-color: var(--color-red-400);
+  --bs-btn-border-color: rgba(var(--color-red-400-rgb), 0.55);
+  --bs-btn-hover-color: #05121d;
+  --bs-btn-hover-bg: var(--color-red-400);
+  --bs-btn-hover-border-color: var(--color-red-400);
+  --bs-btn-active-color: #05121d;
+  --bs-btn-active-bg: var(--color-red-400);
+  --bs-btn-active-border-color: var(--color-red-400);
+  --bs-btn-focus-shadow-rgb: var(--color-red-400-rgb);
+}
+
+/* Approved / resolved outline buttons: Bootstrap's #198754 is 3.8:1 here, and
+   the project's success token is teal-300 — use it (7.3:1). */
+.btn-outline-success {
+  --bs-btn-color: var(--color-success);
+  --bs-btn-border-color: rgba(var(--color-success-rgb), 0.55);
+  --bs-btn-hover-color: #05121d;
+  --bs-btn-hover-bg: var(--color-success);
+  --bs-btn-hover-border-color: var(--color-success);
+  --bs-btn-active-color: #05121d;
+  --bs-btn-active-bg: var(--color-success);
+  --bs-btn-active-border-color: var(--color-success);
+  --bs-btn-focus-shadow-rgb: var(--color-success-rgb);
+}
+
+/* .text-danger (required-field asterisks, destructive menu items) uses
+   Bootstrap's light-theme red, ~3.8:1 on this surface. Re-pointing the
+   component variable keeps the hue and lifts it to ~5.5:1 — no !important. */
+.text-danger {
+  --bs-danger-rgb: var(--color-red-400-rgb);
 }
