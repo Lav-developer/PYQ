@@ -118,7 +118,9 @@ document.addEventListener('DOMContentLoaded', function() {
             updateCsvWidgetVisibility(user);
             document.getElementById('loginSection').style.display = 'none';
             document.getElementById('adminSection').style.display = 'block';
+            setAdminIdentity(user);
             loadData();
+            showAdminView(window.location.hash.replace('#', '') || 'dashboard');
         } else {
             // User is signed out
             currentAdmin = null;
@@ -439,6 +441,11 @@ function resetLazyLoadState() {
     usersLoaded = false;
     contributorsLoaded = false;
     feedbackLoaded = false;
+    dashboardOverviewRequested = false;
+    rewardsLoaded = false;
+    knownPyqTotal = null;
+    currentAdminView = null;
+    closeAdminSidebar();
 }
 
 // function generateSitemap() {
@@ -543,23 +550,34 @@ function updateDashboardStats() {
     // the hero/header counts still mean "waiting for review".
     const counts = getSubmissionCounts();
 
-    setCount('pyqsCount', allData.pyqs.length);
-    setCount('pyqsHeaderCount', allData.pyqs.length);
-    setCount('usersCount', allData.users.length);
-    setCount('usersHeaderCount', allData.users.length);
+    // Until a collection has been opened we show "—" (or the Worker API total
+    // for PYQs, which costs no Firestore reads) instead of a misleading 0.
+    const pyqTotal = pyqsLoaded ? allData.pyqs.length : (knownPyqTotal === null ? '—' : knownPyqTotal);
+    setCount('pyqsCount', pyqTotal);
+    setCount('pyqsHeaderCount', pyqTotal);
+    setCount('usersCount', usersLoaded ? allData.users.length : '—');
+    setCount('usersHeaderCount', usersLoaded ? allData.users.length : '—');
     setCount('pendingCount', counts.pending);
     setCount('pendingHeaderCount', counts.pending);
     setCount('submissionPendingCount', counts.pending);
     setCount('submissionApprovedCount', counts.approved);
     setCount('submissionRejectedCount', counts.rejected);
-    setCount('contributorsCount', allData.contributors.length);
-    setCount('contributorsHeaderCount', allData.contributors.length);
+    setCount('contributorsCount', contributorsLoaded ? allData.contributors.length : '—');
+    setCount('contributorsHeaderCount', contributorsLoaded ? allData.contributors.length : '—');
+
+    // Sidebar badges: pending submissions and (once loaded) feedback.
+    setNavBadge('navPendingBadge', counts.pending);
+    setNavBadge('navFeedbackBadge', allData.feedback ? allData.feedback.length : 0);
 
     // Update feedback count if available
     const feedbackCountElement = document.getElementById('feedbackCount');
     if (feedbackCountElement) {
-        feedbackCountElement.textContent = allData.feedback ? allData.feedback.length : '0';
+        feedbackCountElement.textContent = feedbackLoaded ? allData.feedback.length : '—';
     }
+    const feedbackHeader = document.getElementById('feedbackHeaderCount');
+    if (feedbackHeader) feedbackHeader.textContent = feedbackLoaded ? allData.feedback.length : '0';
+
+    if (typeof updateStatLoadButtons === 'function') updateStatLoadButtons();
 }
 
 // Convert any Firestore value into a CSV-safe string (timestamps, arrays, objects)
@@ -1219,7 +1237,7 @@ function reviewTimestampValue(doc) {
 function loadPendingUploads() {
     // Every submission (all statuses), newest first. Bounded read so the
     // review queue stays cheap as approved/rejected history grows.
-    db.collection('pendingUploads').limit(300).get()
+    return db.collection('pendingUploads').limit(300).get()
         .then(snapshot => {
             allData.pendingUploads = snapshot.docs
                 .map(doc => ({ id: doc.id, ...doc.data() }))
@@ -1315,10 +1333,10 @@ function renderPendingUploads(submissions) {
 
         const reviewButtons = isPending
             ? `<button class="btn btn-sm btn-success" onclick="approveSubmission('${doc.id}')">
-                    <i class="fas fa-check me-1"></i> Approve
+                    <i class="fas fa-check me-1"></i> Approve <span class="btn-points">+${reward}</span>
                 </button>
                 <button class="btn btn-sm btn-outline-danger" onclick="rejectSubmission('${doc.id}')">
-                    <i class="fas fa-ban me-1"></i> Reject
+                    <i class="fas fa-ban me-1"></i> Reject <span class="btn-points">0</span>
                 </button>`
             : '';
 
@@ -1336,10 +1354,13 @@ function renderPendingUploads(submissions) {
                     </div>
                     <div class="resource-actions">
                         ${reviewButtons}
-                        <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(data.downloadUrl || '')})'>Copy URL</button>
+                        <button class="btn btn-sm btn-outline-info" onclick="previewPendingFile('${data.downloadUrl}')">
+                            <i class="fas fa-eye me-1"></i> Preview
+                        </button>
                         <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${String(data.fileName || '').replace(/'/g, "\\'")}')">
                             <i class="fas fa-download me-1"></i> Download
                         </button>
+                        <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(data.downloadUrl || '')})'>Copy URL</button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deletePendingUpload('${doc.id}')">
                             <i class="fas fa-trash me-1"></i> Delete
                         </button>
@@ -1474,6 +1495,7 @@ async function renderDuplicateHints(submissions) {
                         <div class="dup-item-head">
                             <span class="dup-confidence ${band}">${percent}%</span>
                             <a href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">${escapeHtml(pyq.title || 'Untitled')}</a>
+                            <a class="dup-view" href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">View</a>
                         </div>
                         <div class="dup-item-meta">
                             <span class="dup-label">${escapeHtml(helpers.confidenceLabel(candidate.confidence))}</span>
@@ -1484,12 +1506,18 @@ async function renderDuplicateHints(submissions) {
         }).join('');
 
         setDuplicateHint(submission.id, `<div class="dup-head">
-                        <i class="fas fa-clone me-1"></i> Possible duplicates (${candidates.length})
-                        <span class="dup-note">assistance only — nothing is auto-rejected, you decide</span>
+                        <i class="fas fa-triangle-exclamation me-1"></i> Possible Existing PYQs (${candidates.length})
+                        <span class="dup-note">warning only — never auto-rejected, you decide</span>
                     </div>
                     ${rows}
                     <div class="dup-foot">Open a paper to compare → same paper: <strong>Reject</strong> (0 points) · different paper: <strong>Approve</strong> (+${rewardPointsValue()} points)</div>`);
     });
+}
+
+/** Open the temporary gofile page in a new tab so the admin can read the paper. */
+function previewPendingFile(downloadUrl) {
+    if (!downloadUrl) { alert('This submission has no file link.'); return; }
+    window.open(downloadUrl, '_blank', 'noopener');
 }
 
 function downloadPendingFile(downloadUrl, fileName) {
@@ -1701,6 +1729,7 @@ async function rejectSubmission(docId) {
 
 // Global functions for onclick
 window.downloadPendingFile = downloadPendingFile;
+window.previewPendingFile = previewPendingFile;
 window.deletePendingUpload = deletePendingUpload;
 window.approveSubmission = approveSubmission;
 window.rejectSubmission = rejectSubmission;
@@ -2170,4 +2199,280 @@ document.addEventListener('DOMContentLoaded', function(){
         const firstBtn = document.querySelector('.feedback-filter-btn[data-filter="all"]');
         if (firstBtn) firstBtn.classList.add('active');
     } catch(e){}
+});
+// ══════════════════════════════════════════════════════════════════════
+// ADMIN NAVIGATION — persistent sidebar + focused views
+// ──────────────────────────────────────────────────────────────────────
+// Information architecture only: every workspace below reuses the existing
+// loaders and renderers (no data logic is duplicated). Each view fetches its
+// own data the first time it is opened, so the dashboard stays lightweight.
+// ══════════════════════════════════════════════════════════════════════
+
+const ADMIN_VIEWS = {
+    'dashboard':     { title: 'Dashboard',    load: function () { loadDashboardOverview(); } },
+    'pyqs':          { title: 'All PYQs',     load: function () { window.loadPyqsOnDemand(); } },
+    'add-pyq':       { title: 'Add PYQ' },
+    'bulk-import':   { title: 'Bulk Import' },
+    'review':        { title: 'Review Queue', load: function () { window.loadPendingOnDemand(); } },
+    'contributors':  { title: 'Contributors', load: function () { window.loadContributorsOnDemand(); } },
+    'users':         { title: 'Users',        load: function () { window.loadUsersOnDemand(); } },
+    'feedback':      { title: 'Feedback',     load: function () { window.loadFeedbackOnDemand(); } },
+    'rewards':       { title: 'Rewards',      load: function () { loadRewards(); } },
+    'settings':      { title: 'Settings',     load: function () { renderSettings(); } }
+};
+let currentAdminView = null;
+
+function showAdminView(name, options) {
+    const opts = options || {};
+    const view = ADMIN_VIEWS[name] ? name : 'dashboard';
+
+    document.querySelectorAll('.admin-view').forEach(section => {
+        section.classList.toggle('active', section.getAttribute('data-view') === view);
+    });
+    document.querySelectorAll('.admin-nav-item').forEach(item => {
+        item.classList.toggle('active', item.getAttribute('data-view') === view);
+    });
+
+    const titleEl = document.getElementById('adminPageTitle');
+    if (titleEl) titleEl.textContent = ADMIN_VIEWS[view].title;
+    document.title = ADMIN_VIEWS[view].title + ' · DSMNRU Admin';
+    currentAdminView = view;
+    closeAdminSidebar();
+
+    if (!opts.skipHash && window.location.hash !== '#' + view) {
+        try { window.history.replaceState(null, '', '#' + view); }
+        catch (error) { window.location.hash = view; }
+    }
+
+    const loader = ADMIN_VIEWS[view].load;
+    if (typeof loader === 'function') {
+        try { loader(); } catch (error) { console.error('Could not load "' + view + '":', error); }
+    }
+    window.scrollTo(0, 0);
+}
+
+function toggleAdminSidebar() {
+    document.body.classList.toggle('admin-nav-open');
+}
+
+function closeAdminSidebar() {
+    document.body.classList.remove('admin-nav-open');
+}
+
+function setNavBadge(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const count = Number(value) || 0;
+    el.textContent = count > 99 ? '99+' : String(count);
+    el.classList.toggle('is-zero', count === 0);
+}
+
+function setAdminText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+}
+
+function setAdminIdentity(user) {
+    const email = (user && user.email) || '—';
+    setAdminText('adminSignedInEmail', email);
+    setAdminText('settingsAdminEmail', email);
+}
+
+// ── Dashboard: overview only, two bounded reads ───────────────────────
+// 1) pending submissions (the action-critical collection, same bounded query
+//    the Review Queue uses)  2) recent/total PYQs from the Worker API, which
+//    is edge/KV cached and costs zero Firestore reads.
+let dashboardOverviewRequested = false;
+let knownPyqTotal = null;
+
+function loadDashboardOverview(force) {
+    if (dashboardOverviewRequested && !force) {
+        renderRecentSubmissions();
+        return;
+    }
+    dashboardOverviewRequested = true;
+    renderRecentPyqs();
+    Promise.resolve(loadPendingUploads())
+        .then(function () {
+            // The queue data is already in memory — opening the Review Queue
+            // workspace does not need to read the collection again.
+            pendingLoaded = true;
+            renderRecentSubmissions();
+        })
+        .catch(error => console.error('Dashboard: could not load submissions:', error.message));
+}
+
+function renderRecentSubmissions() {
+    const el = document.getElementById('recentSubmissionsList');
+    if (!el) return;
+    const pending = (allData.pendingUploads || []).filter(item => submissionStatusOf(item) === 'pending');
+    if (!pending.length) {
+        el.innerHTML = '<div class="resource-empty">Nothing waiting for review.</div>';
+        return;
+    }
+    el.innerHTML = pending.slice(0, 5).map(item => {
+        const when = uploadTimestampValue(item);
+        return `<article class="resource-card compact-card">
+                    <div class="resource-title-sm">${escapeHtml(item.title || 'Untitled')}</div>
+                    <div class="resource-meta">
+                        <span class="resource-pill">${escapeHtml(item.course || 'no course')}</span>
+                        <span class="resource-pill">${escapeHtml(item.semester || 'no semester')}</span>
+                    </div>
+                    <div class="resource-detail">${escapeHtml(submissionEmailOf(item) || 'no email')}${when ? ' • ' + escapeHtml(new Date(when).toLocaleString()) : ''}</div>
+                </article>`;
+    }).join('');
+}
+
+function renderRecentPyqs() {
+    const el = document.getElementById('recentPyqsList');
+    if (!el) return;
+    fetch(`${API_BASE_URL}/homepage`, { headers: { Accept: 'application/json' } })
+        .then(response => {
+            if (!response.ok) throw new Error('HTTP ' + response.status);
+            return response.json();
+        })
+        .then(data => {
+            const recent = (data && data.recent) || [];
+            const stats = (data && data.stats) || {};
+            if (stats && Number.isFinite(Number(stats.totalPyqs))) {
+                knownPyqTotal = Number(stats.totalPyqs);
+                updateDashboardStats();
+            }
+            if (!recent.length) {
+                el.innerHTML = '<div class="resource-empty">No published PYQs yet.</div>';
+                return;
+            }
+            el.innerHTML = recent.map(pyq => `<article class="resource-card compact-card">
+                    <div class="resource-title-sm">
+                        <a href="paper.html?id=${encodeURIComponent(pyq.id)}" target="_blank" rel="noopener">${escapeHtml(pyq.title || 'Untitled')}</a>
+                    </div>
+                    <div class="resource-meta">
+                        <span class="resource-pill">${escapeHtml(pyq.course || '—')}</span>
+                        <span class="resource-pill">${escapeHtml(pyq.semester || '—')}</span>
+                        ${pyq.session ? `<span class="resource-pill">${escapeHtml(pyq.session)}</span>` : ''}
+                    </div>
+                </article>`).join('');
+        })
+        .catch(error => {
+            console.warn('Dashboard: Worker API unavailable:', error.message);
+            el.innerHTML = '<div class="resource-empty">Could not reach the Worker API — open “All PYQs” to read from Firestore.</div>';
+        });
+}
+
+/** KPI cards for the collections we deliberately do NOT load on the dashboard. */
+function loadDashboardCount(kind) {
+    if (kind === 'users') window.loadUsersOnDemand();
+    else if (kind === 'contributors') window.loadContributorsOnDemand();
+    else if (kind === 'feedback') window.loadFeedbackOnDemand();
+    updateStatLoadButtons();
+}
+
+function updateStatLoadButtons() {
+    [['users', usersLoaded], ['contributors', contributorsLoaded], ['feedback', feedbackLoaded]].forEach(pair => {
+        const btn = document.querySelector('.stat-link[data-load-count="' + pair[0] + '"]');
+        if (btn) btn.style.display = pair[1] ? 'none' : '';
+    });
+}
+
+// ── Rewards: read-only view over the points ledger ────────────────────
+let rewardsLoaded = false;
+
+function loadRewards(force) {
+    if (rewardsLoaded && !force) return;
+    rewardsLoaded = true;
+    const txEl = document.getElementById('rewardTxList');
+    const accountEl = document.getElementById('rewardAccountsList');
+    [txEl, accountEl].forEach(el => { if (el) el.innerHTML = '<div class="resource-empty">Loading…</div>'; });
+
+    Promise.all([
+        db.collection('point_transactions').orderBy('createdAt', 'desc').limit(25).get(),
+        db.collection('reward_accounts').get()
+    ]).then(results => {
+        const transactions = results[0].docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        const accounts = results[1].docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        const totalPoints = accounts.reduce((sum, account) => sum + (Number(account.points) || 0), 0);
+        const linked = accounts.filter(account => account.uid).length;
+        setAdminText('rewardPointsIssued', String(totalPoints));
+        setAdminText('rewardAccountsCount', String(accounts.length));
+        setAdminText('rewardLinkedCount', String(linked));
+        setAdminText('rewardTxChip', transactions.length + ' latest');
+        setAdminText('rewardAccountsChip', accounts.length + ' balances');
+
+        if (txEl) {
+            txEl.innerHTML = transactions.length
+                ? transactions.map(tx => {
+                    const when = rewardWhenValue(tx.createdAt);
+                    return `<article class="resource-card compact-card">
+                        <div class="resource-title-sm"><span class="reward-amount">+${escapeHtml(Number(tx.amount) || 0)}</span> ${escapeHtml(tx.email || 'unknown email')}</div>
+                        <div class="resource-detail">${escapeHtml(tx.type || 'REWARD')}${when ? ' • ' + escapeHtml(when) : ''}${tx.submissionId ? ' • submission <code>' + escapeHtml(tx.submissionId) + '</code>' : ''}</div>
+                    </article>`;
+                }).join('')
+                : '<div class="resource-empty">No rewards issued yet.</div>';
+        }
+
+        if (accountEl) {
+            const sorted = accounts.slice().sort((a, b) => (Number(b.points) || 0) - (Number(a.points) || 0));
+            accountEl.innerHTML = sorted.length
+                ? sorted.map(account => `<article class="resource-card compact-card">
+                        <div class="resource-title-sm">${escapeHtml(account.email || account.id)}</div>
+                        <div class="resource-meta">
+                            <span class="resource-pill"><strong>${escapeHtml(Number(account.points) || 0)}</strong> pts</span>
+                            <span class="resource-pill">${account.uid ? 'linked to account' : 'no account yet'}</span>
+                        </div>
+                    </article>`).join('')
+                : '<div class="resource-empty">No reward accounts yet.</div>';
+        }
+    }).catch(error => {
+        console.error('Rewards: load failed:', error);
+        const message = '<div class="alert alert-danger mb-0">Could not load rewards: ' + escapeHtml(error.message) + '</div>';
+        if (txEl) txEl.innerHTML = message;
+        if (accountEl) accountEl.innerHTML = '';
+        rewardsLoaded = false;
+    });
+}
+
+function rewardWhenValue(value) {
+    if (!value) return '';
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.toLocaleString() : '';
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '';
+}
+
+// ── Settings: existing utilities only ─────────────────────────────────
+function renderSettings() {
+    setAdminIdentity(currentAdmin);
+    const configured = !!API_INVALIDATE_KEY && API_INVALIDATE_KEY.indexOf('REPLACE_') !== 0;
+    setAdminText('settingsApiCacheStatus', configured ? 'Key configured' : 'Key not set — invalidation skipped');
+}
+
+function runCacheInvalidation() {
+    if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
+        alert('API_INVALIDATE_KEY is not set in admin.js, so invalidation is skipped. Set it to the Worker’s ADMIN_API_KEY secret to purge the cache on demand.');
+        return;
+    }
+    invalidateApiCache();
+    alert('Cache invalidation requested — the Worker will rebuild its index in the background.');
+}
+
+window.showAdminView = showAdminView;
+window.toggleAdminSidebar = toggleAdminSidebar;
+window.closeAdminSidebar = closeAdminSidebar;
+window.loadDashboardOverview = loadDashboardOverview;
+window.loadDashboardCount = loadDashboardCount;
+window.loadRewards = loadRewards;
+window.renderSettings = renderSettings;
+window.runCacheInvalidation = runCacheInvalidation;
+
+document.addEventListener('DOMContentLoaded', function () {
+    const settingsLogout = document.getElementById('settingsLogoutBtn');
+    if (settingsLogout) settingsLogout.addEventListener('click', function () { auth.signOut(); });
+
+    window.addEventListener('hashchange', function () {
+        const name = window.location.hash.replace('#', '');
+        if (name && name !== currentAdminView) showAdminView(name, { skipHash: true });
+    });
 });

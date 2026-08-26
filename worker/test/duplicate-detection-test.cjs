@@ -235,8 +235,14 @@ const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
     !!hints && !/Operating System/.test(hints.textContent));
   check('candidates link to paper.html so the admin can check manually',
     !!hints && /paper\.html\?id=pyq1/.test(hints.innerHTML));
-  check('it is labelled as assistance, not an automatic decision',
-    !!hints && /possible duplicate|not automatic|admin decides/i.test(hints.textContent));
+  check('it is labelled "Possible Existing PYQs" (admin warning, not automatic)',
+    !!hints && /Possible Existing PYQs/i.test(hints.textContent) && /never auto-rejected/i.test(hints.textContent));
+  check('each candidate offers a [View] action',
+    !!hints && /class="dup-view"[^>]*>\s*View/.test(hints.innerHTML));
+  check('the approve action states the +10 reward',
+    !!card && /Approve\s*<span class="btn-points">\+10<\/span>/.test(card.innerHTML));
+  check('a Preview action is available for the submission file',
+    !!card && /previewPendingFile\(/.test(card.innerHTML));
   check('the submission status was NOT changed by duplicate detection',
     store.pendingUploads.sub1.status === 'pending');
   check('no points were touched by duplicate detection',

@@ -374,29 +374,52 @@ field and are treated as `pending`.
 
 ## 👨‍💼 Admin Guide
 
-**Login:** `admin.html` → admin email → dashboard. Non-admin auto sign-out.
+**Login:** `admin.html` → admin email → Dashboard. Non-admin auto sign-out. Authorization is unchanged: `isAdminUser()` probes an admin-only read and the Firestore rules (`isAdminByEmail()`) enforce every write.
 
-**Hero:** Lazy — `0 reads on login` → expand a card to fetch. Counts update live.
+### Information architecture
 
-**Quick Create:** Course / Sem / Session / Subject / Branch → auto-title → Server 1 (+ Server 2) → `Add PYQ`
+A **persistent sidebar** replaces the old wall of dashboard cards. Each destination is a focused workspace; only the open view is rendered, and each one fetches its data the first time it is opened (lazy loading preserved — **0 reads on login**).
 
-**Bulk CSV:** Target `pyqs` / `contributors` → choose `.csv` (`collection,id,title,Server 1,Server 2,course,semester,session`) → `Import` (id → update, else add)
+```
+Sidebar
+  Dashboard                 KPIs + recent activity + shortcuts
+  PYQ Management
+    ├─ All PYQs             library, 0-read local search, edit/delete
+    ├─ Add PYQ              the Quick Create form
+    └─ Bulk Import          the CSV import form
+  Review Queue              student submissions → Preview / Download / Approve +10 / Reject
+  Contributors              contributor CRUD
+  Users                     registered profiles + roles
+  Feedback                  broken-link reports + PYQ requests
+  Rewards                   points issued, ledger, balances (read-only)
+  Settings                  session, Worker cache invalidation, CSV backup
+```
 
-**Content Library:** `Manage PYQs` → local **0-read search** → `Edit` (id-based) / `Delete` (id-based, fixes filtered delete bug) / `Copy Server 1/2`
+Desktop keeps the sidebar pinned; below 992px it becomes a drawer behind a hamburger (`.admin-nav-toggle`) with a dismiss backdrop. Views are deep-linkable via the URL hash (`admin.html#review`) and the browser back button works.
 
-**Review Queue:** `Pending pyqs to upload` → filters `Pending / Approved / Rejected / All` → `Copy URL` / `Download` / `Delete` + **`Approve`** / **`Reject`**
+**Dashboard** is an overview only — no management forms live there. It shows the 5 KPI cards, the submissions waiting for review, the most recently added PYQs, and `[Add PYQ] [Bulk Import] [Review Pending]` shortcuts. It performs exactly two reads: the bounded `pendingUploads` query (the action-critical one) and a cached `GET /api/homepage` for the PYQ total + recent papers (**zero Firestore reads**). User / contributor / feedback counts show `—` until their `Load count` action (or their section) fetches them.
 
-**Duplicate assistance:** each *pending* card lists up to **5 possible duplicates** from the existing `pyqs` collection, sorted by confidence, with a link to open the paper. Matching is title-led (`duplicate-check.js`: normalized token overlap + a Levenshtein fallback, no AI/embeddings/external APIs); `course` and `semester` only raise or lower confidence **when both records have them** — a missing field is never a mismatch and nothing is ever auto-excluded or auto-rejected. The index comes from the cached Worker API (`/api/pyqs`, zero Firestore reads) and falls back to a direct `pyqs` read. The admin opens the paper and decides: same paper → Reject (0 points), different paper → Approve (+10 points).
+**All PYQs:** local **0-read search** → `Edit` (id-based) / `Delete` (id-based) / `Copy Server 1/2`.
+
+**Add PYQ:** Course / Sem / Session / Subject / Branch → auto-title → Server 1 (+ Server 2) → `Add PYQ`.
+
+**Bulk Import:** target `pyqs` / `contributors` → `.csv` (`collection,id,title,Server 1,Server 2,course,semester,session`) → `Import` (id → update, else add).
+
+**Review Queue:** filters `Pending / Approved / Rejected / All`; each card shows title, uploader email, course, semester, time and status with `[Approve +10] [Reject 0] [Preview] [Download] [Copy URL] [Delete]`. Preview opens the temporary gofile page in a new tab.
+
+**⚠ Possible Existing PYQs:** each *pending* card lists up to **5** similar published papers sorted by confidence, each with a `[View]` link. Matching is title-led (`duplicate-check.js`: normalized token overlap + a Levenshtein fallback — no AI, embeddings or external APIs); `course` and `semester` only raise or lower confidence **when both records have them**, a missing field is never a mismatch, and nothing is ever auto-excluded or auto-rejected. The index comes from the cached Worker API (`/api/pyqs`, zero Firestore reads) with a direct `pyqs` read as fallback. The admin decides: same paper → Reject (0 points), different paper → Approve (+10 points).
 
 **Points:** `Approve` runs one Firestore transaction — status → `approved`, `reviewedAt` / `reviewedBy`, a `point_transactions` ledger entry (id = submission id) and `reward_accounts/{email}` `points += 10`. Approving twice adds **0** the second time. `Reject` stores an optional reason and awards nothing. Approval **never** publishes the PYQ and never touches the temporary gofile file.
 
-**Contributors:** `People` → Add (name → auto avatar) / Edit / Delete
+**Rewards:** read-only view over the points system — total points issued, contributors rewarded, how many balances are linked to a Firebase account, the 25 newest ledger entries and every balance sorted by points. No redemption, payout or withdrawal exists.
 
-**Users:** `Registered profiles` → `Edit` (name/course/phone/role) / `Delete`
+**Contributors:** Add (name → auto avatar) / Edit / Delete.
 
-**Feedback (NEW):** `Broken reports & PYQ requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh` (real-time `new` pulse)
+**Users:** `Edit` (name/course/phone/role) / `Delete`.
 
-**CSV Backup:** Floating `file-csv` button → `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore (not lazy cache)
+**Feedback:** filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh`.
+
+**Settings:** signed-in identity, Worker cache invalidation (`API_INVALIDATE_KEY`) and `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore. The floating `file-csv` shortcut still works too.
 
 ---
 
