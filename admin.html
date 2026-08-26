@@ -749,6 +749,11 @@
         .dup-signal-diff { background: rgba(255, 84, 89, 0.12); color: #ff9ea1; border-color: rgba(255, 84, 89, 0.28); }
         .dup-signal-unknown { background: rgba(255, 255, 255, 0.06); color: rgba(245, 245, 245, 0.62); }
         .dup-foot { margin-top: 0.6rem; font-size: 0.76rem; color: rgba(245, 245, 245, 0.62); }
+        .dup-stale {
+            margin-bottom: 0.5rem; padding: 0.35rem 0.55rem; border-radius: 10px;
+            background: rgba(230, 129, 97, 0.14); border: 1px solid rgba(230, 129, 97, 0.32);
+            color: #f3c1ae; font-size: 0.75rem;
+        }
 
         /* PYQ submissions review queue (approve / reject / points) */
         .submission-filter-btn.active { background: var(--admin-primary) !important; color: #134252 !important; border-color: var(--admin-primary) !important; box-shadow: 0 6px 14px rgba(50,184,198,0.25); }
@@ -1261,6 +1266,7 @@
                                 <button class="btn btn-sm btn-outline-danger submission-filter-btn" data-filter="rejected" onclick="filterSubmissions('rejected')"><i class="fas fa-circle-xmark me-1"></i> Rejected (<span id="submissionRejectedCount">0</span>)</button>
                                 <button class="btn btn-sm btn-outline-light submission-filter-btn" data-filter="all" onclick="filterSubmissions('all')">All</button>
                                 <button class="btn btn-sm btn-outline-light" onclick="loadPendingUploads()"><i class="fas fa-rotate me-1"></i> Refresh</button>
+                                <button class="btn btn-sm btn-outline-light" onclick="invalidateDuplicateIndex(); loadPendingUploads();" title="Re-read the published PYQs and re-run the duplicate match"><i class="fas fa-clone me-1"></i> Re-check duplicates</button>
                                 <span class="ms-auto small" style="color: rgba(245,245,245,0.55);"><i class="fas fa-circle-info me-1"></i> Approve = +10 points for the uploader (does not publish)</span>
                             </div>
                             <div id="pendingUploadsList" class="resource-list section-scroll">

@@ -38,6 +38,9 @@ const API_BASE_URL = (function () {
 const API_INVALIDATE_KEY = 'REPLACE_WITH_ADMIN_API_KEY';
 
 function invalidateApiCache() {
+    // Content changed — the duplicate-matching index must not outlive it.
+    if (typeof invalidateDuplicateIndex === 'function') invalidateDuplicateIndex();
+
     if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
         console.log('API cache invalidation skipped — set API_INVALIDATE_KEY in admin.js');
         return;
@@ -1394,6 +1397,7 @@ function renderPendingUploads(submissions) {
 
 let duplicateIndex = null;
 let duplicateIndexPromise = null;
+let duplicateIndexSource = null;   // 'firestore' (authoritative) | 'api-cache' (may lag)
 
 /**
  * Pull the PYQ title/course/semester list from the Worker API first: it is
@@ -1422,14 +1426,49 @@ async function fetchPyqsFromWorkerApi() {
     return items;
 }
 
+function duplicateFieldsFrom(doc) {
+    return {
+        id: doc.id,
+        title: doc.title || '',
+        course: doc.course || '',
+        semester: doc.semester || ''
+    };
+}
+
+/**
+ * Duplicate matching MUST see every published PYQ, so it reads the source of
+ * truth. The Worker's /api/pyqs list is served from a KV search index that is
+ * only rebuilt on admin invalidation (skipped while API_INVALIDATE_KEY is the
+ * placeholder) or after the 7-day hard TTL — it answers 200 OK while silently
+ * omitting recently published papers, which is exactly how an exact duplicate
+ * went missing. The API is therefore only a last-resort fallback, and when it
+ * is used the admin is told the list may be incomplete.
+ */
 function fetchDuplicateIndex() {
-    return fetchPyqsFromWorkerApi().catch(error => {
-        console.warn('Duplicate check: Worker API unavailable (' + error.message + ') — reading pyqs directly.');
-        return db.collection('pyqs').get().then(snapshot => snapshot.docs.map(doc => {
-            const data = doc.data() || {};
-            return { id: doc.id, title: data.title || '', course: data.course || '', semester: data.semester || '' };
-        }));
-    });
+    // Reuse the library already in memory (opening "All PYQs" loads it).
+    if (pyqsLoaded && Array.isArray(allData.pyqs) && allData.pyqs.length) {
+        duplicateIndexSource = 'firestore';
+        return Promise.resolve(allData.pyqs.map(duplicateFieldsFrom));
+    }
+    return db.collection('pyqs').get()
+        .then(snapshot => {
+            duplicateIndexSource = 'firestore';
+            return snapshot.docs.map(doc => duplicateFieldsFrom({ id: doc.id, ...(doc.data() || {}) }));
+        })
+        .catch(error => {
+            console.warn('Duplicate check: direct pyqs read failed (' + error.message + ') — falling back to the cached Worker API.');
+            return fetchPyqsFromWorkerApi().then(items => {
+                duplicateIndexSource = 'api-cache';
+                return items;
+            });
+        });
+}
+
+/** Drop the cached index (called on every PYQ add/edit/delete/import). */
+function invalidateDuplicateIndex() {
+    duplicateIndex = null;
+    duplicateIndexPromise = null;
+    duplicateIndexSource = null;
 }
 
 function loadDuplicateIndex() {
@@ -1465,6 +1504,11 @@ function setDuplicateHint(submissionId, html) {
 async function renderDuplicateHints(submissions) {
     const helpers = window.DSMNRUDuplicates;
     if (!helpers) return;
+    // Duplicate matching is only useful (and only worth its read) inside the
+    // Review Queue workspace — the dashboard reuses the same renderer for its
+    // "needs attention" summary and must stay read-light.
+    const reviewView = document.getElementById('view-review');
+    if (!reviewView || !reviewView.classList.contains('active')) return;
     const targets = (submissions || []).filter(item => submissionStatusOf(item) === 'pending' && helpers.hasText(item.title));
     if (!targets.length) return;
 
@@ -1505,7 +1549,10 @@ async function renderDuplicateHints(submissions) {
                     </div>`;
         }).join('');
 
-        setDuplicateHint(submission.id, `<div class="dup-head">
+        const staleNote = duplicateIndexSource === 'api-cache'
+            ? '<div class="dup-stale"><i class="fas fa-clock-rotate-left me-1"></i> Matched against the cached Worker index — it can lag behind Firestore. Refresh to re-check.</div>'
+            : '';
+        setDuplicateHint(submission.id, `${staleNote}<div class="dup-head">
                         <i class="fas fa-triangle-exclamation me-1"></i> Possible Existing PYQs (${candidates.length})
                         <span class="dup-note">warning only — never auto-rejected, you decide</span>
                     </div>
@@ -1730,6 +1777,7 @@ async function rejectSubmission(docId) {
 // Global functions for onclick
 window.downloadPendingFile = downloadPendingFile;
 window.previewPendingFile = previewPendingFile;
+window.invalidateDuplicateIndex = invalidateDuplicateIndex;
 window.deletePendingUpload = deletePendingUpload;
 window.approveSubmission = approveSubmission;
 window.rejectSubmission = rejectSubmission;
@@ -1758,7 +1806,12 @@ window.loadPyqsOnDemand = function() {
 };
 
 window.loadPendingOnDemand = function() {
-    if (pendingLoaded) return;
+    if (pendingLoaded) {
+        // Already in memory (the dashboard loads it) — just re-render so the
+        // duplicate hints appear, without reading the collection again.
+        renderPendingUploads(allData.pendingUploads);
+        return;
+    }
     pendingLoaded = true;
     loadPendingUploads();
 };

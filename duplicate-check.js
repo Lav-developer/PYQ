@@ -205,6 +205,18 @@
         return Math.max(tokenScore, charScore);
     }
 
+    /**
+     * True when the two titles are identical after normalization. This is a
+     * certainty on the primary signal, so it is scored at 1.0 regardless of
+     * any missing optional field (an empty course/semester must never hide an
+     * exact title match).
+     */
+    function isExactTitle(titleA, titleB) {
+        const normA = normalizeText(titleA);
+        const normB = normalizeText(titleB);
+        return !!normA && normA === normB;
+    }
+
     /** Course comparison: "B.Tech" vs "B.Tech CSE" counts as similar. */
     function courseSimilarity(courseA, courseB) {
         const setA = toSet(tokenize(courseA));
@@ -244,20 +256,28 @@
      * a signal because one side is missing the field).
      */
     function scoreCandidate(submission, existing) {
-        const titleScore = titleSimilarity(
+        const exactTitle = isExactTitle(
             submission && submission.title,
             existing && existing.title
         );
-        let confidence = TITLE_WEIGHT * titleScore;
+        const titleScore = exactTitle
+            ? 1
+            : titleSimilarity(submission && submission.title, existing && existing.title);
+        // An exact title match starts at maximum confidence; optional fields can
+        // still adjust it, but they can never cancel the match.
+        let confidence = exactTitle ? 1 : TITLE_WEIGHT * titleScore;
+
+        let bonus = 0;
+        let penalty = 0;
 
         let course = 'unknown';
         if (hasText(submission && submission.course) && hasText(existing && existing.course)) {
             if (courseSimilarity(submission.course, existing.course) >= COURSE_SIMILAR_THRESHOLD) {
                 course = 'match';
-                confidence += COURSE_MATCH_BONUS;
+                bonus += COURSE_MATCH_BONUS;
             } else {
                 course = 'different';
-                confidence -= COURSE_DIFFERENT_PENALTY;
+                penalty += COURSE_DIFFERENT_PENALTY;
             }
         }
 
@@ -265,16 +285,22 @@
         if (hasText(submission && submission.semester) && hasText(existing && existing.semester)) {
             if (semesterKey(submission.semester) === semesterKey(existing.semester)) {
                 semester = 'match';
-                confidence += SEMESTER_MATCH_BONUS;
+                bonus += SEMESTER_MATCH_BONUS;
             } else {
                 semester = 'different';
-                confidence -= SEMESTER_DIFFERENT_PENALTY;
+                penalty += SEMESTER_DIFFERENT_PENALTY;
             }
         }
+
+        // Bonuses are capped at 1 first; penalties are then subtracted, so a
+        // differing optional field always lowers the score (a course match can
+        // never cancel out a semester mismatch).
+        confidence = Math.max(0, clamp01(confidence + bonus) - penalty);
 
         return {
             confidence: clamp01(confidence),
             titleScore: titleScore,
+            exactTitle: exactTitle,
             course: course,
             semester: semester
         };
@@ -305,12 +331,19 @@
                     pyq: pyq,
                     confidence: score.confidence,
                     titleScore: score.titleScore,
+                    exactTitle: score.exactTitle,
                     course: score.course,
                     semester: score.semester
                 };
             })
-            .filter((entry) => entry.confidence >= minConfidence)
-            .sort((a, b) => b.confidence - a.confidence || a.titleScore - b.titleScore)
+            // An exact title match is never filtered out, whatever the floor is.
+            .filter((entry) => entry.exactTitle || entry.confidence >= minConfidence)
+            // Exact titles first, then confidence, then raw title similarity.
+            .sort((a, b) => (b.exactTitle === a.exactTitle
+                ? 0
+                : (b.exactTitle ? 1 : -1))
+                || (b.confidence - a.confidence)
+                || (b.titleScore - a.titleScore))
             .slice(0, limit);
     }
 
@@ -329,6 +362,7 @@
         containmentCoefficient: containmentCoefficient,
         levenshteinDistance: levenshteinDistance,
         titleSimilarity: titleSimilarity,
+        isExactTitle: isExactTitle,
         courseSimilarity: courseSimilarity,
         scoreCandidate: scoreCandidate,
         findCandidates: findCandidates,

@@ -96,8 +96,8 @@ const ex4 = D.scoreCandidate(
   { title: 'Engineering Mathematics' },
   { title: 'Engineering Mathematics', course: 'MBA', semester: '1st' }
 );
-check('Ex4 exact title with no course/semester on the new record → title-only confidence',
-  ex4.titleScore === 1 && ex4.confidence === 0.9, JSON.stringify(ex4));
+check('Ex4 exact title with no course/semester → maximum confidence (never hidden)',
+  ex4.titleScore === 1 && ex4.confidence === 1 && ex4.exactTitle === true, JSON.stringify(ex4));
 const ex4b = D.scoreCandidate(
   { title: 'Engineering Mathematics', course: 'B.Tech', semester: '2nd' },
   { title: 'Engineering Mathematics', course: 'MBA', semester: '1st' }
@@ -166,6 +166,8 @@ const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
     },
   };
 
+  let firestorePyqReads = 0;
+  const pyqApiCalls = [];
   const snapshot = (id, data) => ({ id, exists: !!data, data: () => (data ? { ...data } : undefined) });
   const docRef = (coll, id) => ({
     id,
@@ -177,6 +179,7 @@ const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
   const query = (coll) => ({
     where() { return this; }, orderBy() { return this; }, limit() { return this; },
     async get() {
+      if (coll === 'pyqs') firestorePyqReads += 1;
       return { docs: Object.keys(store[coll] || {}).map((id) => snapshot(id, { ...store[coll][id] })), empty: false };
     },
   });
@@ -202,7 +205,10 @@ const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
   window.alert = () => {}; window.confirm = () => true; window.prompt = () => '';
   window.Papa = { parse: () => ({ data: [] }), unparse: () => '' };
   // No Worker available in the test → the Firestore fallback path is used.
-  window.fetch = async () => new Response('{}', { status: 500 });
+  window.fetch = async (url) => {
+    if (String(url).includes('/api/pyqs')) pyqApiCalls.push(String(url));
+    return new Response('{}', { status: 500 });
+  };
   window.firebase = {
     apps: [{}], initializeApp: () => window.firebase, firestore: () => db,
     storage: () => ({ ref: () => ({}) }), auth: () => authMock,
@@ -220,8 +226,8 @@ const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
 
   await authMock.emit({ uid: 'admin', email: 'abc@gmail.com', emailVerified: true, reload: () => Promise.resolve() });
   await new Promise((r) => setTimeout(r, 40));
-  window.loadPendingUploads();
-  await new Promise((r) => setTimeout(r, 250));
+  window.showAdminView('review');   // duplicate matching runs inside the Review Queue
+  await new Promise((r) => setTimeout(r, 300));
 
   const card = window.document.querySelector('[data-submission-id="sub1"]');
   const hints = window.document.getElementById('duplicateHints-sub1');
@@ -251,68 +257,20 @@ const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
   check('Approve/Reject buttons are still the only review actions',
     /approveSubmission\('sub1'\)/.test(card.innerHTML) && /rejectSubmission\('sub1'\)/.test(card.innerHTML));
 
-  console.log('\n6. Worker API is the preferred index source');
-  // Fresh module state: reload admin.js with a working paginated Worker API.
-  const requested = [];
-  const dom2 = new JSDOM(adminHtml, { url: 'http://localhost:8000/admin.html', runScripts: 'outside-only', pretendToBeVisual: true });
-  const w2 = dom2.window;
-  w2.matchMedia = w2.matchMedia || (() => ({ matches: false, addListener() {}, removeListener() {} }));
-  w2.scrollTo = () => {}; w2.alert = () => {}; w2.confirm = () => true; w2.prompt = () => '';
-  w2.Papa = { parse: () => ({ data: [] }), unparse: () => '' };
-  w2.DSMNRU_API_URL = 'https://worker.example/api';
-  let firestoreReads = 0;
-  const db2 = {
-    enablePersistence: () => Promise.resolve(),
-    collection: (c) => ({
-      doc: (id) => docRef(c, id),
-      where() { return this; }, orderBy() { return this; }, limit() { return this; },
-      async get() { if (c === 'pyqs') firestoreReads += 1; return query(c).get(); },
-      async add(d) { store[c][`a${Math.random()}`] = d; return { id: 'x' }; },
-    }),
-    runTransaction: (fn) => fn({ get: (r) => r.get(), set: (r, d, o) => r.set(d, o), update: (r, p) => r.update(p) }),
-    batch: () => ({ set() {}, update() {}, delete() {}, commit: () => Promise.resolve() }),
-  };
-  db2.FieldValue = db.FieldValue;
-  const auth2 = { _l: [], currentUser: null, onAuthStateChanged(cb) { this._l.push(cb); return () => {}; }, async emit(u) { this.currentUser = u; await Promise.all(this._l.map((cb) => cb(u))); } };
-  w2.fetch = async (url) => {
-    requested.push(String(url));
-    const u = new URL(String(url));
-    if (!u.pathname.startsWith('/api/pyqs')) return new Response('{}', { status: 404 });
-    const page = parseInt(u.searchParams.get('page') || '1', 10);
-    const all = [
-      { id: 'w1', title: 'DBMS', course: 'B.Tech CSE', semester: '4th' },
-      { id: 'w2', title: 'Operating System', course: 'MBA', semester: '1st' },
-      { id: 'w3', title: 'Database Management System Lab', course: 'B.Tech CSE', semester: '4th' },
-    ];
-    return new Response(JSON.stringify({ items: page === 1 ? all : [], total: all.length, page, limit: 100, totalPages: 1 }), {
-      status: 200, headers: { 'Content-Type': 'application/json' },
-    });
-  };
-  w2.firebase = { apps: [{}], initializeApp: () => w2.firebase, firestore: () => db2, storage: () => ({ ref: () => ({}) }), auth: () => auth2 };
-  w2.firebase.firestore.FieldValue = db.FieldValue;
-  w2.firebase.auth.GoogleAuthProvider = function GoogleAuthProvider() {};
-  w2.bootstrap = { Modal: MockModal };
-  w2.eval(dupJs);
-  w2.eval(adminJs);
-  await new Promise((r) => setTimeout(r, 40));
-  await auth2.emit({ uid: 'admin', email: 'abc@gmail.com', emailVerified: true, reload: () => Promise.resolve() });
-  await new Promise((r) => setTimeout(r, 40));
-  w2.loadPendingUploads();
-  await new Promise((r) => setTimeout(r, 300));
-
-  const hints2 = w2.document.getElementById('duplicateHints-sub1');
-  check('the Worker API was used for the PYQ index',
-    requested.some((href) => href.includes('/api/pyqs?limit=100&page=1')), requested.join(' | '));
-  check('no direct `pyqs` Firestore read was needed', firestoreReads === 0, `pyqs reads=${firestoreReads}`);
-  check('API-sourced candidates are rendered',
-    !!hints2 && /DBMS/.test(hints2.textContent) && /paper\.html\?id=w1/.test(hints2.innerHTML));
-  check('up to 5 candidates, sorted by confidence',
-    !!hints2 && (hints2.innerHTML.match(/dup-confidence /g) || []).length <= 5);
-  check('a second queue render reuses the cached index (still one API call)',
-    requested.filter((href) => href.includes('/api/pyqs')).length === 1, String(requested.filter((h) => h.includes('/api/pyqs')).length));
+  console.log('\n6. Index source: Firestore is authoritative, the API is only a fallback');
+  check('the published PYQs were read from Firestore', firestorePyqReads >= 1, `reads=${firestorePyqReads}`);
+  check('the Worker /api/pyqs list was NOT needed for matching',
+    pyqApiCalls.length === 0, pyqApiCalls.join(' | '));
+  const readsBeforeRerender = firestorePyqReads;
+  window.loadPendingUploads();
+  await new Promise((r) => setTimeout(r, 200));
+  check('a re-render reuses the cached index (no second read)',
+    firestorePyqReads === readsBeforeRerender, `${readsBeforeRerender} -> ${firestorePyqReads}`);
+  check('candidates render from the Firestore data',
+    !!hints && /DBMS/.test(hints.textContent) && /paper\.html\?id=pyq1/.test(hints.innerHTML));
 
   console.log('\n7. Rendered hint block (for eyeballing)');
-  if (hints2) console.log(hints2.innerHTML.replace(/\s+/g, ' ').slice(0, 700));
+  if (hints) console.log(hints.innerHTML.replace(/\s+/g, ' ').slice(0, 700));
 
   console.log(`\nResults: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

@@ -150,6 +150,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await authMock.emit({ uid: 'admin', email: 'admin@dsmnru.test', emailVerified: true, reload: () => Promise.resolve() });
   await wait(120);
   check('signing in opens the Dashboard', activeViews().join() === 'dashboard', activeViews().join());
+  check('the Dashboard itself performs no pyqs read (duplicate matching is Review-Queue only)',
+    (reads.pyqs || 0) === 0, `pyqs reads=${reads.pyqs || 0}`);
   check('exactly one view is active at a time', activeViews().length === 1);
   check('the topbar shows the current page title', q('#adminPageTitle').textContent === 'Dashboard');
   check('the matching nav item is marked active',
@@ -179,9 +181,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     && /showAdminView\('bulk-import'\)/.test(dash.innerHTML)
     && /showAdminView\('review'\)/.test(dash.innerHTML));
   check('recent activity panels exist', !!dash.querySelector('#recentSubmissionsList') && !!dash.querySelector('#recentPyqsList'));
-  check('PYQ total came from the cached Worker API (no Firestore read)',
-    dash.querySelector('#pyqsCount').textContent === '311' && (reads.pyqs || 0) === 0,
-    `pyqsCount=${dash.querySelector('#pyqsCount').textContent} reads=${reads.pyqs || 0}`);
+  check('the PYQ total on the dashboard comes from the cached Worker API',
+    dash.querySelector('#pyqsCount').textContent === '311',
+    `pyqsCount=${dash.querySelector('#pyqsCount').textContent}`);
   check('the pending submission appears in recent activity',
     /Database Management System/.test(dash.querySelector('#recentSubmissionsList').textContent));
   check('the recent PYQ list is rendered', /DBMS/.test(dash.querySelector('#recentPyqsList').textContent));
@@ -200,8 +202,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   check('the Load button hides once the count is known',
     q('.stat-link[data-load-count="users"]').style.display === 'none');
   window.showAdminView('pyqs');
-  await wait(80);
-  check('opening All PYQs loads the library once', reads.pyqs === 1 && q('#view-pyqs').classList.contains('active'));
+  await wait(120);
+  check('opening All PYQs loads the library and renders it',
+    q('#view-pyqs').classList.contains('active')
+    && /DBMS/.test(q('#pyqsList').textContent)
+    && q('#pyqsCount').textContent === '1',
+    `count=${q('#pyqsCount').textContent} reads=${reads.pyqs}`);
+  check('read budget so far: 1 duplicate index + 1 library read', reads.pyqs === 2, `pyqs reads=${reads.pyqs}`);
 
   console.log('\n5. Every feature still has a home');
   const homes = {

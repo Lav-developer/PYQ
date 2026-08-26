@@ -219,7 +219,9 @@ npm install --no-save jsdom
 node test/frontend-smoke-test.cjs
 node test/paper-smoke-test.cjs
 node test/contribution-points-test.cjs   # 65 assertions — upload → pending → approve/reject → points
-node test/duplicate-detection-test.cjs   # 43 assertions — title-led matching + admin hint UI
+node test/duplicate-detection-test.cjs   # 45 assertions — title-led matching + admin hint UI
+node test/admin-ia-test.cjs              # 68 assertions — sidebar IA, lazy loading, rewards
+node test/duplicate-index-freshness-test.cjs  # 13 — exact-title regression (stale index)
 ```
 
 ## 🔧 Environment & Firebase Setup
@@ -407,7 +409,9 @@ Desktop keeps the sidebar pinned; below 992px it becomes a drawer behind a hambu
 
 **Review Queue:** filters `Pending / Approved / Rejected / All`; each card shows title, uploader email, course, semester, time and status with `[Approve +10] [Reject 0] [Preview] [Download] [Copy URL] [Delete]`. Preview opens the temporary gofile page in a new tab.
 
-**⚠ Possible Existing PYQs:** each *pending* card lists up to **5** similar published papers sorted by confidence, each with a `[View]` link. Matching is title-led (`duplicate-check.js`: normalized token overlap + a Levenshtein fallback — no AI, embeddings or external APIs); `course` and `semester` only raise or lower confidence **when both records have them**, a missing field is never a mismatch, and nothing is ever auto-excluded or auto-rejected. The index comes from the cached Worker API (`/api/pyqs`, zero Firestore reads) with a direct `pyqs` read as fallback. The admin decides: same paper → Reject (0 points), different paper → Approve (+10 points).
+**⚠ Possible Existing PYQs:** each *pending* card lists up to **5** similar published papers sorted by confidence, each with a `[View]` link. Matching is title-led (`duplicate-check.js`: normalized token overlap + a Levenshtein fallback — no AI, embeddings or external APIs); `course` and `semester` only raise or lower confidence **when both records have them**, a missing field is never a mismatch, and nothing is ever auto-excluded or auto-rejected. An **identical normalized title always scores 100% and ranks #1**, whatever the optional fields contain.
+
+The candidate list is read from **Firestore, the source of truth** — it reuses the in-memory library when *All PYQs* is already open, otherwise it does one bounded `pyqs` read. The Worker's `/api/pyqs` is only a last-resort fallback (its KV index is rebuilt on invalidation or after a 7-day TTL, so it can silently omit a recently published paper); when the fallback is used the card says so. The index is dropped on every PYQ add/edit/delete/import, and **Re-check duplicates** re-reads on demand. The admin decides: same paper → Reject (0 points), different paper → Approve (+10 points).
 
 **Points:** `Approve` runs one Firestore transaction — status → `approved`, `reviewedAt` / `reviewedBy`, a `point_transactions` ledger entry (id = submission id) and `reward_accounts/{email}` `points += 10`. Approving twice adds **0** the second time. `Reject` stores an optional reason and awards nothing. Approval **never** publishes the PYQ and never touches the temporary gofile file.
 
