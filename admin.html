@@ -682,6 +682,17 @@
 
         /* Feedback UI polish */
         .feedback-filter-btn.active { background: var(--admin-primary) !important; color: #134252 !important; border-color: var(--admin-primary) !important; box-shadow: 0 6px 14px rgba(50,184,198,0.25); }
+
+        /* PYQ submissions review queue (approve / reject / points) */
+        .submission-filter-btn.active { background: var(--admin-primary) !important; color: #134252 !important; border-color: var(--admin-primary) !important; box-shadow: 0 6px 14px rgba(50,184,198,0.25); }
+        .submission-status { font-weight: 600; }
+        .submission-status-pending { background: rgba(230,129,97,0.16); border-color: rgba(230,129,97,0.32); color: #f3c1ae; }
+        .submission-status-approved { background: rgba(52,211,153,0.14); border-color: rgba(52,211,153,0.3); color: #6ee7b7; }
+        .submission-status-rejected { background: rgba(255,84,89,0.14); border-color: rgba(255,84,89,0.3); color: #ff9ea1; }
+        .resource-card button:disabled { opacity: 0.55; cursor: not-allowed; }
+        @media (max-width: 768px) {
+            .resource-card .resource-actions { justify-content: flex-start; margin-left: 0; }
+        }
         .resource-card .badge.bg-warning { animation: pulseBadge 1.6s infinite; }
         @keyframes pulseBadge { 0%,100%{ transform: scale(1); } 50%{ transform: scale(1.06); } }
         #adminPyqSearch:focus { background: rgba(31,33,33,0.9); border-color: var(--admin-primary); color: #fff; box-shadow: 0 0 0 0.2rem rgba(50,184,198,0.2); }
@@ -952,6 +963,14 @@
                     <div id="pendingCollapse" class="collapse">
                         <div class="card-body">
                             <!-- <p class="section-copy mb-3">Download or remove uploads before they are pushed into the main content collections.</p> -->
+                            <div class="d-flex gap-2 mb-3 flex-wrap align-items-center">
+                                <button class="btn btn-sm btn-primary submission-filter-btn active" data-filter="pending" onclick="filterSubmissions('pending')"><i class="fas fa-hourglass-half me-1"></i> Pending (<span id="submissionPendingCount">0</span>)</button>
+                                <button class="btn btn-sm btn-outline-success submission-filter-btn" data-filter="approved" onclick="filterSubmissions('approved')"><i class="fas fa-circle-check me-1"></i> Approved (<span id="submissionApprovedCount">0</span>)</button>
+                                <button class="btn btn-sm btn-outline-danger submission-filter-btn" data-filter="rejected" onclick="filterSubmissions('rejected')"><i class="fas fa-circle-xmark me-1"></i> Rejected (<span id="submissionRejectedCount">0</span>)</button>
+                                <button class="btn btn-sm btn-outline-light submission-filter-btn" data-filter="all" onclick="filterSubmissions('all')">All</button>
+                                <button class="btn btn-sm btn-outline-light" onclick="loadPendingUploads()"><i class="fas fa-rotate me-1"></i> Refresh</button>
+                                <span class="ms-auto small" style="color: rgba(245,245,245,0.55);"><i class="fas fa-circle-info me-1"></i> Approve = +10 points for the uploader (does not publish)</span>
+                            </div>
                             <div id="pendingUploadsList" class="resource-list section-scroll">
                                 <div class="resource-empty">Loading pending uploads...</div>
                             </div>
@@ -1074,6 +1093,7 @@
     </div>
 
     <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script defer src="points.js"></script>
     <script defer src="admin.js"></script>
 
     <!-- Sitemap generation status (populated by admin.js) -->

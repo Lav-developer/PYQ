@@ -4249,3 +4249,102 @@ section[id] {
   font-weight: 800;
   line-height: 1;
 }
+
+/* ── PYQ Contribution Points ────────────────────────────────────────────────
+   Reward UI shown on the public upload form and in the profile modal.
+   Uses the existing design tokens so it matches the dark glass theme. */
+.upload-points-note {
+  color: var(--color-teal-300);
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.upload-points-note .upload-points-sub {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.pyq-points-card {
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(50, 184, 198, 0.24);
+  background: linear-gradient(135deg, rgba(50, 184, 198, 0.14), rgba(15, 23, 42, 0.5));
+}
+
+.pyq-points-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.pyq-points-label {
+  color: var(--color-text);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.pyq-points-label i {
+  color: var(--color-teal-300);
+  margin-right: 0.4rem;
+}
+
+.pyq-points-value {
+  color: var(--color-teal-300);
+  font-size: 1.6rem;
+  line-height: 1;
+  font-family: "JetBrains Mono", "FKGroteskNeue", monospace;
+}
+
+.pyq-points-note {
+  margin-top: 0.5rem;
+  color: var(--color-text-secondary);
+  font-size: 0.8rem;
+}
+
+.pyq-points-history {
+  margin-top: 0.85rem;
+  max-height: 168px;
+  overflow-y: auto;
+}
+
+.pyq-points-entry {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  padding: 0.35rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 0.86rem;
+}
+
+.pyq-points-entry-amount {
+  color: #6ee7b7;
+  font-weight: 700;
+  min-width: 2.4rem;
+}
+
+.pyq-points-entry-label {
+  color: var(--color-text);
+}
+
+.pyq-points-entry-date {
+  margin-left: auto;
+  color: var(--color-text-secondary);
+  font-size: 0.78rem;
+}
+
+.pyq-points-empty {
+  padding: 0.4rem 0;
+  color: var(--color-text-secondary);
+  font-size: 0.83rem;
+}
+
+@media (max-width: 480px) {
+  .pyq-points-card { padding: 0.85rem 0.9rem; border-radius: 14px; }
+  .pyq-points-value { font-size: 1.35rem; }
+  .pyq-points-entry { flex-wrap: wrap; }
+  .pyq-points-entry-date { margin-left: 0; }
+}

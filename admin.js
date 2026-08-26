@@ -16,6 +16,10 @@ const db = firebase.firestore();
 const storage = firebase.storage();
 let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedback: [] };
 
+// The signed-in admin (set in onAuthStateChanged after the rules-based admin
+// check). Required before any submission review action.
+let currentAdmin = null;
+
 // ===== API CACHE INVALIDATION (Cloudflare Worker) =====
 // After content changes, purge the Worker's KV/edge cache so the public site
 // reflects the change quickly (instead of waiting for the TTL).
@@ -110,12 +114,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 return; // Stop execution for non-admins
             }
             // User is signed in
+            currentAdmin = user;
             updateCsvWidgetVisibility(user);
             document.getElementById('loginSection').style.display = 'none';
             document.getElementById('adminSection').style.display = 'block';
             loadData();
         } else {
             // User is signed out
+            currentAdmin = null;
             updateCsvWidgetVisibility(null);
             resetLazyLoadState();
             document.getElementById('loginSection').style.display = 'block';
@@ -533,12 +539,19 @@ function updateDashboardStats() {
         }
     };
 
+    // `allData.pendingUploads` holds every submission (pending + reviewed);
+    // the hero/header counts still mean "waiting for review".
+    const counts = getSubmissionCounts();
+
     setCount('pyqsCount', allData.pyqs.length);
     setCount('pyqsHeaderCount', allData.pyqs.length);
     setCount('usersCount', allData.users.length);
     setCount('usersHeaderCount', allData.users.length);
-    setCount('pendingCount', allData.pendingUploads.length);
-    setCount('pendingHeaderCount', allData.pendingUploads.length);
+    setCount('pendingCount', counts.pending);
+    setCount('pendingHeaderCount', counts.pending);
+    setCount('submissionPendingCount', counts.pending);
+    setCount('submissionApprovedCount', counts.approved);
+    setCount('submissionRejectedCount', counts.rejected);
     setCount('contributorsCount', allData.contributors.length);
     setCount('contributorsHeaderCount', allData.contributors.length);
 
@@ -671,8 +684,8 @@ async function refreshCollectionAfterCsvImport(collectionName) {
     }
 
     if (collectionName === 'pendingUploads') {
-        const snapshot = await db.collection('pendingUploads').where('status', '==', 'pending').get();
-        allData.pendingUploads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        // Review queue now holds every submission (pending + reviewed).
+        loadPendingUploads();
         renderLists();
     }
 }
@@ -1145,55 +1158,186 @@ window.deleteUser = function(uid, name) {
                 });
         });
     });
-// Pending Uploads Management
+// Pending Uploads Management — PYQ submissions + contribution points
+// ─────────────────────────────────────────────────────────────────────
+// The review queue holds every submission (pending / approved / rejected).
+//   Approve → status approved + reviewedAt/reviewedBy + exactly +10 points to
+//             the uploader's normalized email + a ledger entry (idempotent).
+//   Reject  → status rejected + reviewedAt/reviewedBy + no points, ever.
+// Approval NEVER publishes a PYQ — permanent publishing stays the manual
+// "Quick create" flow below, exactly as before.
+
+let submissionFilter = 'pending';
+const submissionActionBusy = new Set();
+
+function submissionStatusOf(doc) {
+    if (window.DSMNRUPoints) return window.DSMNRUPoints.submissionStatus(doc && doc.status);
+    const raw = String((doc && doc.status) || 'pending').trim().toLowerCase();
+    return (raw === 'approved' || raw === 'rejected') ? raw : 'pending';
+}
+
+function submissionEmailOf(doc) {
+    if (window.DSMNRUPoints) return window.DSMNRUPoints.submissionEmail(doc);
+    return String((doc && (doc.studentEmail || doc.email)) || '').trim().toLowerCase();
+}
+
+function rewardPointsValue() {
+    return window.DSMNRUPoints ? window.DSMNRUPoints.PYQ_UPLOAD_REWARD_POINTS : 10;
+}
+
+function getSubmissionCounts() {
+    const counts = { pending: 0, approved: 0, rejected: 0 };
+    allData.pendingUploads.forEach(doc => {
+        const status = submissionStatusOf(doc);
+        if (counts[status] !== undefined) counts[status] += 1;
+    });
+    return counts;
+}
+
+function uploadTimestampValue(doc) {
+    const value = doc && doc.uploadedAt;
+    if (!value) return 0;
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function reviewTimestampValue(doc) {
+    const value = doc && doc.reviewedAt;
+    if (!value) return 0;
+    if (typeof value.toDate === 'function') {
+        const date = value.toDate();
+        return Number.isFinite(date.getTime()) ? date.getTime() : 0;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function loadPendingUploads() {
-    db.collection('pendingUploads').where('status', '==', 'pending').get()
+    // Every submission (all statuses), newest first. Bounded read so the
+    // review queue stays cheap as approved/rejected history grows.
+    db.collection('pendingUploads').limit(300).get()
         .then(snapshot => {
-            allData.pendingUploads = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            const pendingCount = allData.pendingUploads.length;
-            updateDashboardStats();
-            
-            if (pendingCount === 0) {
-                document.getElementById('pendingUploadsList').innerHTML = '';
-                document.getElementById('noPendingMessage').style.display = 'block';
-            } else {
-                document.getElementById('noPendingMessage').style.display = 'none';
-                renderPendingUploads(allData.pendingUploads);
-            }
+            allData.pendingUploads = snapshot.docs
+                .map(doc => ({ id: doc.id, ...doc.data() }))
+                .sort((a, b) => uploadTimestampValue(b) - uploadTimestampValue(a));
+            renderPendingUploads(allData.pendingUploads);
         })
         .catch(error => {
             console.error('Error loading pending uploads:', error);
         });
 }
 
-function renderPendingUploads(pendingDocs) {
+function filterSubmissions(filter) {
+    submissionFilter = filter || 'pending';
+    document.querySelectorAll('.submission-filter-btn').forEach(btn => {
+        const isActive = btn.getAttribute('data-filter') === submissionFilter;
+        btn.classList.toggle('active', isActive);
+        btn.classList.toggle('btn-primary', isActive);
+        btn.classList.toggle('btn-outline-success', !isActive && btn.getAttribute('data-filter') === 'approved');
+        btn.classList.toggle('btn-outline-danger', !isActive && btn.getAttribute('data-filter') === 'rejected');
+        btn.classList.toggle('btn-outline-light', !isActive && (btn.getAttribute('data-filter') === 'all' || btn.getAttribute('data-filter') === 'pending'));
+    });
+    renderPendingUploads(allData.pendingUploads);
+}
+
+function submissionStatusBadge(status) {
+    if (status === 'approved') {
+        return '<span class="resource-pill submission-status submission-status-approved"><i class="fas fa-circle-check me-1"></i> Approved</span>';
+    }
+    if (status === 'rejected') {
+        return '<span class="resource-pill submission-status submission-status-rejected"><i class="fas fa-circle-xmark me-1"></i> Rejected</span>';
+    }
+    return '<span class="resource-pill submission-status submission-status-pending"><i class="fas fa-hourglass-half me-1"></i> Pending</span>';
+}
+
+function setSubmissionCardBusy(docId, busy) {
+    const card = document.querySelector('[data-submission-id="' + docId + '"]');
+    if (!card) return;
+    card.querySelectorAll('button').forEach(btn => { btn.disabled = !!busy; });
+}
+
+function renderPendingUploads(submissions) {
     const list = document.getElementById('pendingUploadsList');
+    const noPendingMessage = document.getElementById('noPendingMessage');
     if (!list) return;
 
-    if (!pendingDocs.length) {
-        list.innerHTML = '<div class="resource-empty">No pending uploads found.</div>';
-        updateDashboardStats();
+    const all = Array.isArray(submissions) ? submissions : allData.pendingUploads;
+    const visible = all.filter(doc => submissionFilter === 'all' || submissionStatusOf(doc) === submissionFilter);
+
+    updateDashboardStats();
+
+    if (!visible.length) {
+        list.innerHTML = '';
+        if (noPendingMessage) {
+            noPendingMessage.style.display = 'block';
+            noPendingMessage.textContent = submissionFilter === 'pending'
+                ? 'No pending uploads at the moment.'
+                : 'No ' + submissionFilter + ' submissions yet.';
+        }
         return;
     }
 
-    list.innerHTML = pendingDocs.map((doc, index) => {
-        // doc is already a converted object with { id, ...data }
+    if (noPendingMessage) noPendingMessage.style.display = 'none';
+
+    list.innerHTML = visible.map((doc, index) => {
         const data = doc;
-        const uploadDate = data.uploadedAt ? new Date(data.uploadedAt.toDate()).toLocaleString() : 'Unknown';
+        const status = submissionStatusOf(data);
+        const isPending = status === 'pending';
+        const uploadedAt = uploadTimestampValue(data);
+        const uploadDate = uploadedAt ? new Date(uploadedAt).toLocaleString() : 'Unknown';
+        const reviewedAt = reviewTimestampValue(data);
+        const email = submissionEmailOf(data);
+        const reward = rewardPointsValue();
+
+        let pointsLine = '';
+        if (status === 'approved') {
+            const awarded = data.pointsAwarded === true ? '+' + reward : '0';
+            pointsLine = '<div>Points: <strong>' + awarded + '</strong>'
+                + (email ? ' → <code>' + escapeHtml(email) + '</code>' : '')
+                + (data.pointsTransactionId ? ' <span class="text-muted">(txn ' + escapeHtml(data.pointsTransactionId) + ')</span>' : '')
+                + '</div>';
+        } else if (status === 'pending') {
+            pointsLine = '<div class="text-muted">Points: +' + reward + ' on approval</div>';
+        } else {
+            pointsLine = '<div class="text-muted">Points: 0 (rejected)</div>';
+        }
+
+        const reasonLine = status === 'rejected' && data.rejectionReason
+            ? '<div>Reason: ' + escapeHtml(data.rejectionReason) + '</div>'
+            : '';
+        const reviewedLine = data.reviewedBy
+            ? '<div class="text-muted">Reviewed by ' + escapeHtml(data.reviewedBy) + (reviewedAt ? ' • ' + new Date(reviewedAt).toLocaleString() : '') + '</div>'
+            : '';
+
+        const reviewButtons = isPending
+            ? `<button class="btn btn-sm btn-success" onclick="approveSubmission('${doc.id}')">
+                    <i class="fas fa-check me-1"></i> Approve
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="rejectSubmission('${doc.id}')">
+                    <i class="fas fa-ban me-1"></i> Reject
+                </button>`
+            : '';
+
         return `
-            <article class="resource-card">
+            <article class="resource-card" data-submission-id="${doc.id}" data-status="${status}">
                 <div class="resource-top">
                     <div>
-                        <div class="resource-kicker">Pending upload ${index + 1}</div>
+                        <div class="resource-kicker">${escapeHtml(status)} submission ${index + 1}</div>
                         <h5 class="resource-title">${escapeHtml(data.title)}</h5>
                         <div class="resource-meta">
+                            ${submissionStatusBadge(status)}
                             <span class="resource-pill">${escapeHtml(data.course || 'N/A')}</span>
                             <span class="resource-pill">${escapeHtml(data.semester || 'N/A')}</span>
                         </div>
                     </div>
                     <div class="resource-actions">
+                        ${reviewButtons}
                         <button class="btn btn-sm btn-outline-light" onclick='copyToClipboard(${JSON.stringify(data.downloadUrl || '')})'>Copy URL</button>
-                        <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${data.fileName.replace(/'/g, "\\'")}')">
+                        <button class="btn btn-sm btn-outline-info" onclick="downloadPendingFile('${data.downloadUrl}', '${String(data.fileName || '').replace(/'/g, "\\'")}')">
                             <i class="fas fa-download me-1"></i> Download
                         </button>
                         <button class="btn btn-sm btn-outline-danger" onclick="deletePendingUpload('${doc.id}')">
@@ -1202,15 +1346,16 @@ function renderPendingUploads(pendingDocs) {
                     </div>
                 </div>
                 <div class="resource-detail">
-                    <div>File: <code>${escapeHtml(data.fileName)}</code></div>
-                    <div>Uploaded by: <strong>${escapeHtml(data.studentName || 'Anonymous')}</strong></div>
+                    <div>File: <code>${escapeHtml(data.fileName || 'unnamed-file')}</code></div>
+                    <div>Uploaded by: <strong>${escapeHtml(data.studentName || 'Anonymous')}</strong>${email ? ' • <code>' + escapeHtml(email) + '</code>' : ''}</div>
                     <div>${escapeHtml(uploadDate)}</div>
+                    ${pointsLine}
+                    ${reasonLine}
+                    ${reviewedLine}
                 </div>
             </article>
         `;
     }).join('');
-
-    updateDashboardStats();
 }
 
 function downloadPendingFile(downloadUrl, fileName) {
@@ -1237,9 +1382,195 @@ function deletePendingUpload(docId) {
     }
 }
 
-// Global function for onclick
+// ── Approve / Reject (the only path that can award points) ──────────
+
+function requireAdminForReview() {
+    if (!currentAdmin) {
+        alert('Admin sign-in required to review submissions.');
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Find the Firebase account that already owns this email (if any) so an
+ * existing user's profile shows the points immediately. Non-fatal: points
+ * always live on the email-based reward account.
+ */
+async function resolveRewardUid(email) {
+    try {
+        const byEmail = await db.collection('users').where('email', '==', email).limit(1).get();
+        if (!byEmail.empty) {
+            const data = byEmail.docs[0].data() || {};
+            return data.uid || byEmail.docs[0].id;
+        }
+        const bySignupEmail = await db.collection('users').where('signupEmail', '==', email).limit(1).get();
+        if (!bySignupEmail.empty) {
+            const data = bySignupEmail.docs[0].data() || {};
+            return data.uid || bySignupEmail.docs[0].id;
+        }
+    } catch (error) {
+        console.warn('Could not resolve a user for ' + email + ':', error.message);
+    }
+    return null;
+}
+
+async function approveSubmission(docId) {
+    if (!requireAdminForReview()) return;
+    if (submissionActionBusy.has(docId)) return;
+
+    const submission = allData.pendingUploads.find(item => item.id === docId);
+    if (!submission) {
+        alert('Submission not found — refresh the review queue.');
+        return;
+    }
+
+    const email = submissionEmailOf(submission);
+    if (!email || (window.DSMNRUPoints && !window.DSMNRUPoints.isValidRewardEmail(email))) {
+        alert('This submission has no valid email, so points cannot be credited. Delete it instead.');
+        return;
+    }
+
+    const reward = rewardPointsValue();
+    if (!confirm('Approve this PYQ submission?\n\n' + (submission.title || 'Untitled')
+        + '\n\n+' + reward + ' points will be credited to ' + email
+        + '.\nApproval does NOT publish the PYQ — publishing stays manual.')) {
+        return;
+    }
+
+    submissionActionBusy.add(docId);
+    setSubmissionCardBusy(docId, true);
+
+    try {
+        const uid = await resolveRewardUid(email);
+        const accountKey = window.DSMNRUPoints
+            ? window.DSMNRUPoints.rewardAccountKey(email)
+            : email.replace(/[^a-z0-9]/g, '_');
+        const rewardType = window.DSMNRUPoints ? window.DSMNRUPoints.PYQ_UPLOAD_REWARD_TYPE : 'PYQ_UPLOAD_REWARD';
+
+        // One Firestore transaction: submission status + ledger entry + balance.
+        // The ledger document id IS the submission id, so a second approval can
+        // never create a second reward.
+        const result = await db.runTransaction(async (tx) => {
+            const submissionRef = db.collection('pendingUploads').doc(docId);
+            const accountRef = db.collection('reward_accounts').doc(accountKey);
+            const ledgerRef = db.collection('point_transactions').doc(docId);
+
+            const submissionSnap = await tx.get(submissionRef);
+            const accountSnap = await tx.get(accountRef);
+            const ledgerSnap = await tx.get(ledgerRef);
+
+            if (!submissionSnap.exists) throw new Error('Submission no longer exists.');
+
+            const reviewedPatch = {
+                status: 'approved',
+                reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                reviewedBy: currentAdmin.email || '',
+                reviewedByUid: currentAdmin.uid || '',
+                rejectionReason: null
+            };
+
+            const alreadyAwarded = ledgerSnap.exists
+                || submissionSnap.data().pointsAwarded === true
+                || !!submissionSnap.data().pointsTransactionId;
+
+            if (alreadyAwarded) {
+                // Status only — never a second reward for the same submission.
+                tx.update(submissionRef, reviewedPatch);
+                const existing = accountSnap.exists ? (accountSnap.data() || {}) : {};
+                return { awarded: false, points: 0, total: Number(existing.points) || 0 };
+            }
+
+            const account = accountSnap.exists ? (accountSnap.data() || {}) : {};
+            const currentPoints = Number(account.points) || 0;
+            const now = firebase.firestore.FieldValue.serverTimestamp();
+
+            tx.set(ledgerRef, {
+                email: email,
+                amount: reward,
+                type: rewardType,
+                submissionId: docId,
+                rewardAccountKey: accountKey,
+                uid: uid || account.uid || null,
+                createdBy: currentAdmin.email || '',
+                createdAt: now
+            });
+
+            tx.set(accountRef, {
+                email: email,
+                points: currentPoints + reward,
+                uid: uid || account.uid || null,
+                createdAt: account.createdAt || now,
+                updatedAt: now
+            }, { merge: true });
+
+            tx.update(submissionRef, Object.assign({}, reviewedPatch, {
+                pointsAwarded: true,
+                pointsTransactionId: docId,
+                pointsAmount: reward,
+                pointsEmail: email
+            }));
+
+            return { awarded: true, points: reward, total: currentPoints + reward };
+        });
+
+        alert(result.awarded
+            ? 'Approved — +' + result.points + ' points credited. Balance: ' + result.total + '.'
+            : 'Approved — points were already awarded for this submission, so nothing extra was credited. Balance: ' + result.total + '.');
+    } catch (error) {
+        console.error('Error approving submission:', error);
+        alert('Could not approve this submission: ' + error.message);
+    } finally {
+        submissionActionBusy.delete(docId);
+        loadPendingUploads();
+    }
+}
+
+async function rejectSubmission(docId) {
+    if (!requireAdminForReview()) return;
+    if (submissionActionBusy.has(docId)) return;
+
+    const submission = allData.pendingUploads.find(item => item.id === docId);
+    if (!submission) {
+        alert('Submission not found — refresh the review queue.');
+        return;
+    }
+
+    if (submission.pointsAwarded === true || submission.pointsTransactionId) {
+        alert('This submission was already approved and rewarded. Points are never removed — leaving it as approved.');
+        return;
+    }
+
+    const reason = prompt('Reject this submission? No points will be awarded.\n\nOptional reason (stored on the record):', '');
+    if (reason === null) return; // cancelled
+
+    submissionActionBusy.add(docId);
+    setSubmissionCardBusy(docId, true);
+
+    try {
+        await db.collection('pendingUploads').doc(docId).update({
+            status: 'rejected',
+            reviewedAt: firebase.firestore.FieldValue.serverTimestamp(),
+            reviewedBy: currentAdmin.email || '',
+            reviewedByUid: currentAdmin.uid || '',
+            rejectionReason: reason.trim().slice(0, 300) || null
+        });
+        alert('Submission rejected. No points were awarded.');
+    } catch (error) {
+        console.error('Error rejecting submission:', error);
+        alert('Could not reject this submission: ' + error.message);
+    } finally {
+        submissionActionBusy.delete(docId);
+        loadPendingUploads();
+    }
+}
+
+// Global functions for onclick
 window.downloadPendingFile = downloadPendingFile;
 window.deletePendingUpload = deletePendingUpload;
+window.approveSubmission = approveSubmission;
+window.rejectSubmission = rejectSubmission;
+window.filterSubmissions = filterSubmissions;
 
 // Lazy loading functions - only load data when section is expanded
 let pyqsLoaded = false;

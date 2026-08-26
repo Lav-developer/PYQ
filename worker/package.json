@@ -10,7 +10,8 @@
     "tail": "wrangler tail",
     "test": "node test/worker.test.js",
     "test:frontend": "node test/frontend-smoke-test.cjs",
-    "test:paper": "node test/paper-smoke-test.cjs"
+    "test:paper": "node test/paper-smoke-test.cjs",
+    "test:points": "node test/contribution-points-test.cjs"
   },
   "devDependencies": {
     "jsdom": "^24.0.0",
