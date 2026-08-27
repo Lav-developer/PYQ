@@ -26,10 +26,26 @@ self.addEventListener('fetch', event => {
   }
 
   // Cache only same-origin static assets after a successful network response.
-  if (url.origin === self.location.origin && /\.(?:css|js|png|svg|woff2?)$/i.test(url.pathname)) {
-    event.respondWith(caches.match(event.request).then(hit => hit || fetch(event.request).then(response => {
-      if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
-      return response;
-    })));
-  }
+  // Cache only same-origin static assets after a successful network response.
+if (url.origin === self.location.origin && /\.(?:css|js|png|svg|woff2?)$/i.test(url.pathname)) {
+  event.respondWith(
+    caches.match(event.request).then(hit => {
+      if (hit) return hit;
+
+      return fetch(event.request).then(response => {
+        if (response.ok) {
+          const responseToCache = response.clone();
+
+          event.waitUntil(
+            caches.open(CACHE_NAME).then(cache =>
+              cache.put(event.request, responseToCache)
+            )
+          );
+        }
+
+        return response;
+      });
+    })
+  );
+}
 });
