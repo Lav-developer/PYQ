@@ -16,6 +16,7 @@
 import { getAllDocuments } from './firestore.js';
 import { KV_KEYS, getFromKV, setKV, DEFAULT_KV_TTL } from './cache.js';
 import { getInvalidationTimestamp, INDEX_HARD_TTL } from './cache.js';
+import { createSlug, encodeSlugId, isSafePyqSlug } from './slug.js';
 
 function normalize(str) {
   if (!str) return '';
@@ -49,19 +50,213 @@ function extractSortTimestamp(pyq) {
   return 0;
 }
 
-function buildIndexItem(pyq) {
+// Bump this only when the canonical-slug representation changes.
+const SLUG_INDEX_VERSION = 2;
+
+const NON_PUBLIC_PYQ_STATUSES = new Set([
+  'draft', 'pending', 'private', 'unpublished', 'rejected', 'deleted', 'archived', 'inactive',
+  'hidden', 'internal', 'restricted', 'protected', 'authenticated', 'auth-only', 'auth_only',
+  'requires-authentication', 'login', 'login-required', 'login_required', 'signed-in',
+  'members', 'members-only', 'members_only', 'registered', 'registered-users', 'user-only',
+  'users-only', 'staff', 'admin', 'administrators', 'unlisted',
+]);
+
+function isExplicitlyFalse(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return value === false || value === 0 || normalized === 'false' || normalized === '0';
+}
+
+function isExplicitlyTrue(value) {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return value === true || value === 1 || normalized === 'true' || normalized === '1';
+}
+
+/**
+ * The public API still exposes its existing `pyqs` collection behavior. This
+ * predicate is deliberately scoped to the new crawlable routes and sitemap so
+ * a draft/private record can never be published through the SEO surface.
+ */
+export function isPublicPyq(pyq) {
+  if (!pyq || typeof pyq !== 'object') return false;
+  if (isExplicitlyFalse(pyq.published) || isExplicitlyFalse(pyq.isPublished)) return false;
+  if (isExplicitlyFalse(pyq.public) || isExplicitlyFalse(pyq.isPublic)) return false;
+  if (isExplicitlyTrue(pyq.draft) || isExplicitlyTrue(pyq.private)
+    || isExplicitlyTrue(pyq.unpublished) || isExplicitlyTrue(pyq.archived)
+    || isExplicitlyTrue(pyq.deleted)) return false;
+
+  // Do not use `visibility || access || accessLevel` here: a public value in
+  // one legacy field must never mask an explicitly private value in another.
+  // Numeric/boolean false-like access states are also deliberately private.
+  const accessStates = [pyq.status, pyq.visibility, pyq.access, pyq.accessLevel];
+  return !accessStates.some((value) => {
+    const state = String(value ?? '').trim().toLowerCase();
+    return isExplicitlyFalse(value) || NON_PUBLIC_PYQ_STATUSES.has(state);
+  });
+}
+
+function storedSlugBase(value) {
+  const candidate = String(value || '').trim().toLowerCase();
+  // Stored slugs are intentionally simple title slugs. Collision suffixes are
+  // assigned from the complete current index, never trusted from Firestore.
+  return candidate && candidate === createSlug(candidate) ? candidate : '';
+}
+
+/**
+ * Build the compact item held in KV. `sb` preserves an optional stable slug
+ * base written by the admin UI; it lets a title edit retain its existing SEO
+ * URL without any Worker-side write or historical-slug database.
+ */
+export function buildIndexItem(pyq) {
+  const title = String(pyq.title || '');
   return {
     id: pyq.id,
-    t: String(pyq.title || ''),
+    t: title,
     c: String(pyq.course || pyq.category || ''),
     s: String(pyq.semester || pyq.sem || ''),
     se: String(pyq.session || ''),
     b: String(pyq.branch || ''),
     su: String(pyq.subject || ''),
-    y: extractYearFromTitle(pyq.title),
+    y: extractYearFromTitle(title),
     v: Number.isFinite(Number(pyq.views)) ? Math.floor(Number(pyq.views)) : 0,
     ts: extractSortTimestamp(pyq),
+    // `p` is compact public-visibility state for /pyq and /sitemap.xml only.
+    p: isPublicPyq(pyq),
+    sb: storedSlugBase(pyq.slug) || createSlug(title) || 'pyq',
   };
+}
+
+export function isPublicIndexItem(item) {
+  // SEO must fail closed for an older compact index that predates the explicit
+  // public bit. API browse/search still retain their existing records, but a
+  // pretty URL, sitemap entry, or server-related link is emitted only after a
+  // normal rebuild has positively classified the item as public.
+  return !!item && item.p === true;
+}
+
+function stableStringCompare(a, b) {
+  const left = String(a);
+  const right = String(b);
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function canonicalOwnerSort(a, b) {
+  const aTimestamp = Number(a.ts) > 0 ? Number(a.ts) : Number.MAX_SAFE_INTEGER;
+  const bTimestamp = Number(b.ts) > 0 ? Number(b.ts) : Number.MAX_SAFE_INTEGER;
+  return aTimestamp - bTimestamp || stableStringCompare(a.id, b.id);
+}
+
+function canonicalSlugBase(item) {
+  const title = String(item && item.t || '').trim();
+  if (!title) return '';
+  // Older compact indexes did not persist `sb`; reconstruct their base using
+  // the same safe non-Latin fallback that fresh admin/index writes use.
+  return String(item.sb || createSlug(title) || 'pyq').trim();
+}
+
+function hasValidAssignedCanonicalSlugs(index, items) {
+  if (!index || index.slugVersion !== SLUG_INDEX_VERSION) return false;
+
+  const assigned = new Set();
+  for (const item of items) {
+    if (!item || typeof item.sl !== 'string') return false;
+
+    const base = canonicalSlugBase(item);
+    const shouldHaveSlug = isPublicIndexItem(item)
+      && !!item.id
+      && !!base
+      && isSafePyqSlug(base);
+
+    if (!shouldHaveSlug) {
+      if (item.sl !== '') return false;
+      continue;
+    }
+
+    // `encodeSlugId()` is base64url and intentionally case-sensitive, so do
+    // not normalize `sl` here; just require a safe, globally unique segment.
+    if (!isSafePyqSlug(item.sl) || assigned.has(item.sl)) {
+      return false;
+    }
+    assigned.add(item.sl);
+  }
+  return true;
+}
+
+/**
+ * Assign a canonical `sl` to every public, titled index item.
+ *
+ * Duplicate title bases are never silently resolved to an arbitrary document:
+ * the oldest stable record keeps the readable base and every other record gets
+ * `--<base64url(document-id)>`. A rare collision between that suffix and a
+ * different readable title base receives a numeric discriminator before the
+ * same ID suffix. URLs remain deterministic and unambiguous. Non-public
+ * records do not occupy a public slug namespace.
+ *
+ * A pre-feature index without an explicit public bit fails closed for SEO and
+ * is refreshed through the normal background rebuild. New rebuilds persist
+ * `sl` in the normal index value.
+ */
+export function assignCanonicalSlugs(index) {
+  const items = (index && Array.isArray(index.items)) ? index.items : [];
+  // Trust a version marker only when every assignment is present, safe, and
+  // unique. This repairs partial/restored/corrupt KV values rather than
+  // allowing two public records to resolve from the same pretty URL.
+  if (hasValidAssignedCanonicalSlugs(index, items)) {
+    return index;
+  }
+
+  const groups = new Map();
+
+  for (const item of items) {
+    item.sl = '';
+    const base = canonicalSlugBase(item);
+    if (!isPublicIndexItem(item) || !item.id || !base || !isSafePyqSlug(base)) continue;
+
+    if (!groups.has(base)) groups.set(base, []);
+    groups.get(base).push(item);
+  }
+
+  // Reserve every readable base before allocating duplicate suffixes. Without
+  // this, a base such as `paper--w78` could (for a Unicode document ID) clash
+  // with another title group's `paper--<base64url-id>` suffix.
+  const allocated = new Set(groups.keys());
+  const sortedGroups = [...groups.entries()].sort(([a], [b]) => stableStringCompare(a, b));
+
+  for (const [base, group] of sortedGroups) {
+    group.sort(canonicalOwnerSort);
+    group.forEach((item, position) => {
+      if (position === 0) {
+        item.sl = base;
+        return;
+      }
+
+      const idSuffix = encodeSlugId(item.id);
+      let candidate = `${base}--${idSuffix}`;
+      let discriminator = 2;
+      // The normal duplicate URL is exactly `base--base64url(id)`. The rare
+      // cross-base namespace collision receives a deterministic numeric
+      // discriminator while retaining the reversible document-ID suffix.
+      while (allocated.has(candidate)) {
+        candidate = `${base}--${discriminator}--${idSuffix}`;
+        discriminator += 1;
+      }
+
+      if (isSafePyqSlug(candidate)) {
+        item.sl = candidate;
+        allocated.add(candidate);
+      }
+    });
+  }
+
+  if (index) index.slugVersion = SLUG_INDEX_VERSION;
+  return index;
+}
+
+export function getItemBySlug(index, slug) {
+  if (!isSafePyqSlug(slug)) return null;
+  assignCanonicalSlugs(index);
+  return ((index && index.items) || []).find((item) => (
+    isPublicIndexItem(item) && item.sl === slug
+  )) || null;
 }
 
 /**
@@ -84,6 +279,7 @@ export async function buildSearchIndex() {
     count: index.length,
     _cachedAt: Date.now(),
   };
+  assignCanonicalSlugs(cacheData);
   // Use a very long hard TTL — the index should be invalidated explicitly
   // by the admin, not by a short clock-driven refresh.
   await setKV(KV_KEYS.SEARCH_INDEX, cacheData, INDEX_HARD_TTL);
@@ -122,6 +318,22 @@ export async function getSearchIndex({ forceRebuild = false } = {}) {
   }
 
   const lastBuiltAt = cached._cachedAt || 0;
+
+  // Older index values predate compact public-state and canonical-slug fields.
+  // Continue serving their existing API browse/search data, but schedule the
+  // normal single-flight rebuild so SEO routes can fail closed meanwhile.
+  const needsSchemaRebuild = cached.slugVersion !== SLUG_INDEX_VERSION
+    || cached.items.some((item) => !item || typeof item.p !== 'boolean')
+    || !hasValidAssignedCanonicalSlugs(cached, cached.items);
+  if (needsSchemaRebuild) {
+    console.log('Search index stale: compact SEO schema upgrade required');
+    return {
+      index: cached,
+      fresh: false,
+      needsBackgroundRebuild: true,
+      reason: 'stale-schema',
+    };
+  }
 
   // Stale due to admin invalidation since last build
   if (invalidationTs > lastBuiltAt) {
@@ -260,9 +472,9 @@ function sortItems(items, sort) {
     case 'popular':
       return arr.sort((a, b) => (b.v || 0) - (a.v || 0) || (b.y || 0) - (a.y || 0));
     case 'az':
-      return arr.sort((a, b) => String(a.t || '').localeCompare(String(b.t || '')));
+      return arr.sort((a, b) => stableStringCompare(a.t || '', b.t || ''));
     case 'za':
-      return arr.sort((a, b) => String(b.t || '').localeCompare(String(a.t || '')));
+      return arr.sort((a, b) => stableStringCompare(b.t || '', a.t || ''));
     case 'oldest':
       return arr.sort((a, b) => (a.y || 0) - (b.y || 0));
     case 'newest':

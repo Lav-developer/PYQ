@@ -69,7 +69,7 @@
 
 | Before (Modal-only) | After (Resource Hub) |
 |---|---|
-| PYQs in a list, preview in modal, no SEO | **1 URL = 1 Paper** (`paper.html?id=xxx`) — Google indexes every paper, breadcrumb, JSON-LD |
+| PYQs in a list, preview in modal, no SEO | **1 crawlable URL = 1 public paper** (`/pyq/<slug>`) — server HTML, breadcrumb, JSON-LD; legacy `paper.html?id=xxx` still works |
 | Search loads all docs every keystroke → hits 50K quota | **Session + 15m cache** → 0 reads on refresh/search, 12 reads for homepage vs N |
 | Anon can scrape all PDFs | **Login gate** for Search / Filters / Load More / Preview — drives sign-ups, saves quota |
 | Uploads via temporary hosts | **gofile.io** + admin review queue, image→PDF auto-merge (≤10 MB) |
@@ -82,7 +82,7 @@
 ### For Students 🎒
 - 🔐 **Auth** — Email/Password + Google, email verification **enforced** (blocking overlay, no bypass)
 - 👤 **Profiles** — Name, course, phone, avatar
-- 📚 **Browse PYQs** — 20 free on load, **View Details** → `paper.html` (locked preview + inline same-site viewer for `archive.org`/`catbox.moe`, never jumps out)
+- 📚 **Browse PYQs** — 20 free on load, **View Details** → canonical `/pyq/<slug>` when available (legacy `paper.html?id=` fallback preserved; locked preview + inline same-site viewer for `archive.org`/`catbox.moe`, never jumps out)
 - 🔍 **Search & Filters** — Course / Semester / Session + Sort (Newest, Most Viewed, A-Z) — gated, 0 reads when cached
 - 📖 **Paper Detail Page** — Breadcrumb, pills (course/sem/session/branch/views), inline preview, **Server 1/2** same-site, **Report**, **Related** (6, cache-first), **Discussion** (comments)
 - 📤 **Upload** — Single PDF or multiple images → auto-merged PDF (jsPDF, 6 quality attempts) → `pendingUploads` (no sign-in required)
@@ -135,17 +135,17 @@
 ```
 .
 ├── index.html          # Homepage — search, filters, 20 free PYQs → View Details
-├── paper.html          # Paper Detail — breadcrumb, preview, related, comments (id=gated)
+├── paper.html          # Shared interactive paper shell; Worker fills it for /pyq/<slug>, legacy ?id= remains
 ├── paper.js            # Paper logic — cache-first related, verification block, same-site preview
 ├── script.js           # Main — auth, cache (session+15m), gated search, upload, tools, feedback
 ├── points.js           # Shared contribution-points helpers (email normalize + reward account key)
 ├── duplicate-check.js  # Shared duplicate-matching helpers (title-led, admin assistance only)
 ├── admin.html          # Admin — lazy sections, Feedback inbox, local search
-├── admin.js            # Admin — CRUD, lazy, CSV, Feedback, id-based delete fix
+├── admin.js            # Admin — CRUD, persistent PYQ slug bases, Firebase-token cache invalidation
 ├── styles.css          # Dark glass theme, design tokens, responsive
 ├── sw.js               # Service Worker v5 — caches /, /index.html, /paper.html, /styles.css, /script.js, /paper.js
 ├── manifest.json       # PWA manifest (standalone, theme #0f172a)
-├── sitemap.xml         # Includes /, /index.html, /paper.html, /contributors.html, /tools.html, /links.html
+├── sitemap.xml         # Legacy static fallback; Netlify force-rewrites canonical requests to Worker-generated XML
 ├── firestore.rules     # NEW — isVerified() + isAdminByEmail() + pendingUploads/comments/feedback rules
 ├── cors.json           # CORS for local + Netlify
 ├── courses.json        # Course catalog for filters
@@ -156,8 +156,9 @@
 ├── ARCHITECTURE.md     # New Worker architecture, API docs, migration/rollback
 ├── worker/             # Cloudflare Worker API (free tier)
 │   ├── wrangler.toml   # Worker config (KV binding, vars)
-│   ├── src/            # index.js (routes), firestore.js, cache.js, search.js,
-│   │                   # auth.js, rateLimit.js, validation.js, cors.js
+│   ├── src/            # index.js (routes), seo.js (public SSR), slug.js,
+│   │                   # firestore.js, cache.js, search.js, auth.js, rateLimit.js,
+│   │                   # validation.js, cors.js
 │   └── test/           # worker.test.js + frontend smoke tests + read simulation
 └── img/Logo.png
 ```
@@ -208,7 +209,7 @@ Run the Worker test suite:
 ```bash
 cd worker
 npm install
-node test/worker.test.js        # 69 assertions, mocked Firestore
+node test/worker.test.js        # 132 assertions, mocked Firestore
 ```
 
 Frontend smoke tests (need `jsdom`):
@@ -423,7 +424,7 @@ The candidate list is read from **Firestore, the source of truth** — it reuses
 
 **Feedback:** filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved` + `Refresh`.
 
-**Settings:** signed-in identity, Worker cache invalidation (`API_INVALIDATE_KEY`) and `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore. The floating `file-csv` shortcut still works too.
+**Settings:** signed-in identity, Worker cache invalidation using the signed-in Firebase admin token, and `database-backup.csv` — **all collections** (`pyqs`, `contributors`, `users`, `pendingUploads`, `feedback`, `comments`) with every field, fresh from Firestore. The floating `file-csv` shortcut still works too.
 
 ---
 
@@ -443,9 +444,9 @@ Glassmorphism dark theme (`styles.css` tokens: `--color-primary` teal, `--color-
 
 ## 🔍 SEO & Performance
 
-- **1 URL = 1 Paper** (`paper.html?id=xxx`) with `canonical`, `og:title/description/url/image`, `twitter:card`, `JSON-LD Article` (headline, publisher)
-- `sitemap.xml` (auto includes `/paper.html`) + `robots.txt` (Allow `/`, Disallow `/admin.html`)
-- `paper.js` sets title/meta on load for crawler preview
+- **Server-rendered public URL per paper** (`/pyq/<slug>`) with unique `title`/description, index/follow, canonical, Open Graph, Twitter, public H1, breadcrumbs, related links, and `LearningResource` + breadcrumb JSON-LD
+- Dynamic `sitemap.xml` from the public KV search index, plus `robots.txt` (allows `/pyq/`, disallows the admin/API surfaces)
+- Legacy `paper.html?id=xxx` links remain functional and hydrate a pretty canonical URL when the warm public index supplies it; crawler hydration on `/pyq/` does not trigger automatic direct-Firestore view/comment work
 - Lighthouse: inline skeletons, `content-visibility` ready, `loading="lazy"` on iframes
 
 ---
@@ -465,15 +466,17 @@ contributors, courses, homepage) with Firestore only touched on cache miss.
   refreshed by **admin invalidation** (`POST /api/invalidate`) — a 7-day
   hard-TTL acts only as a safety fallback. There is **no aggressive
   short-cycle rebuild**.
-- **Paper detail:** KV-cached per item (1 h); **1 read** only on first-ever
-  view of a paper, then 0 for everyone else
+- **Paper detail:** KV-cached per item (1 h); **1 read** only on a genuine
+  first-item miss, then 0 for everyone else. After an admin invalidation, an
+  older item entry is intentionally revalidated once before reuse so a newly
+  private paper cannot be served from a pre-change cache.
 - **Contributors:** KV-cached (1 h); 1 read per hour
 - **Homepage (recent/trending/course counts/stats):** KV-cached (5 min)
-- **Admin invalidation:** `POST /api/invalidate` (header `X-Api-Key`)
-  bumps the invalidation timestamp; the next request serves the stale
-  index while a single-flight background rebuild (`ctx.waitUntil`) runs
-  via the Worker. If the key is not set, admin changes propagate at the
-  next read after the cache hard-TTL (safe fallback).
+- **Admin invalidation:** `POST /api/invalidate` carries the signed-in
+  Firebase ID token. The Worker verifies its signature, Firebase issuer/audience,
+  and `admin: true` custom claim; there is no browser-visible static key. The next
+  request serves the stale index while a single-flight background rebuild
+  (`ctx.waitUntil`) runs via the Worker.
 - **View increments / comments / feedback / uploads / auth:** still direct
   Firestore (user-scoped writes or ≤30-doc scoped reads — not full collections)
 

@@ -9,11 +9,12 @@
  *   Review Queue showed      : 2025-26 / 2nd Sem / Big Data / Web Technology /
  *                              Python Programming — but NOT the exact record.
  *
- * The Worker's /api/pyqs list is served from a KV search index that is only
- * rebuilt on admin invalidation (API_INVALIDATE_KEY is still the placeholder,
- * so invalidation is skipped) or after the 7-day hard TTL. A recently
- * published PYQ is therefore missing from the API response, and because the
- * API answers 200 OK the old code never fell back to Firestore.
+ * The Worker's /api/pyqs list is served from a KV search index that is
+ * refreshed asynchronously after Firebase-token admin invalidation (or by the
+ * 7-day hard TTL safety fallback). A newly published PYQ can therefore be
+ * absent during the intentional stale-while-revalidate window, and because the
+ * API answers 200 OK the duplicate matcher must still be able to fall back to
+ * Firestore.
  *
  * Run: cd worker && node test/duplicate-index-freshness-test.cjs
  */

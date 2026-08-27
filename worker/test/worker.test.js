@@ -13,6 +13,16 @@
  * Run: node test/worker.test.js  (from the worker/ directory)
  */
 
+import { readFileSync } from 'node:fs';
+import { SignJWT, exportJWK } from 'jose';
+
+const PAPER_TEMPLATE = readFileSync(new URL('../../paper.html', import.meta.url), 'utf8');
+const NETLIFY_CONFIG = readFileSync(new URL('../../netlify.toml', import.meta.url), 'utf8');
+const ROBOTS = readFileSync(new URL('../../robots.txt', import.meta.url), 'utf8');
+let paperTemplateFetches = 0;
+let pdfFetches = 0;
+let firebaseTestJwk = null;
+
 // ── Mock KV (supports TTL, expiry, reset) ──────────────────────────
 
 class MockKV {
@@ -217,6 +227,26 @@ async function mockFetch(input, init) {
   const url = typeof input === 'string' ? input : input.url;
   const method = (init && init.method) || 'GET';
 
+  // The SEO renderer retrieves the one static shell once per Worker isolate.
+  if (url === 'https://dsmnru-pyq.netlify.app/paper.html') {
+    paperTemplateFetches += 1;
+    return new Response(PAPER_TEMPLATE, { status: 200, headers: { 'Content-Type': 'text/html' } });
+  }
+
+  // SEO rendering uses only index/document metadata, never the PDF itself.
+  if (/https?:\/\/(?:[^/]+\.)?(?:archive\.org|catbox\.moe)\//i.test(url)) {
+    pdfFetches += 1;
+    return new Response('Unexpected PDF fetch', { status: 500 });
+  }
+
+  // Firebase Admin-token verification uses Google's public Firebase JWKS.
+  if (url.startsWith('https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com')) {
+    return new Response(JSON.stringify({ keys: firebaseTestJwk ? [firebaseTestJwk] : [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   if (url === 'https://oauth2.googleapis.com/token') {
     return new Response(
       JSON.stringify({ access_token: 'mock-token', expires_in: 3600 }),
@@ -321,6 +351,19 @@ const pkcs8 = await crypto.subtle.exportKey('pkcs8', testKeyPair.privateKey);
 const pemBody = base64OfBuffer(pkcs8).match(/.{1,64}/g).join('\n');
 const privateKeyPem = `-----BEGIN PRIVATE KEY-----\n${pemBody}\n-----END PRIVATE KEY-----\n`;
 
+firebaseTestJwk = await exportJWK(testKeyPair.publicKey);
+firebaseTestJwk.kid = 'test-firebase-key';
+firebaseTestJwk.alg = 'RS256';
+firebaseTestJwk.use = 'sig';
+const firebaseAdminToken = await new SignJWT({ admin: true })
+  .setProtectedHeader({ alg: 'RS256', kid: firebaseTestJwk.kid })
+  .setIssuer('https://securetoken.google.com/dsmnru-data')
+  .setAudience('dsmnru-data')
+  .setSubject('test-admin')
+  .setIssuedAt()
+  .setExpirationTime('1h')
+  .sign(testKeyPair.privateKey);
+
 const env = {
   PYQ_CACHE: mockKV,
   FIREBASE_PROJECT_ID: 'dsmnru-data',
@@ -333,7 +376,6 @@ const env = {
     client_id: '123',
   }),
   ALLOWED_ORIGINS: 'http://localhost:8000,https://dsmnru-pyq.netlify.app',
-  ADMIN_API_KEY: 'test-admin-key',
 };
 
 const worker = (await import('../src/index.js')).default;
@@ -347,7 +389,7 @@ async function request(path, opts = {}) {
   const url = 'https://test.example.com' + path;
   const init = { method: opts.method || 'GET', headers: opts.headers || {} };
   if (opts.origin) init.headers['Origin'] = opts.origin;
-  return worker.fetch(new Request(url, init), env, {});
+  return worker.fetch(new Request(url, init), env, opts.ctx || {});
 }
 
 function check(name, condition, detail = '') {
@@ -375,6 +417,7 @@ function freshState() {
   mockCaches.default.store.clear();
   firestoreStats.pyqs = 0;
   firestoreStats.contributors = 0;
+  pdfFetches = 0;
   firestoreStats.byCollection.clear();
 }
 
@@ -399,6 +442,8 @@ console.log('2. List + pagination');
   check('20 items on page 1', data && data.items.length === 20);
   check('total is 311', data && data.total === 311);
   check('totalPages is 16', data && data.totalPages === 16);
+  check('list adds a safe canonical slug without removing existing fields',
+    data && data.items.every((item) => typeof item.slug === 'string' && /^[a-z0-9][a-z0-9_-]*$/i.test(item.slug)));
 
   const res2 = await request('/api/pyqs?page=2&limit=20');
   const data2 = await expectJson(res2, 200, 'GET /api/pyqs?page=2&limit=20');
@@ -486,6 +531,8 @@ console.log('6. Single PYQ');
   check('returns the paper', data && data.id === 'pyq_42');
   check('includes archive.org URL', data && !!data.file && data.file.includes('archive.org'));
   check('includes catbox URL', data && !!data.file2 && data.file2.includes('catbox.moe'));
+  check('single-document API adds seoSlug compatibly when index is warm',
+    data && typeof data.seoSlug === 'string' && /^[a-z0-9][a-z0-9_-]*$/i.test(data.seoSlug));
 
   const res2 = await request('/api/pyqs/does_not_exist');
   await expectJson(res2, 404, 'GET /api/pyqs/does_not_exist (404)');
@@ -535,6 +582,16 @@ console.log('9. CORS');
   const res2 = await request('/api/pyqs?limit=5', { origin: 'https://evil.example.com' });
   check('CORS header present for other origins',
     !!res2.headers.get('Access-Control-Allow-Origin'));
+
+  const preflight = await request('/api/invalidate', {
+    method: 'OPTIONS',
+    origin: 'https://dsmnru-pyq.netlify.app',
+    headers: { 'Access-Control-Request-Method': 'POST', 'Access-Control-Request-Headers': 'authorization' },
+  });
+  check('Firebase-token invalidation CORS preflight permits POST + Authorization',
+    preflight.status === 204
+      && /POST/.test(preflight.headers.get('Access-Control-Allow-Methods') || '')
+      && /Authorization/i.test(preflight.headers.get('Access-Control-Allow-Headers') || ''));
 }
 
 // 10. Invalid requests + rate limiting
@@ -676,16 +733,16 @@ console.log('15. Admin invalidation (stale-while-revalidate)');
   // SEARCH_INDEX. Next request must serve stale + trigger background rebuild.
   const invRes = await request('/api/invalidate', {
     method: 'POST',
-    headers: { 'X-Api-Key': 'test-admin-key' },
+    headers: { Authorization: `Bearer ${firebaseAdminToken}` },
   });
   await expectJson(invRes, 200, 'POST /api/invalidate');
   const readsAfterInvalidate = firestoreStats.pyqs;
 
-  await request('/api/invalidate', {
+  const deniedRes = await request('/api/invalidate', {
     method: 'POST',
-    headers: { 'X-Api-Key': 'wrong-key' },
+    headers: { Authorization: 'Bearer not-a-valid-firebase-id-token' },
   });
-  check('invalid key → 401', true);
+  check('invalid Firebase token → 401', deniedRes.status === 401, `got ${deniedRes.status}`);
 
   // Next read after invalidation
   const staleRes = await request('/api/pyqs/search?q=B.Tech');
@@ -715,8 +772,272 @@ console.log('15. Admin invalidation (stale-while-revalidate)');
     `reads now ${firestoreStats.pyqs}`);
 }
 
-// 16. No duplicate reads per request (homepage cold)
-console.log('16. Homepage cold path — single collection read per request');
+// 16. Public server-rendered SEO pages and sitemap
+console.log('16. Public SEO pages + sitemap (KV-first)');
+{
+  const originalPyqs = PYQS;
+  const title = 'B.Tech 4th Sem Algorithms {2023-24}';
+  const owner = {
+    ...makePyq(1),
+    id: 'slug_owner',
+    title,
+    course: 'B.Tech',
+    semester: '4th',
+    session: '2023-24',
+    subject: 'Algorithms',
+    branch: 'CSE',
+    views: 44,
+    createdAt: '2023-01-01T00:00:00Z',
+    internalNotes: 'private owner note must never be rendered',
+  };
+  const duplicate = {
+    ...makePyq(2),
+    id: 'slug_duplicate',
+    title,
+    course: 'B.Tech',
+    semester: '4th',
+    session: '2023-24',
+    subject: 'Algorithms',
+    branch: 'CSE',
+    views: 20,
+    createdAt: '2024-01-01T00:00:00Z',
+  };
+  const titleEdited = {
+    ...makePyq(3),
+    id: 'title_edited',
+    title: 'B.Tech Algorithms renamed after publication',
+    // This is the persistent base written by the admin create/edit flow.
+    slug: 'b-tech-algorithms-original-publication',
+    course: 'B.Tech',
+    semester: '4th',
+    session: '2022-23',
+    subject: 'Algorithms',
+    createdAt: '2022-01-01T00:00:00Z',
+  };
+  const privatePaper = {
+    ...makePyq(4),
+    id: 'private_seo_paper',
+    title: 'Private SEO Paper',
+    published: false,
+    privateNotes: 'this must not appear in public HTML',
+    createdAt: '2025-01-01T00:00:00Z',
+  };
+
+  const { isPublicPyq, isPublicIndexItem } = await import('../src/search.js');
+  const contradictoryPrivateStates = [
+    // Each field is independently authoritative: a public state must not
+    // mask a private state that happens to live in a legacy sibling field.
+    { published: true, status: 'published', visibility: 'public', access: 'private' },
+    { published: true, status: 'published', visibility: 'public', accessLevel: 'members-only' },
+    { published: true, status: 'published', visibility: 'public', accessLevel: 0 },
+  ];
+  check('contradictory access, visibility, and accessLevel fields each keep a PYQ out of public SEO',
+    contradictoryPrivateStates.every((paper) => !isPublicPyq(paper)));
+  check('an all-public access-state combination remains eligible for public SEO',
+    isPublicPyq({ published: true, status: 'published', visibility: 'public', access: 'public', accessLevel: 'public' }));
+  check('an old compact index without an explicit public bit fails closed for SEO until rebuilt',
+    !isPublicIndexItem({ id: 'old-index-item', t: 'Old compact item', sl: 'old-compact-item' }));
+
+  PYQS = [owner, duplicate, titleEdited, privatePaper];
+  freshState();
+  const templateFetchesBefore = paperTemplateFetches;
+
+  const listResponse = await request('/api/pyqs?limit=20');
+  const listData = await expectJson(listResponse, 200, 'list with SEO slugs');
+  const byId = Object.fromEntries((listData && listData.items || []).map((item) => [item.id, item]));
+  const duplicateSuffix = Buffer.from(duplicate.id).toString('base64url');
+  const ownerSlug = 'b-tech-4th-sem-algorithms-2023-24';
+  const duplicateSlug = `${ownerSlug}--${duplicateSuffix}`;
+
+  check('oldest duplicate title owns readable slug', byId[owner.id] && byId[owner.id].slug === ownerSlug, byId[owner.id] && byId[owner.id].slug);
+  check('later duplicate gets a deterministic ID suffix', byId[duplicate.id] && byId[duplicate.id].slug === duplicateSlug, byId[duplicate.id] && byId[duplicate.id].slug);
+  check('title edit retains the admin-persisted slug base',
+    byId[titleEdited.id] && byId[titleEdited.id].slug === titleEdited.slug,
+    byId[titleEdited.id] && byId[titleEdited.id].slug);
+  check('explicitly private record has no public pretty slug', byId[privatePaper.id] && byId[privatePaper.id].slug === '');
+
+  // A base generated from another title can theoretically look like a
+  // base64url suffix (for example a Unicode Firestore ID). Reserve title
+  // bases first so this does not make two different public documents share a
+  // URL.
+  const { assignCanonicalSlugs: assignTestSlugs } = await import('../src/search.js');
+  const namespaceCollisionIndex = {
+    items: [
+      { id: 'owner', t: 'foo', sb: 'foo', p: true, ts: 1 },
+      { id: 'ÿ', t: 'foo', sb: 'foo', p: true, ts: 2 },
+      { id: 'standalone', t: 'foo--w78', sb: 'foo--w78', p: true, ts: 3 },
+    ],
+  };
+  assignTestSlugs(namespaceCollisionIndex);
+  const namespaceSlugs = namespaceCollisionIndex.items.map((item) => item.sl);
+  check('suffix-like title bases cannot collide with duplicate-title URLs',
+    new Set(namespaceSlugs).size === namespaceSlugs.length
+      && namespaceSlugs.includes('foo--w78')
+      && namespaceSlugs.includes('foo--2--w78'), namespaceSlugs.join(', '));
+
+  const malformedVersionedIndex = {
+    slugVersion: 2,
+    items: [
+      { id: 'first', t: 'same', sb: 'same', p: true, ts: 1, sl: 'same' },
+      { id: 'second', t: 'same', sb: 'same', p: true, ts: 2, sl: 'same' },
+    ],
+  };
+  assignTestSlugs(malformedVersionedIndex);
+  check('a duplicate/corrupt versioned compact index is repaired before its slugs are trusted',
+    malformedVersionedIndex.items[0].sl === 'same'
+      && malformedVersionedIndex.items[1].sl === 'same--c2Vjb25k');
+
+  const legacyNonLatinIndex = { items: [{ id: 'legacy-unicode', t: '日本語', p: true, ts: 1 }] };
+  assignTestSlugs(legacyNonLatinIndex);
+  check('an older no-base compact index safely upgrades a wholly non-Latin title to the pyq fallback',
+    legacyNonLatinIndex.items[0].sl === 'pyq');
+
+  const readsAfterIndex = firestoreStats.pyqs;
+  const firstPage = await request(`/pyq/${ownerSlug}`);
+  const firstHtml = await firstPage.text();
+  check('GET /pyq/<canonical-slug> returns HTML',
+    firstPage.status === 200 && firstPage.headers.get('Content-Type').includes('text/html'), `status ${firstPage.status}`);
+  check('SEO page is indexable and uses an index/follow response header',
+    firstHtml.includes('id="paperRobots" content="index, follow"')
+      && firstPage.headers.get('X-Robots-Tag') === 'index, follow');
+  check('SEO HTML has unique title, description, canonical, OG and Twitter metadata',
+    firstHtml.includes(`>${title} | DSMNRU PYQ Archive</title>`)
+      && firstHtml.includes('id="paperMetaDescription"')
+      && firstHtml.includes(`https://dsmnru-pyq.netlify.app/pyq/${ownerSlug}`)
+      && firstHtml.includes('id="ogTitle"')
+      && firstHtml.includes('id="twitterTitle"')
+      && firstHtml.includes('id="twitterUrl"'));
+  check('SEO HTML contains a visible public H1, breadcrumbs and course metadata',
+    firstHtml.includes(`id="seoPaperTitle">${title}</h1>`)
+      && firstHtml.includes('Home</a>')
+      && firstHtml.includes('Algorithms')
+      && firstHtml.includes('CSE'));
+  check('SEO HTML emits LearningResource and breadcrumb JSON-LD',
+    firstHtml.includes('"@type":"LearningResource"') && firstHtml.includes('"BreadcrumbList"'));
+  check('SEO HTML includes public related pretty links only',
+    firstHtml.includes(`/pyq/${duplicateSlug}`) && firstHtml.includes('id="seoRelatedSection"'));
+  check('SEO renderer never puts PDF URLs or private document fields in initial HTML',
+    !firstHtml.includes(owner.file) && !firstHtml.includes(owner.file2)
+      && !firstHtml.includes(owner.internalNotes) && !firstHtml.includes(privatePaper.privateNotes));
+  check('SEO rendering never fetches a PDF merely to build page metadata', pdfFetches === 0);
+  check('first pretty-page item-cache miss makes only one document Firestore read after a warm index',
+    firestoreStats.pyqs === readsAfterIndex + 1,
+    `reads ${firestoreStats.pyqs}, expected ${readsAfterIndex + 1}`);
+  check('first pretty page fetches the shared static template once',
+    paperTemplateFetches === templateFetchesBefore + 1,
+    `template fetches ${paperTemplateFetches}`);
+
+  const readsAfterFirstPage = firestoreStats.pyqs;
+  const secondPage = await request(`/pyq/${ownerSlug}`);
+  await secondPage.text();
+  check('warm pretty page resolves index + item entirely from KV', firestoreStats.pyqs === readsAfterFirstPage);
+  check('warm pretty page reuses isolate-cached template', paperTemplateFetches === templateFetchesBefore + 1);
+
+  const duplicatePage = await request(`/pyq/${duplicateSlug}`);
+  const duplicateHtml = await duplicatePage.text();
+  check('an exact duplicate title receives distinct title, description, and social metadata',
+    duplicatePage.status === 200
+      && duplicateHtml.includes(`Archive copy 2: ${title} | DSMNRU PYQ Archive</title>`)
+      && duplicateHtml.includes('Archive copy 2')
+      && duplicateHtml.includes('id="ogTitle"')
+      && duplicateHtml.includes('content="Archive copy 2: B.Tech 4th Sem Algorithms {2023-24}"'));
+
+  // If a record becomes private while a stale index is awaiting its normal
+  // rebuild, a genuine item-cache miss must still refuse the fresh document.
+  titleEdited.published = false;
+  const freshPrivateDocumentPage = await request(`/pyq/${titleEdited.slug}`);
+  check('freshly read document with explicit private state is never SSR-rendered from a stale index',
+    freshPrivateDocumentPage.status === 404);
+  delete titleEdited.published;
+
+  const readsBeforeInvalidUrls = firestoreStats.pyqs;
+  const missingPage = await request('/pyq/not-a-real-paper');
+  const missingHtml = await missingPage.text();
+  check('unknown pretty URL is a noindex 404 without an item Firestore lookup',
+    missingPage.status === 404 && missingHtml.includes('noindex, follow')
+      && firestoreStats.pyqs === readsBeforeInvalidUrls);
+  const malformedPage = await request('/pyq/bad%2Fslug');
+  check('slash-encoded pretty URL is rejected safely', malformedPage.status === 404);
+  const privatePage = await request('/pyq/private-seo-paper');
+  check('explicitly private paper cannot be resolved through the public route', privatePage.status === 404);
+
+  const sitemapResponse = await request('/sitemap.xml');
+  const sitemap = await sitemapResponse.text();
+  check('dynamic sitemap returns XML', sitemapResponse.status === 200 && sitemapResponse.headers.get('Content-Type').includes('application/xml'));
+  check('dynamic sitemap contains canonical public URLs and excludes private records',
+    sitemap.includes(`<loc>https://dsmnru-pyq.netlify.app/pyq/${ownerSlug}</loc>`)
+      && sitemap.includes(`<loc>https://dsmnru-pyq.netlify.app/pyq/${duplicateSlug}</loc>`)
+      && !sitemap.includes('private-seo-paper'));
+  check('sitemap needs no item-document Firestore reads with a warm index', firestoreStats.pyqs === readsBeforeInvalidUrls);
+  check('Netlify force-rewrites pretty pages and the physical sitemap to the Worker',
+    /from = "\/pyq\/\*"[\s\S]*?status = 200[\s\S]*?force = true/.test(NETLIFY_CONFIG)
+      && /from = "\/sitemap\.xml"[\s\S]*?status = 200[\s\S]*?force = true/.test(NETLIFY_CONFIG));
+  check('robots permits crawlable pretty URLs and names the dynamic canonical sitemap',
+    /Allow: \/[\s\S]*?Sitemap: https:\/\/dsmnru-pyq\.netlify\.app\/sitemap\.xml/.test(ROBOTS));
+
+  // A globally invalidated warm item cache is a logical KV miss. This closes
+  // the stale-index window for a paper that was just made private: the Worker
+  // rechecks the one document instead of SSR-rendering the pre-change cache.
+  owner.visibility = 'private';
+  const privacyInvalidation = await request('/api/invalidate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${firebaseAdminToken}` },
+  });
+  const readsBeforePrivateCacheCheck = firestoreStats.pyqs;
+  // No waitUntil harness here: isolate the one forced item revalidation from
+  // the collection read that production schedules in the background.
+  const staleCachedPrivatePage = await request(`/pyq/${ownerSlug}`);
+  check('a warm pre-invalidation item cache cannot SSR-render a newly private paper',
+    staleCachedPrivatePage.status === 404
+      && firestoreStats.pyqs === readsBeforePrivateCacheCheck + 1,
+    `status ${staleCachedPrivatePage.status}, reads ${firestoreStats.pyqs}`);
+  const privateDetailResponse = await request(`/api/pyqs/${owner.id}`);
+  const privateDetail = await privateDetailResponse.json();
+  check('a stale public compact index never adds seoSlug to a fresh private detail response',
+    privateDetailResponse.status === 200 && !privateDetail.seoSlug);
+
+  // A publication is invisible only for the brief stale-index window. The
+  // normal Firebase-token invalidation schedules a single background rebuild;
+  // the next request sees the new public URL without a crawler-side write.
+  const newPaper = {
+    ...makePyq(5),
+    id: 'new_publication',
+    title: 'Newly Published SEO Paper',
+    course: 'B.Tech',
+    semester: '5th',
+    session: '2025-26',
+    subject: 'Networks',
+    createdAt: '2025-02-01T00:00:00Z',
+  };
+  PYQS.push(newPaper);
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  const invalidateResponse = await request('/api/invalidate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${firebaseAdminToken}` },
+  });
+  check('Firebase admin token keeps cache invalidation available', invalidateResponse.status === 200);
+
+  const background = [];
+  const beforeStalePage = firestoreStats.pyqs;
+  const staleNewPage = await request('/pyq/newly-published-seo-paper', {
+    ctx: { waitUntil(promise) { background.push(Promise.resolve(promise)); } },
+  });
+  check('new URL is not guessed from a stale index before its scheduled rebuild', staleNewPage.status === 404);
+  // Background execution is deliberately not awaited by the HTTP response.
+  await Promise.all(background);
+  check('stale pretty-page request schedules the normal index rebuild', firestoreStats.pyqs > beforeStalePage);
+
+  const publishedPage = await request('/pyq/newly-published-seo-paper');
+  const publishedHtml = await publishedPage.text();
+  check('newly published public paper resolves after invalidation rebuild',
+    publishedPage.status === 200 && publishedHtml.includes('Newly Published SEO Paper'));
+
+  PYQS = originalPyqs;
+  freshState();
+}
+
+// 17. No duplicate reads per request (homepage cold)
+console.log('17. Homepage cold path — single collection read per request');
 {
   freshState();
   const reads = { pyqs: 0, contributors: 0 };
@@ -734,8 +1055,8 @@ console.log('16. Homepage cold path — single collection read per request');
     `pyqs reads ${pyqsReads}`);
 }
 
-// 17. Tiebreaker correctness with duplicate orderBy values
-console.log('17. Tiebreaker correctness (duplicate primary keys)');
+// 18. Tiebreaker correctness with duplicate orderBy values
+console.log('18. Tiebreaker correctness (duplicate primary keys)');
 {
   freshState();
   // Rebuild dataset where many docs share the same `views` value
@@ -828,8 +1149,8 @@ for (const n of [311, 1000, 5000, 10000]) {
   scaleResults.push(await runScaleTest(n));
 }
 
-// 18. Cross-scale aggregate: assert cold build reads ≥ N/page_size, warm == 0
-console.log('\n18. Cross-scale Firestore read assertion');
+// 19. Cross-scale aggregate: assert cold build reads ≥ N/page_size, warm == 0
+console.log('\n19. Cross-scale Firestore read assertion');
 let aggregatePass = true;
 for (const r of scaleResults) {
   const expectedPages = Math.ceil(r.target / 300);

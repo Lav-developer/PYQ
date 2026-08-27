@@ -50,6 +50,7 @@ for (let i = 0; i < 311; i++) {
     subject: i % 11 === 0 ? 'Java' : `Subject ${i % 10}`,
     year: 2024,
     views: i,
+    slug: `b-tech-3rd-sem-subject-${i}-2024-25--pyq-${i}`,
   });
 }
 const mockContributors = [{ id: 'c1', name: 'Aarav Sharma', avatar: 'AS', role: 'PYQs Provider' }];
@@ -270,6 +271,11 @@ function renderedTitles() {
 
   const pyqItems = window.document.querySelectorAll('#pyqList .pyq-item');
   check('PYQ list rendered', pyqItems.length > 0, `found ${pyqItems.length}`);
+  check('list cards use additive canonical /pyq/<slug> links when supplied by the API',
+    Array.from(window.document.querySelectorAll('#pyqList .pyq-title a, #pyqList .btn-preview'))
+      .some((link) => /^\/pyq\/[a-z0-9_-]+$/i.test(link.getAttribute('href') || '')));
+  check('detail link helper retains legacy paper.html?id fallback for an old index item',
+    window.eval("getPyqDetailsUrl({ id: 'legacy_item', slug: '' })") === '/paper.html?id=legacy_item');
   check('initial load has no leftover skeleton', !skeletonVisible());
 
   const signedInUser = {

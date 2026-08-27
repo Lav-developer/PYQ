@@ -182,6 +182,16 @@ async function fetchPyqById(id) {
     return apiGet('/pyqs/' + encodeURIComponent(id));
 }
 
+// List/search responses include a collision-safe canonical slug. Keep the
+// legacy detail URL as a fallback while an old Worker index is being upgraded.
+function getPyqDetailsUrl(pyq) {
+    const slug = pyq && typeof pyq.slug === 'string' ? pyq.slug.trim() : '';
+    if (/^[a-z0-9][a-z0-9_-]*$/i.test(slug)) {
+        return '/pyq/' + encodeURIComponent(slug);
+    }
+    return '/paper.html?id=' + encodeURIComponent((pyq && pyq.id) || '');
+}
+
 // Contributors list (KV-cached, long TTL)
 async function fetchContributors() {
     return apiGet('/contributors');
@@ -244,7 +254,7 @@ let coursesList = [];
 
 // Fetch courses.json and populate course filters on the homepage
 function fetchCoursesJson() {
-    fetch('courses.json')
+    fetch('/courses.json')
         .then(res => {
             if (!res.ok) throw new Error('Unable to load courses.json');
             return res.json();
@@ -2219,7 +2229,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     async function fetchCourseCatalog() {
         try {
-            const response = await fetch('courses.json', { cache: 'no-store' });
+            const response = await fetch('/courses.json', { cache: 'no-store' });
             if (!response.ok) {
                 throw new Error('Unable to load course catalog');
             }
@@ -2266,7 +2276,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     </div>
                     <div class="mini-pyq-actions">
                         <span class="mini-pyq-views"><i class="fas fa-eye"></i> ${views}</span>
-                        <a href="paper.html?id=${encodeURIComponent(item.id)}" class="btn btn-sm btn-outline-info"><i class="fas fa-eye me-1"></i> View Details</a>
+                        <a href="${getPyqDetailsUrl(item)}" class="btn btn-sm btn-outline-info"><i class="fas fa-eye me-1"></i> View Details</a>
                     </div>
                 </article>
             `;
@@ -2440,14 +2450,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         <i class="fas fa-file-pdf"></i>
                     </div>
                     <div class="pyq-details">
-                        <h3 class="pyq-title"><a href="paper.html?id=${encodeURIComponent(pyq.id)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h3>
+                        <h3 class="pyq-title"><a href="${getPyqDetailsUrl(pyq)}" style="color:inherit; text-decoration:none;">${escapeHtml(pyq.title)}</a></h3>
                         <div class="syllabus-meta" style="margin-bottom:8px;">${pills.join('')}</div>
                         <div class="pyq-meta" style="margin-bottom:10px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; font-size:13px; color: var(--color-text-secondary);">
                             <span><i class="fas fa-eye"></i> ${viewCount} views</span>
                             ${pyq.branch ? `<span><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>` : ''}
                         </div>
                         <div class="pyq-actions">
-                            <a href="paper.html?id=${encodeURIComponent(pyq.id)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
+                            <a href="${getPyqDetailsUrl(pyq)}" class="btn btn-action btn-preview"><i class="fas fa-eye"></i> View Details</a>
                         </div>
                     </div>
                 </div>

@@ -10,7 +10,9 @@
  *   GET /api/courses         — Course catalog
  *   GET /api/homepage        — Homepage summary (recent, trending, course counts)
  *   GET /api/stats           — Aggregated stats
- *   POST /api/invalidate     — Invalidate cache (admin only, API key protected)
+ *   POST /api/invalidate     — Invalidate cache (Firebase admin-token only)
+ *   GET /pyq/:slug           — Server-rendered, crawlable public PYQ page
+ *   GET /sitemap.xml         — Dynamic sitemap from the KV search index
  *
  * Cache refresh strategy:
  *  - Each handler that needs the search index calls `ensureFreshIndex(ctx)`.
@@ -29,14 +31,15 @@
 
 import { getDocument, getAllDocuments } from './firestore.js';
 import {
-  KV_KEYS, getFromKV, setKV,
+  KV_KEYS, getFromKV, setKV, getInvalidationTimestamp,
   invalidateAll,
   VERY_LONG_KV_TTL,
 } from './cache.js';
 import {
   getSearchIndex, searchIndex,
   getRecentItems, getTrendingItems, getCourseCounts,
-  runBackgroundRebuild,
+  getItemById, getItemBySlug, assignCanonicalSlugs, isPublicIndexItem,
+  isPublicPyq, runBackgroundRebuild,
 } from './search.js';
 import { checkRateLimit, getClientIP, normalizeEndpoint } from './rateLimit.js';
 import {
@@ -44,10 +47,62 @@ import {
   validateFilters, isValidDocId,
 } from './validation.js';
 import { handleOptions, withCors } from './cors.js';
+import { isSafePyqSlug } from './slug.js';
+import {
+  PUBLIC_SITE_ORIGIN,
+  createSeoPaper,
+  getRelatedIndexItems,
+  renderSeoPaperHtml,
+  renderPyqNotFoundPage,
+  renderPyqUnavailablePage,
+  renderSitemapXml,
+} from './seo.js';
 import { jwtVerify, createRemoteJWKSet } from 'jose';
 // ─── Firebase ID Token Verification ───────────────────────────────
 
 const FIREBASE_PROJECT_ID = 'dsmnru-data';
+
+// The interactive shell remains authored in paper.html. The Worker fetches
+// that one static shell and fills its explicit SEO markers; no paper-specific
+// files are generated or stored. This small isolate-local cache avoids a
+// static-origin request for every crawl without writing another KV key.
+const PAPER_TEMPLATE_URL = `${PUBLIC_SITE_ORIGIN}/paper.html`;
+const PAPER_TEMPLATE_TTL_MS = 5 * 60 * 1000;
+let paperTemplate = '';
+let paperTemplateCachedAt = 0;
+let paperTemplatePromise = null;
+
+async function getPaperTemplate() {
+  const isFresh = paperTemplate && (Date.now() - paperTemplateCachedAt < PAPER_TEMPLATE_TTL_MS);
+  if (isFresh) return paperTemplate;
+  if (paperTemplatePromise) return paperTemplatePromise;
+
+  paperTemplatePromise = (async () => {
+    const response = await fetch(PAPER_TEMPLATE_URL, {
+      headers: { Accept: 'text/html' },
+    });
+    if (!response.ok) {
+      throw new Error(`Unable to load paper template: ${response.status}`);
+    }
+
+    const template = await response.text();
+    // Fail closed rather than accidentally returning an unpersonalized,
+    // generic page if the static template and Worker deploy are out of sync.
+    if (!template.includes('id="seoPaperContent"') || !template.includes('id="paperSeoBootstrap"')) {
+      throw new Error('Paper template is missing SEO markers');
+    }
+
+    paperTemplate = template;
+    paperTemplateCachedAt = Date.now();
+    return paperTemplate;
+  })();
+
+  try {
+    return await paperTemplatePromise;
+  } finally {
+    paperTemplatePromise = null;
+  }
+}
 
 const FIREBASE_JWKS = createRemoteJWKSet(
   new URL(
@@ -107,6 +162,29 @@ async function handleRequest(request, ctx) {
 
   if (path === '/api/health' && method === 'GET') {
     return jsonResponse({ status: 'ok', timestamp: new Date().toISOString() });
+  }
+
+  // Netlify rewrites public /pyq/* and /sitemap.xml requests to this Worker.
+  // Do not run these crawl routes through the KV rate limiter: Netlify's
+  // external rewrite does not reliably preserve an individual crawler IP, and
+  // a limiter write per rendered page would be needless KV traffic. These
+  // routes expose only public index metadata and remain KV-first.
+  if (method === 'GET' && path === '/sitemap.xml') {
+    try {
+      return await handleSitemap(ctx);
+    } catch (err) {
+      console.error('Error handling dynamic sitemap:', err.message);
+      return sitemapUnavailableResponse();
+    }
+  }
+
+  if (method === 'GET' && path.startsWith('/pyq/')) {
+    try {
+      return await handlePyqPage(path, ctx);
+    } catch (err) {
+      console.error(`Error handling SEO page ${path}:`, err.message);
+      return renderPyqUnavailablePage();
+    }
   }
 
   if (method !== 'GET' && path !== '/api/invalidate') {
@@ -175,6 +253,10 @@ async function handleRequest(request, ctx) {
  */
 async function ensureFreshIndex(ctx) {
   const result = await getSearchIndex();
+  // A pre-SEO compact index is still usable for existing API browse/search
+  // responses, but has no explicit public bit. Its SEO surface fails closed
+  // while getSearchIndex schedules the normal background schema rebuild.
+  assignCanonicalSlugs(result.index);
   if (result.needsBackgroundRebuild && ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(runBackgroundRebuild());
   }
@@ -251,27 +333,167 @@ async function handlePyqsSearch(url, ctx) {
   }, 200);
 }
 
+const PYQ_ITEM_CACHE_VERSION = 1;
+
+function unpackPyqItemCache(value) {
+  // Raw documents are the legacy KV representation. They remain readable
+  // until the next admin invalidation, when they are safely revalidated.
+  if (value && value._pyqItemCacheVersion === PYQ_ITEM_CACHE_VERSION
+    && value.document && typeof value.document === 'object') {
+    return {
+      document: value.document,
+      cachedAt: Number(value.cachedAt) || 0,
+    };
+  }
+  return { document: value, cachedAt: 0 };
+}
+
+/**
+ * Read one full PYQ with the existing KV-first policy. Both the JSON detail
+ * endpoint and the server-rendered page use this helper, so a warm item cache
+ * never causes a Firestore request. A global admin invalidation intentionally
+ * makes older per-item entries stale: this prevents a warm pre-change document
+ * from being SSR-rendered as public after it was made private.
+ */
+async function getPyqItem(id) {
+  const kvKey = KV_KEYS.PYQ_ITEM(id);
+  const cached = unpackPyqItemCache(await getFromKV(kvKey));
+  if (cached.document) {
+    const invalidatedAt = await getInvalidationTimestamp();
+    if (!invalidatedAt || cached.cachedAt > invalidatedAt) {
+      console.log(`KV cache HIT for item: ${id}`);
+      return cached.document;
+    }
+    console.log(`KV cache STALE after invalidation for item: ${id}`);
+  }
+
+  console.log(`KV cache MISS for item: ${id} — fetching from Firestore`);
+  const doc = await getDocument('pyqs', id);
+  if (!doc) return null;
+
+  await setKV(kvKey, {
+    _pyqItemCacheVersion: PYQ_ITEM_CACHE_VERSION,
+    cachedAt: Date.now(),
+    document: doc,
+  }, 3600);
+  return doc;
+}
+
+/**
+ * A legacy paper.html URL can receive a correct canonical tag after client
+ * hydration without forcing an index rebuild. This is a KV read only; when
+ * the index is cold or predates explicit public-state fields, we leave the
+ * legacy page's existing noindex fallback.
+ */
+async function getCachedSeoSlugForId(id) {
+  const index = await getFromKV(KV_KEYS.SEARCH_INDEX);
+  if (!index || !Array.isArray(index.items)) return '';
+
+  assignCanonicalSlugs(index);
+  const item = getItemById(index, id);
+  return item && isPublicIndexItem(item) && isSafePyqSlug(item.sl) ? item.sl : '';
+}
+
 async function handlePyqsSingle(id) {
   if (!isValidDocId(id)) {
     return jsonResponse({ error: 'Invalid document ID' }, 400);
   }
 
-  const kvKey = KV_KEYS.PYQ_ITEM(id);
-  const cached = await getFromKV(kvKey);
-  if (cached) {
-    console.log(`KV cache HIT for item: ${id}`);
-    return jsonResponse(cached, 200);
-  }
-
-  console.log(`KV cache MISS for item: ${id} — fetching from Firestore`);
-  const doc = await getDocument('pyqs', id);
+  const doc = await getPyqItem(id);
   if (!doc) {
     return jsonResponse({ error: 'PYQ not found' }, 404);
   }
 
-  await setKV(kvKey, doc, 3600);
+  // Never attach a crawlable canonical slug to an explicitly non-public
+  // document, even if a stale compact index still has its old public state.
+  const seoSlug = isPublicPyq(doc) ? await getCachedSeoSlugForId(id) : '';
+  // Additive field only; existing clients still receive the full document.
+  return jsonResponse(seoSlug ? { ...doc, seoSlug } : doc, 200);
+}
 
-  return jsonResponse(doc, 200);
+function stableStringCompare(a, b) {
+  const left = String(a);
+  const right = String(b);
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+// The URL allocator groups persisted slug bases; SEO uniqueness is instead
+// based on the currently displayed title, so two records with the same title
+// still receive distinct social/document titles even if their historical bases
+// differ after an edit.
+function getSeoTitleVariant(index, currentItem) {
+  const title = String(currentItem && currentItem.t || '').trim();
+  if (!title) return 0;
+
+  const matching = ((index && index.items) || [])
+    .filter((item) => isPublicIndexItem(item) && String(item.t || '').trim() === title)
+    .sort((a, b) => {
+      const aTimestamp = Number(a.ts) > 0 ? Number(a.ts) : Number.MAX_SAFE_INTEGER;
+      const bTimestamp = Number(b.ts) > 0 ? Number(b.ts) : Number.MAX_SAFE_INTEGER;
+      return aTimestamp - bTimestamp || stableStringCompare(a.id, b.id);
+    });
+  const position = matching.findIndex((item) => item.id === currentItem.id);
+  return position > 0 ? position + 1 : 0;
+}
+
+function slugFromPyqPath(path) {
+  const match = path.match(/^\/pyq\/([^/]+)$/);
+  if (!match) return '';
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    return '';
+  }
+}
+
+async function handlePyqPage(path, ctx) {
+  const slug = slugFromPyqPath(path);
+  if (!isSafePyqSlug(slug)) {
+    return renderPyqNotFoundPage();
+  }
+
+  // 1) Resolve the public slug from the compact KV search index.
+  const index = await ensureFreshIndex(ctx);
+  const indexItem = getItemBySlug(index, slug);
+  if (!indexItem || !isValidDocId(indexItem.id)) {
+    return renderPyqNotFoundPage();
+  }
+
+  // 2) Retrieve the individual document from its existing KV item cache.
+  // Firestore is used only if that particular item genuinely is not cached.
+  const document = await getPyqItem(indexItem.id);
+  if (!document || !isPublicPyq(document)) {
+    // A stale index can briefly reference a just-deleted or newly-private
+    // document. Never render a fresh document that explicitly opts out of
+    // public visibility, even before the scheduled index rebuild finishes.
+    return renderPyqNotFoundPage();
+  }
+
+  const paper = createSeoPaper(indexItem, document, {
+    seoVariant: getSeoTitleVariant(index, indexItem),
+  });
+  if (!paper.id || !paper.title) {
+    return renderPyqNotFoundPage();
+  }
+
+  const related = getRelatedIndexItems(index, indexItem, 6);
+  const template = await getPaperTemplate();
+  const html = renderSeoPaperHtml(template, paper, slug, related);
+  return htmlResponse(html, 200);
+}
+
+async function handleSitemap(ctx) {
+  const index = await ensureFreshIndex(ctx);
+  return new Response(renderSitemapXml(index), {
+    status: 200,
+    headers: {
+      'Content-Type': 'application/xml; charset=UTF-8',
+      // The sitemap is always generated from the index currently available to
+      // this request; do not add a second response-cache layer around it.
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+      'X-Content-Type-Options': 'nosniff',
+    },
+  });
 }
 
 async function handleContributors() {
@@ -406,6 +628,7 @@ function mapIndexItems(items) {
     subject: item.su,
     year: item.y,
     views: item.v,
+    slug: item.sl || '',
   }));
 }
 
@@ -418,6 +641,36 @@ function getCacheTTL(path) {
   if (path.match(/^\/api\/pyqs\//)) return 120;
   if (path === '/api/pyqs') return 120;
   return 60;
+}
+
+function sitemapUnavailableResponse() {
+  return new Response(
+    '<?xml version="1.0" encoding="UTF-8"?><error>Temporarily unavailable</error>',
+    {
+      status: 503,
+      headers: {
+        'Content-Type': 'application/xml; charset=UTF-8',
+        'Cache-Control': 'no-store',
+        'X-Content-Type-Options': 'nosniff',
+        'X-Robots-Tag': 'noindex, follow',
+      },
+    }
+  );
+}
+
+function htmlResponse(html, status = 200) {
+  return new Response(html, {
+    status,
+    headers: {
+      'Content-Type': 'text/html; charset=UTF-8',
+      // The index and item KV caches already protect Firestore. Avoid a
+      // separate response-edge cache so admin invalidations take effect as
+      // soon as the index rebuild completes.
+      'Cache-Control': 'public, max-age=0, must-revalidate',
+      'X-Content-Type-Options': 'nosniff',
+      'X-Robots-Tag': 'index, follow',
+    },
+  });
 }
 
 function jsonResponse(data, status = 200, extraHeaders = {}) {

@@ -3,12 +3,27 @@
 
 # Static multi-page site: do not add an SPA catch-all. Existing files retain
 # their own URLs and Netlify serves 404.html for unknown paths.
+#
+# These are intentional external *rewrites*, not browser redirects. They let
+# the Worker server-render public SEO pages on the Netlify canonical hostname;
+# `force = true` makes the dynamic sitemap win over the legacy physical file.
+[[redirects]]
+from = "/pyq/*"
+to = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/pyq/:splat"
+status = 200
+force = true
 
 [[redirects]]
-  from = "/index.html"
-  to = "/"
-  status = 301
-  force = true
+from = "/sitemap.xml"
+to = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/sitemap.xml"
+status = 200
+force = true
+
+[[redirects]]
+from = "/index.html"
+to = "/"
+status = 301
+force = true
 
 [[headers]]
   for = "/*"

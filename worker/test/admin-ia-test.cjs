@@ -265,7 +265,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   window.showAdminView('settings');
   await wait(60);
   check('the signed-in admin is shown', q('#settingsAdminEmail').textContent === 'admin@dsmnru.test');
-  check('the Worker cache key status is reported', /Key not set|Key configured/.test(q('#settingsApiCacheStatus').textContent));
+  check('the Firebase-token Worker cache invalidation status is reported',
+    /Firebase admin token|Sign in as an admin/.test(q('#settingsApiCacheStatus').textContent));
   check('cache invalidation + CSV backup utilities are exposed',
     /runCacheInvalidation\(\)/.test(q('#view-settings').innerHTML) && /downloadAllCsvBackup\(\)/.test(q('#view-settings').innerHTML));
   check('the sidebar shows the session identity', q('#adminSignedInEmail').textContent === 'admin@dsmnru.test');

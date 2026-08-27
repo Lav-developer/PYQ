@@ -43,11 +43,12 @@ async function invalidateApiCache() {
 
         if (!user) {
             console.warn('Cache invalidation skipped — admin is not signed in');
-            return;
+            return false;
         }
 
         // Force-refresh the Firebase ID token so newly-added custom
-        // claims such as admin:true are included.
+        // claims such as admin:true are included. The Worker independently
+        // verifies issuer, audience, signature, and the admin claim.
         const idToken = await user.getIdToken(true);
 
         const response = await fetch(API_BASE_URL + '/invalidate', {
@@ -59,15 +60,18 @@ async function invalidateApiCache() {
 
         if (response.ok) {
             console.log('API cache invalidated');
-        } else {
-            console.warn(
-                'Cache invalidation failed:',
-                response.status,
-                await response.text()
-            );
+            return true;
         }
+
+        console.warn(
+            'Cache invalidation failed:',
+            response.status,
+            await response.text()
+        );
+        return false;
     } catch (error) {
         console.warn('Cache invalidation error:', error);
+        return false;
     }
 }
 /**
@@ -317,9 +321,22 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
 
                     if (docId) {
+                        // Merge keeps an existing persistent slug intact. If
+                        // the library is already loaded, capture an older
+                        // document's current base without an extra Firestore
+                        // read. CSV backups include `slug` for round trips.
+                        if (rowCollection === 'pyqs' && payload.title && !isPersistentPyqSlug(payload.slug)) {
+                            const existing = (allData.pyqs || []).find(item => item && item.id === docId);
+                            if (existing && !isPersistentPyqSlug(existing.slug)) {
+                                payload.slug = createPersistentPyqSlug(existing.title || payload.title);
+                            }
+                        }
                         await db.collection(rowCollection).doc(docId).set(payload, { merge: true });
                         updatedCount++;
                     } else {
+                        if (rowCollection === 'pyqs' && payload.title && !isPersistentPyqSlug(payload.slug)) {
+                            payload.slug = createPersistentPyqSlug(payload.title);
+                        }
                         await db.collection(rowCollection).add(payload);
                         addedCount++;
                     }
@@ -752,7 +769,7 @@ const CSV_BACKUP_COLLECTIONS = ['pyqs', 'contributors', 'users', 'pendingUploads
 
 // Every field used by any collection — nothing gets silently dropped
 const CSV_BACKUP_COLUMNS = [
-    'collection', 'id', 'name', 'title', 'Server 1', 'Server 2', 'course', 'semester',
+    'collection', 'id', 'name', 'title', 'slug', 'Server 1', 'Server 2', 'course', 'semester',
     'session', 'subject', 'branch', 'description', 'views', 'status', 'type', 'details',
     'text', 'paperId', 'userName', 'userEmail', 'downloadUrl', 'studentName',
     'studentCourse', 'studentEmail', 'userId', 'fileName', 'fileSize', 'email', 'phone',
@@ -766,6 +783,7 @@ function buildCsvBackupRow(collection, doc) {
         id: doc.id || doc.uid || '',
         name: doc.name || doc.signupName || '',
         title: doc.title || '',
+        slug: doc.slug || '',
         'Server 1': doc.file || doc.server1 || '',
         'Server 2': doc.file2 || doc.server2 || '',
         course: doc.course || doc.signupCourse || '',
@@ -967,10 +985,15 @@ function renderUsers() {
 }
 
 function addItem(type, item) {
-    // Add document to Firestore collection
-    db.collection(type).add(item)
+    // New PYQs receive a persistent title-based slug base in the same write.
+    // The Worker adds a document-ID suffix only if a collision exists.
+    const payload = (type === 'pyqs' && item && item.title && !isPersistentPyqSlug(item.slug))
+        ? { ...item, slug: createPersistentPyqSlug(item.title) }
+        : item;
+
+    db.collection(type).add(payload)
         .then(docRef => {
-            allData[type].push({ id: docRef.id, ...item });
+            allData[type].push({ id: docRef.id, ...payload });
             renderLists();
             alert('Item added successfully!');
             if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
@@ -987,9 +1010,17 @@ function editItem(type, index, item) {
         alert('Unable to find item id to update.');
         return;
     }
-    db.collection(type).doc(existing.id).set(item, { merge: true })
+
+    // First title edit for an older document captures its current base. Later
+    // title edits preserve that base, so already-published /pyq URLs do not
+    // change. This remains one normal admin write, never a crawler-side write.
+    const payload = (type === 'pyqs' && !isPersistentPyqSlug(existing.slug))
+        ? { ...item, slug: createPersistentPyqSlug(existing.title || item.title) }
+        : item;
+
+    db.collection(type).doc(existing.id).set(payload, { merge: true })
         .then(() => {
-            allData[type][index] = { id: existing.id, ...item };
+            allData[type][index] = { ...existing, ...payload };
             renderLists();
             alert('Item updated successfully!');
             if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
@@ -1044,6 +1075,29 @@ function buildPyqTitle(course,branch, semester, subject, session) {
 
 function normalizePyqText(value) {
     return (value || '').toString().replace(/\s+/g, ' ').trim();
+}
+
+// Keep this title-only base in sync with worker/src/slug.js. It is stored only
+// by admin create/edit flows; the Worker remains responsible for collision
+// suffixes because it sees the complete public search index.
+function createPersistentPyqSlug(title) {
+    const base = String(title || '')
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim()
+        .replace(/&/g, ' and ')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 180);
+    // Keep a safe base even for a title made wholly of non-Latin characters.
+    // The Worker will apply its deterministic document-ID collision suffix.
+    return base || 'pyq';
+}
+
+function isPersistentPyqSlug(value) {
+    const candidate = typeof value === 'string' ? value.trim().toLowerCase() : '';
+    return !!candidate && candidate === createPersistentPyqSlug(candidate);
 }
 
 function buildPyqDescription(title) {
@@ -1452,11 +1506,10 @@ function duplicateFieldsFrom(doc) {
 /**
  * Duplicate matching MUST see every published PYQ, so it reads the source of
  * truth. The Worker's /api/pyqs list is served from a KV search index that is
- * only rebuilt on admin invalidation (skipped while API_INVALIDATE_KEY is the
- * placeholder) or after the 7-day hard TTL — it answers 200 OK while silently
- * omitting recently published papers, which is exactly how an exact duplicate
- * went missing. The API is therefore only a last-resort fallback, and when it
- * is used the admin is told the list may be incomplete.
+ * refreshed after Firebase-token admin invalidation, but it can intentionally
+ * serve its prior snapshot during the short stale-while-revalidate window.
+ * The API is therefore only a last-resort fallback, and when it is used the
+ * admin is told the list may be incomplete.
  */
 function fetchDuplicateIndex() {
     // Reuse the library already in memory (opening "All PYQs" loads it).
@@ -2512,17 +2565,26 @@ function rewardWhenValue(value) {
 // ── Settings: existing utilities only ─────────────────────────────────
 function renderSettings() {
     setAdminIdentity(currentAdmin);
-    const configured = !!API_INVALIDATE_KEY && API_INVALIDATE_KEY.indexOf('REPLACE_') !== 0;
-    setAdminText('settingsApiCacheStatus', configured ? 'Key configured' : 'Key not set — invalidation skipped');
+    const signedIn = !!(auth && auth.currentUser);
+    setAdminText(
+        'settingsApiCacheStatus',
+        signedIn
+            ? 'Firebase admin token will be verified by the Worker'
+            : 'Sign in as an admin to invalidate the cache'
+    );
 }
 
-function runCacheInvalidation() {
-    if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
-        alert('API_INVALIDATE_KEY is not set in admin.js, so invalidation is skipped. Set it to the Worker’s ADMIN_API_KEY secret to purge the cache on demand.');
+async function runCacheInvalidation() {
+    if (!auth || !auth.currentUser) {
+        alert('Sign in as an admin first. The Worker accepts only a Firebase ID token with the admin claim.');
         return;
     }
-    invalidateApiCache();
-    alert('Cache invalidation requested — the Worker will rebuild its index in the background.');
+    const invalidated = await invalidateApiCache();
+    if (invalidated) {
+        alert('Cache invalidation requested — the Worker will rebuild its index in the background.');
+    } else {
+        alert('Cache invalidation was rejected. Confirm this Firebase user has the admin claim, then try again.');
+    }
 }
 
 window.showAdminView = showAdminView;

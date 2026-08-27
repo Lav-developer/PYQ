@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Paper Details - DSMNRU Archive</title>
-    <meta name="description" content="View and download DSMNRU Previous Year Question Paper. Preview, download, share and explore related papers.">
-    <meta name="robots" content="noindex, follow, noarchive">
+    <title id="paperPageTitle">Paper Details - DSMNRU Archive</title>
+    <meta name="description" id="paperMetaDescription" content="View and download DSMNRU Previous Year Question Paper. Preview, download, share and explore related papers.">
+    <meta name="robots" id="paperRobots" content="noindex, follow, noarchive">
     <link rel="icon" href="/img/icon-192.png" type="image/png">
     <link rel="canonical" href="https://dsmnru-pyq.netlify.app/paper.html" id="canonicalLink">
     <!-- OG Tags - will be updated dynamically -->
@@ -17,12 +17,13 @@
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:title" content="DSMNRU PYQ - Paper Details" id="twitterTitle">
     <meta name="twitter:description" content="Browse and download DSMNRU previous year question papers." id="twitterDescription">
+    <meta name="twitter:url" content="https://dsmnru-pyq.netlify.app/paper.html" id="twitterUrl">
     <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png" id="twitterImage">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/fontawesome.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/solid.min.css">
-    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/img/icon-192.png">
@@ -32,6 +33,8 @@
     <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
     <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
     <script type="application/ld+json" id="paperJsonLd">{"@context":"https://schema.org","@type":"WebPage","name":"DSMNRU PYQ paper viewer","url":"https://dsmnru-pyq.netlify.app/paper.html"}</script>
+    <!-- The Worker fills these values only for /pyq/<slug>. Legacy paper.html links keep their noindex fallback. -->
+    <script id="paperSeoBootstrap">window.DSMNRU_PYQ_ID = ""; window.DSMNRU_PYQ_SLUG = ""; window.DSMNRU_PYQ_SEO_META = null;</script>
     <style>
         .paper-page { padding-top: 1.5rem; padding-bottom: 2rem; }
         .paper-breadcrumb-nav { margin: 0 0 1.25rem; }
@@ -312,10 +315,10 @@
                 </div>
                 <p class="subtitle">Single Paper View — Preview, Download & Discuss</p>
                 <div class="page-nav" aria-label="Site sections">
-                    <a class="page-nav-link" href="index.html"><i class="fas fa-file-alt"></i> All PYQs</a>
-                    <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
-                    <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
-                    <a class="page-nav-link" href="links.html"><i class="fas fa-link"></i> Links</a>
+                    <a class="page-nav-link" href="/"><i class="fas fa-file-alt"></i> All PYQs</a>
+                    <a class="page-nav-link" href="/contributors.html"><i class="fas fa-users"></i> Contributors</a>
+                    <a class="page-nav-link" href="/tools.html"><i class="fas fa-tools"></i> Tools</a>
+                    <a class="page-nav-link" href="/links.html"><i class="fas fa-link"></i> Links</a>
                 </div>
             </div>
         </div>
@@ -325,11 +328,14 @@
         <!-- Breadcrumb -->
         <nav class="paper-breadcrumb-nav" aria-label="Breadcrumb">
             <ol class="paper-breadcrumb" id="paperBreadcrumb">
-                <li><a href="index.html"><i class="fas fa-home"></i> Home</a><span class="sep">/</span></li>
-                <li><a href="index.html">PYQs</a><span class="sep">/</span></li>
+                <li><a href="/"><i class="fas fa-home"></i> Home</a><span class="sep">/</span></li>
+                <li><a href="/">PYQs</a><span class="sep">/</span></li>
                 <li><span>Loading...</span></li>
             </ol>
         </nav>
+
+        <!-- Filled with public metadata by the Worker for /pyq/<slug>; hidden on legacy paper.html URLs. -->
+        <section id="seoPaperContent" hidden></section>
 
         <!-- Paper Loading -->
         <div id="paperLoading" class="paper-skeleton">
@@ -345,7 +351,7 @@
             <h3 style="color: #f8fafc; margin: 8px 0;">Paper not found</h3>
             <p id="paperErrorMessage" style="color: rgba(203,213,225,0.72); max-width: 520px; margin: 0 auto 16px;">We couldn't find the paper you're looking for. It may have been moved or the link is incorrect.</p>
             <div class="d-flex gap-2 justify-content-center flex-wrap">
-                <a href="index.html" class="btn-paper btn-paper-primary"><i class="fas fa-arrow-left"></i> Browse All PYQs</a>
+                <a href="/" class="btn-paper btn-paper-primary"><i class="fas fa-arrow-left"></i> Browse All PYQs</a>
                 <button onclick="history.back()" class="btn-paper btn-paper-secondary"><i class="fas fa-rotate-left"></i> Go Back</button>
             </div>
         </div>
@@ -547,7 +553,7 @@
     <script>
         window.DSMNRU_API_URL = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev";
     </script>
-    <script defer src="script.js"></script>
-    <script defer src="paper.js"></script>
+    <script defer src="/script.js"></script>
+    <script defer src="/paper.js"></script>
 </body>
 </html>
