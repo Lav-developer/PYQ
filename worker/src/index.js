@@ -30,8 +30,7 @@
 import { getDocument, getAllDocuments } from './firestore.js';
 import {
   KV_KEYS, getFromKV, setKV,
-  getFromEdgeCache, setEdgeCache,
-  shouldBypassCache, invalidateAll,
+  invalidateAll,
   VERY_LONG_KV_TTL,
 } from './cache.js';
 import {
@@ -45,6 +44,55 @@ import {
   validateFilters, isValidDocId,
 } from './validation.js';
 import { handleOptions, withCors } from './cors.js';
+import { jwtVerify, createRemoteJWKSet } from 'jose';
+// ─── Firebase ID Token Verification ───────────────────────────────
+
+const FIREBASE_PROJECT_ID = 'dsmnru-data';
+
+const FIREBASE_JWKS = createRemoteJWKSet(
+  new URL(
+    'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com'
+  )
+);
+
+async function verifyFirebaseAdminToken(request) {
+  const authHeader = request.headers.get('Authorization');
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return null;
+  }
+
+  const token = authHeader.slice(7).trim();
+
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const { payload } = await jwtVerify(token, FIREBASE_JWKS, {
+      issuer: `https://securetoken.google.com/${FIREBASE_PROJECT_ID}`,
+      audience: FIREBASE_PROJECT_ID,
+    });
+
+    // Firebase user must have a valid UID.
+    if (!payload.sub || typeof payload.sub !== 'string') {
+      return null;
+    }
+
+    // Only Firebase users with admin:true may invalidate cache.
+    if (payload.admin !== true) {
+      return null;
+    }
+
+    return payload;
+  } catch (error) {
+    console.warn(
+      'Firebase admin token verification failed:',
+      error.message
+    );
+    return null;
+  }
+}
 
 // ─── Request Handler ─────────────────────────────────────────────
 
@@ -79,15 +127,6 @@ async function handleRequest(request, ctx) {
     });
   }
 
-  // Edge cache for GET requests
-  const bypassCache = shouldBypassCache(request);
-  if (method === 'GET' && !bypassCache) {
-    const cached = await getFromEdgeCache(request);
-    if (cached) {
-      console.log(`Edge cache HIT: ${path}${url.search}`);
-      return cached;
-    }
-  }
 
   // Route
   let response;
@@ -120,11 +159,6 @@ async function handleRequest(request, ctx) {
   // Wrap with CORS headers
   response = withCors(request, response);
 
-  // Store in edge cache for GET
-  if (method === 'GET' && response.status < 500) {
-    const ttl = getCacheTTL(path);
-    await setEdgeCache(request, response.clone(), ttl);
-  }
 
   return response;
 }
@@ -344,14 +378,18 @@ async function handleStats(ctx) {
 }
 
 async function handleInvalidate(request) {
-  const apiKey = request.headers.get('X-Api-Key') || request.headers.get('x-api-key');
-  const adminKey = typeof ADMIN_API_KEY !== 'undefined' ? ADMIN_API_KEY : null;
-  if (!apiKey || !adminKey || apiKey !== adminKey) {
+  const admin = await verifyFirebaseAdminToken(request);
+
+  if (!admin) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
   await invalidateAll();
-  return jsonResponse({ status: 'ok', message: 'Cache invalidated' }, 200);
+
+  return jsonResponse({
+    status: 'ok',
+    message: 'Cache invalidated'
+  }, 200);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

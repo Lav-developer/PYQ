@@ -26,11 +26,11 @@ const API_BASE_URL = (function () {
         ? String(window.DSMNRU_API_URL).trim()
         : '';
 
-    if (!raw) return '/api';
+    if (!raw) return 'https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/api';
 
     const trimmed = raw.replace(/\/+$/, '');
     return /\/api$/i.test(trimmed) ? trimmed : trimmed + '/api';
-});
+})();
 
 async function invalidateApiCache() {
     // Content changed — invalidate duplicate matching index locally.
