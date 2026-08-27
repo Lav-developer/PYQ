@@ -21,41 +21,55 @@ let allData = { pyqs: [], users: [], pendingUploads: [], contributors: [], feedb
 let currentAdmin = null;
 
 // ===== API CACHE INVALIDATION (Cloudflare Worker) =====
-// After content changes, purge the Worker's KV/edge cache so the public site
-// reflects the change quickly (instead of waiting for the TTL).
-//
-// Set API_INVALIDATE_KEY to the same value as the Worker's ADMIN_API_KEY
-// secret. If left as the placeholder, invalidation is skipped and changes
-// appear after the cache TTL (safe fallback — no aggressive refresh).
 const API_BASE_URL = (function () {
     const raw = (typeof window.DSMNRU_API_URL !== 'undefined' && window.DSMNRU_API_URL)
         ? String(window.DSMNRU_API_URL).trim()
         : '';
+
     if (!raw) return '/api';
+
     const trimmed = raw.replace(/\/+$/, '');
     return /\/api$/i.test(trimmed) ? trimmed : trimmed + '/api';
-})();
-const API_INVALIDATE_KEY = 'REPLACE_WITH_ADMIN_API_KEY';
+});
 
-function invalidateApiCache() {
-    // Content changed — the duplicate-matching index must not outlive it.
-    if (typeof invalidateDuplicateIndex === 'function') invalidateDuplicateIndex();
-
-    if (!API_INVALIDATE_KEY || API_INVALIDATE_KEY.indexOf('REPLACE_') === 0) {
-        console.log('API cache invalidation skipped — set API_INVALIDATE_KEY in admin.js');
-        return;
+async function invalidateApiCache() {
+    // Content changed — invalidate duplicate matching index locally.
+    if (typeof invalidateDuplicateIndex === 'function') {
+        invalidateDuplicateIndex();
     }
-    fetch(API_BASE_URL + '/invalidate', {
-        method: 'POST',
-        headers: { 'X-Api-Key': API_INVALIDATE_KEY }
-    })
-        .then(res => {
-            if (res.ok) console.log('API cache invalidated');
-            else console.warn('Cache invalidation failed:', res.status);
-        })
-        .catch(err => console.warn('Cache invalidation error:', err.message));
-}
 
+    try {
+        const user = auth.currentUser;
+
+        if (!user) {
+            console.warn('Cache invalidation skipped — admin is not signed in');
+            return;
+        }
+
+        // Force-refresh the Firebase ID token so newly-added custom
+        // claims such as admin:true are included.
+        const idToken = await user.getIdToken(true);
+
+        const response = await fetch(API_BASE_URL + '/invalidate', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${idToken}`
+            }
+        });
+
+        if (response.ok) {
+            console.log('API cache invalidated');
+        } else {
+            console.warn(
+                'Cache invalidation failed:',
+                response.status,
+                await response.text()
+            );
+        }
+    } catch (error) {
+        console.warn('Cache invalidation error:', error);
+    }
+}
 /**
  * Checks if a user is an admin by attempting to read a document
  * that only admins have access to, based on Firestore security rules.
