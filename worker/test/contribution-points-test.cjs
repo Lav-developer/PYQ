@@ -27,9 +27,9 @@ const read = (file) => fs.readFileSync(path.join(ROOT, file), 'utf8');
 
 const indexHtml = read('index.html');
 const adminHtml = read('admin.html');
-const scriptJs = read('script.js');
-const adminJs = read('admin.js');
-const pointsJs = read('points.js');
+const scriptJs = read('assets/js/script.js');
+const adminJs = read('assets/js/admin.js');
+const pointsJs = read('assets/js/points.js');
 const rulesText = read('firestore.rules');
 
 // ── Shared in-memory Firestore ────────────────────────────────────────

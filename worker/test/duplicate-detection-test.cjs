@@ -26,7 +26,7 @@ function check(name, condition, detail = '') {
 const sandbox = { globalThis: {} };
 sandbox.window = sandbox.globalThis;
 vm.createContext(sandbox);
-vm.runInContext(fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8'), sandbox);
+vm.runInContext(fs.readFileSync(path.join(ROOT, 'assets/js/duplicate-check.js'), 'utf8'), sandbox);
 const D = sandbox.globalThis.DSMNRUDuplicates;
 
 console.log('\n🧪 Duplicate-detection assistance\n');
@@ -148,8 +148,8 @@ check('scoreCandidate never returns a confidence outside [0,1]',
 console.log('\n5. Admin panel integration (jsdom)');
 const { JSDOM } = require('jsdom');
 const adminHtml = fs.readFileSync(path.join(ROOT, 'admin.html'), 'utf8');
-const adminJs = fs.readFileSync(path.join(ROOT, 'admin.js'), 'utf8');
-const dupJs = fs.readFileSync(path.join(ROOT, 'duplicate-check.js'), 'utf8');
+const adminJs = fs.readFileSync(path.join(ROOT, 'assets/js/admin.js'), 'utf8');
+const dupJs = fs.readFileSync(path.join(ROOT, 'assets/js/duplicate-check.js'), 'utf8');
 
 (async () => {
   const store = {

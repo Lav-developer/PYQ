@@ -21,7 +21,7 @@ once Netlify has deployed this branch.
 
 ## Top five contributors found in the source/profile inventory
 
-1. **1.164 MB favicon request.** The 1024×1024 `img/Logo.png` was referenced
+1. **1.164 MB favicon request.** The 1024×1024 `assets/images/Logo.png` was referenced
    twice on the homepage as favicon/shortcut icon. The browser can fetch it
    even though it is far larger than an icon needs to be. This alone explains
    a substantial portion of the prior approximately 1.9 MB transfer budget.

@@ -123,9 +123,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   window.bootstrap = { Modal: MockModal, Collapse: function Collapse() { this.hide = () => {}; } };
   window.bootstrap.Collapse.getOrCreateInstance = () => new window.bootstrap.Collapse();
 
-  window.eval(read('points.js'));
-  window.eval(read('duplicate-check.js'));
-  window.eval(read('admin.js'));
+  window.eval(read('assets/js/points.js'));
+  window.eval(read('assets/js/duplicate-check.js'));
+  window.eval(read('assets/js/admin.js'));
   await wait(60);
 
   const doc = window.document;

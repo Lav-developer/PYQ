@@ -8,8 +8,8 @@ const path = require('path');
 
 const ROOT = require('path').join(__dirname, '..', '..');
 const html = fs.readFileSync(path.join(ROOT, 'paper.html'), 'utf8');
-const script = fs.readFileSync(path.join(ROOT, 'script.js'), 'utf8');
-const paper = fs.readFileSync(path.join(ROOT, 'paper.js'), 'utf8');
+const script = fs.readFileSync(path.join(ROOT, 'assets/js/script.js'), 'utf8');
+const paper = fs.readFileSync(path.join(ROOT, 'assets/js/paper.js'), 'utf8');
 
 const dom = new JSDOM(html, {
   url: 'http://localhost:8000/paper.html?id=pyq_42',

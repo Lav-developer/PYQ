@@ -13,7 +13,7 @@ import { isPublicIndexItem } from './search.js';
 export const PUBLIC_SITE_ORIGIN = 'https://dsmnru-pyq.netlify.app';
 
 const SITE_NAME = 'DSMNRU Academic Archive';
-const SOCIAL_IMAGE = `${PUBLIC_SITE_ORIGIN}/img/social-preview.png`;
+const SOCIAL_IMAGE = `${PUBLIC_SITE_ORIGIN}/assets/images/social-preview.png`;
 
 function text(value) {
   return value === undefined || value === null ? '' : String(value).trim();
@@ -244,7 +244,7 @@ function jsonLd(paper, canonicalUrl) {
       name: SITE_NAME,
       logo: {
         '@type': 'ImageObject',
-        url: `${PUBLIC_SITE_ORIGIN}/img/icon-512.png`,
+        url: `${PUBLIC_SITE_ORIGIN}/assets/icons/icon-512.png`,
       },
     },
     mainEntityOfPage: {
@@ -410,7 +410,7 @@ function basicSeoPage({ title, description, robots, heading, message, status }) 
   return new Response(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title><meta name="description" content="${escapeHtml(description)}"><meta name="robots" content="${robots}">
-<link rel="canonical" href="${PUBLIC_SITE_ORIGIN}/"><link rel="stylesheet" href="${PUBLIC_SITE_ORIGIN}/styles.css"></head>
+<link rel="canonical" href="${PUBLIC_SITE_ORIGIN}/"><link rel="stylesheet" href="${PUBLIC_SITE_ORIGIN}/assets/css/styles.css"></head>
 <body><main class="container paper-page"><section class="paper-error"><i class="fas fa-folder-open"></i><h1 style="color:#f8fafc; margin:8px 0;">${escapeHtml(heading)}</h1><p style="color:rgba(203,213,225,0.72);">${escapeHtml(message)}</p><a href="/" class="btn-paper btn-paper-primary">Browse All PYQs</a></section></main></body></html>`, {
     status,
     headers: {

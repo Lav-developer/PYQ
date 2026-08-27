@@ -5,7 +5,7 @@
 User-agent: *
 Allow: /
 Disallow: /admin.html
-Disallow: /admin.js
+Disallow: /assets/js/admin.js
 Disallow: /api/
 
 Sitemap: https://dsmnru-pyq.netlify.app/sitemap.xml

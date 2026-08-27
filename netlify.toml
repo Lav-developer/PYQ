@@ -53,18 +53,16 @@ force = true
   [headers.values]
     Cache-Control = "public, max-age=0, must-revalidate"
 
+# Frontend assets moved under /assets/ (css, js, icons, images). One rule covers
+# them all so the previous 1-week cache behaviour is preserved exactly.
 [[headers]]
-  for = "/styles.css"
+  for = "/assets/*"
   [headers.values]
     Cache-Control = "public, max-age=604800, must-revalidate"
 
+# Root-level scripts (sw.js stays at root to keep its "/" scope).
 [[headers]]
   for = "/*.js"
-  [headers.values]
-    Cache-Control = "public, max-age=604800, must-revalidate"
-
-[[headers]]
-  for = "/img/*"
   [headers.values]
     Cache-Control = "public, max-age=604800, must-revalidate"
 

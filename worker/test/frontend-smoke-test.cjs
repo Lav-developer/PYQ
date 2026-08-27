@@ -12,7 +12,7 @@ const path = require('path');
 
 const ROOT = require('path').join(__dirname, '..', '..');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const script = fs.readFileSync(path.join(ROOT, 'script.js'), 'utf8');
+const script = fs.readFileSync(path.join(ROOT, 'assets/js/script.js'), 'utf8');
 
 const WORKER_ORIGIN = 'https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev';
 

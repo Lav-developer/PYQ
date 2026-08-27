@@ -51,7 +51,7 @@ console.log('1. Matcher: identical title with empty course/semester');
 const sandbox = { globalThis: {} };
 sandbox.window = sandbox.globalThis;
 vm.createContext(sandbox);
-vm.runInContext(read('duplicate-check.js'), sandbox);
+vm.runInContext(read('assets/js/duplicate-check.js'), sandbox);
 const D = sandbox.globalThis.DSMNRUDuplicates;
 
 const submission = { title: EXACT_TITLE, course: '', semester: '' };
@@ -170,9 +170,9 @@ check('near-misses still appear below it (nothing is hidden)',
   window.bootstrap = { Modal: MockModal, Collapse: function Collapse() { this.hide = () => {}; } };
   window.bootstrap.Collapse.getOrCreateInstance = () => new window.bootstrap.Collapse();
 
-  window.eval(read('points.js'));
-  window.eval(read('duplicate-check.js'));
-  window.eval(read('admin.js'));
+  window.eval(read('assets/js/points.js'));
+  window.eval(read('assets/js/duplicate-check.js'));
+  window.eval(read('assets/js/admin.js'));
   await wait(60);
 
   await authMock.emit({ uid: 'admin', email: 'admin@dsmnru.test', emailVerified: true, reload: () => Promise.resolve() });

@@ -124,7 +124,7 @@ npx wrangler deploy
 ```
 
 6. Copy the Worker URL (e.g. `https://dsmnru-pyq-api.<your-subdomain>.workers.dev`)
-   and set `API_BASE_URL` in the frontend (`script.js` / `paper.js`).
+   and set `API_BASE_URL` in the frontend (`assets/js/script.js` / `assets/js/paper.js`).
 
 ---
 

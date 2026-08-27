@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="img/Logo.png" alt="DSMNRU Archive Logo" width="120" />
+  <img src="assets/images/Logo.png" alt="DSMNRU Archive Logo" width="120" />
   <h1>🎓 DSMNRU Academic Archive</h1>
   <p><strong>The Complete Resource Hub for DSMNRU Students — PYQs, Notes, Syllabus & Tools</strong></p>
   <p><i>Browse 500+ Previous Year Question Papers with instant preview, locked downloads, and verified contributions. Built for speed, SEO, and offline-first.</i></p>
@@ -136,31 +136,48 @@
 .
 ├── index.html          # Homepage — search, filters, 20 free PYQs → View Details
 ├── paper.html          # Shared interactive paper shell; Worker fills it for /pyq/<slug>, legacy ?id= remains
-├── paper.js            # Paper logic — cache-first related, verification block, same-site preview
-├── script.js           # Main — auth, cache (session+15m), gated search, upload, tools, feedback
-├── points.js           # Shared contribution-points helpers (email normalize + reward account key)
-├── duplicate-check.js  # Shared duplicate-matching helpers (title-led, admin assistance only)
 ├── admin.html          # Admin — lazy sections, Feedback inbox, local search
-├── admin.js            # Admin — CRUD, persistent PYQ slug bases, Firebase-token cache invalidation
-├── styles.css          # Dark glass theme, design tokens, responsive
-├── sw.js               # Service Worker v5 — caches /, /index.html, /paper.html, /styles.css, /script.js, /paper.js
-├── manifest.json       # PWA manifest (standalone, theme #0f172a)
-├── sitemap.xml         # Legacy static fallback; Netlify force-rewrites canonical requests to Worker-generated XML
-├── firestore.rules     # NEW — isVerified() + isAdminByEmail() + pendingUploads/comments/feedback rules
-├── cors.json           # CORS for local + Netlify
-├── courses.json        # Course catalog for filters
 ├── tools.html          # SGPA / Attendance / Planner
 ├── links.html          # University portals
 ├── contributors.html   # Contributors grid
-├── _redirects          # Netlify → Worker /api/* proxy (optional)
-├── ARCHITECTURE.md     # New Worker architecture, API docs, migration/rollback
+├── 404.html            # Netlify custom 404
+│
+├── assets/
+│   ├── css/
+│   │   └── styles.css          # Dark glass theme, design tokens, responsive
+│   ├── js/
+│   │   ├── script.js           # Main — auth, cache (session+15m), gated search, upload, tools, feedback
+│   │   ├── paper.js            # Paper logic — cache-first related, verification block, same-site preview
+│   │   ├── points.js           # Shared contribution-points helpers (email normalize + reward account key)
+│   │   ├── duplicate-check.js  # Shared duplicate-matching helpers (title-led, admin assistance only)
+│   │   └── admin.js            # Admin — CRUD, persistent PYQ slug bases, Firebase-token cache invalidation
+│   ├── icons/                  # icon-192.png, icon-512.png, icon-maskable-512.png (PWA + favicon)
+│   └── images/                 # Logo.png, social-preview.png (OG/Twitter card)
+│
+├── docs/
+│   ├── ARCHITECTURE.md         # New Worker architecture, API docs, migration/rollback
+│   ├── PERFORMANCE_AUDIT.md    # Frontend weight / read-count audit
+│   └── SEO_AUDIT.md            # SEO checklist + findings
+│
 ├── worker/             # Cloudflare Worker API (free tier)
 │   ├── wrangler.toml   # Worker config (KV binding, vars)
+│   ├── package.json    # Worker scripts (dev / deploy / test*)
 │   ├── src/            # index.js (routes), seo.js (public SSR), slug.js,
 │   │                   # firestore.js, cache.js, search.js, auth.js, rateLimit.js,
 │   │                   # validation.js, cors.js
 │   └── test/           # worker.test.js + frontend smoke tests + read simulation
-└── img/Logo.png
+│
+├── sw.js               # Service Worker — caches /, /contributors.html, /links.html, /assets/css/styles.css, /manifest.json, PWA icons
+├── manifest.json       # PWA manifest (standalone, theme #0f172a)
+├── sitemap.xml         # Legacy static fallback; Netlify force-rewrites canonical requests to Worker-generated XML
+├── robots.txt          # Crawler policy + sitemap pointer
+├── netlify.toml        # Publish dir, Worker rewrites, cache/security headers
+├── _redirects          # Netlify → Worker /api/* proxy (optional)
+├── firestore.rules     # NEW — isVerified() + isAdminByEmail() + pendingUploads/comments/feedback rules
+├── cors.json           # CORS for local + Netlify
+├── courses.json        # Course catalog for filters
+├── Ads.txt             # AdSense publisher verification (must stay at site root)
+└── README.md
 ```
 
 ---
@@ -198,7 +215,7 @@ Netlify Frontend → Cloudflare Worker → Edge Cache / KV → Firestore (only o
 
 - Worker code: [`worker/`](worker/) (`wrangler.toml`, `src/*`, tests)
 - Deployment & secrets: [`worker/README.md`](worker/README.md)
-- Full design, API reference, migration & rollback: [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- Full design, API reference, migration & rollback: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Firestore read simulation (OLD vs NEW): [`worker/test/performance-simulation.md`](worker/test/performance-simulation.md)
 - The browser still uses the Firebase SDK **only** for user-scoped data
   (auth, profile, comments, feedback, uploads, view increments) and admin
@@ -229,7 +246,7 @@ node test/duplicate-index-freshness-test.cjs  # 13 — exact-title regression (s
 
 **1. Create Firebase project** → Enable **Auth** (Email/Password + Google) → **Firestore** (test mode then apply rules below).
 
-**2. Copy config** into `script.js`, `admin.js`, `paper.js`, `admin.html`:
+**2. Copy config** into `assets/js/script.js`, `assets/js/admin.js`, `assets/js/paper.js`, `admin.html`:
 ```js
 const firebaseConfig = {
   apiKey: "YOUR_API_KEY",
@@ -430,13 +447,13 @@ The candidate list is read from **Firestore, the source of truth** — it reuses
 
 ## 🎨 Styling & Theme
 
-Glassmorphism dark theme (`styles.css` tokens: `--color-primary` teal, `--color-background` charcoal, `--color-surface` card). All pages share `Manrope` + `FKGroteskNeue`, `backdrop-filter: blur(14px)`, `border-radius: 18-24px`. Edit tokens in `:root` for theming.
+Glassmorphism dark theme (`assets/css/styles.css` tokens: `--color-primary` teal, `--color-background` charcoal, `--color-surface` card). All pages share `Manrope` + `FKGroteskNeue`, `backdrop-filter: blur(14px)`, `border-radius: 18-24px`. Edit tokens in `:root` for theming.
 
 ---
 
 ## 📱 PWA & Offline
 
-- `sw.js v5` caches `/`, `/index.html`, `/paper.html`, `/styles.css`, `/script.js`, `/paper.js`, `courses.json`, `manifest.json`
+- `sw.js` caches `/`, `/contributors.html`, `/links.html`, `/assets/css/styles.css`, `/manifest.json`, `/assets/icons/icon-192.png`, `/assets/icons/icon-512.png`, `/assets/icons/icon-maskable-512.png`
 - `manifest.json` → `standalone`, `theme #0f172a`, emoji icons
 - Install via Chrome address bar → offline after first load (Firestore persistence + Cache API)
 
@@ -503,8 +520,8 @@ for the read-count table (311 → 10,000 PYQs, 100 users).
 ```bash
 # Add feature
 # 1. UI → index.html / paper.html / admin.html
-# 2. Logic → script.js / paper.js / admin.js (keep id-based, not index)
-# 3. Style → styles.css (tokens)
+# 2. Logic → assets/js/script.js / paper.js / admin.js (keep id-based, not index)
+# 3. Style → assets/css/styles.css (tokens)
 # 4. Test locally + check Firestore rules
 # 5. Bump sw.js CACHE_NAME if caching changed
 ```

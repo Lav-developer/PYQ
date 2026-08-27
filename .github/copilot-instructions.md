@@ -1,7 +1,7 @@
 This repository is a small static frontend that serves Previous Year Question Papers (PYQs) and Syllabi using Firebase (Firestore + Auth) for data and admin flows.
 
 Quick orientation
-- Frontend: static HTML + JS (no build step). Key files: `index.html` (public UI), `script.js` (homepage logic), `admin.html` (admin UI), `admin.js` (admin logic), `styles.css`.
+- Frontend: static HTML + JS (no build step). Key files: `index.html` (public UI), `assets/js/script.js` (homepage logic), `admin.html` (admin UI), `assets/js/admin.js` (admin logic), `assets/css/styles.css`.
 - Data: Firestore collections named exactly `pyqs` and `syllabus`. Documents are flat objects: title (string), file (URL), optional course and semester.
 - Auth: Admin uses Firebase email/password (compat SDK). The admin UI relies on `auth.onAuthStateChanged(...)` to toggle UI.
 
@@ -15,15 +15,15 @@ Essential patterns for AI edits
 
 Developer workflows
 - Local dev: open `index.html` / `admin.html` in a browser or run a simple static server (e.g., `python -m http.server` or `npx serve .`). No build required.
-- Firebase config: `firebaseConfig` is embedded in `script.js` and `admin.js`. Ensure the project matches these credentials when testing.
+- Firebase config: `firebaseConfig` is embedded in `assets/js/script.js` and `assets/js/admin.js`. Ensure the project matches these credentials when testing.
 
 Conventions & gotchas
-- Collection names are plural (`pyqs`, `syllabus`) — changing them requires updates in both `script.js` and `admin.js`.
+- Collection names are plural (`pyqs`, `syllabus`) — changing them requires updates in both `assets/js/script.js` and `assets/js/admin.js`.
 - Code uses the Firebase compat SDK (script tags in HTML). Do not remove compat tags unless migrating all code to the modular SDK.
 
 Files to check when changing behavior
-- `script.js` — data loading, rendering, search, pagination
-- `admin.js` — auth flows, add/edit/delete helpers, `allData` array handling
+- `assets/js/script.js` — data loading, rendering, search, pagination
+- `assets/js/admin.js` — auth flows, add/edit/delete helpers, `allData` array handling
 - `index.html` / `admin.html` — script tags (compat SDKs) and DOM IDs used by JS
 
 Small examples (copy-paste)

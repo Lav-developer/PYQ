@@ -28,9 +28,9 @@ migrated anywhere.**
 | File | Change |
 |---|---|
 | `worker/**` | **New** — Cloudflare Worker (API, Firestore REST client, cache, search index, rate limiting) |
-| `script.js` | Public PYQ/contributor/homepage reads now call the Worker API (`fetch('/api/...')`). Auth, profile, comments, feedback, uploads and view-increments still use the Firebase SDK directly (user-scoped reads/writes only). |
-| `paper.js` | Paper detail + related papers come from the Worker API. Legacy view/comment behavior remains; a server-rendered `/pyq/` route defers direct comment reads and skips its automatic view write until an authenticated or intentional user interaction, keeping crawler hydration KV-first. |
-| `admin.js` | Existing Firebase-admin writes preserved; new PYQs store a stable slug base and cache invalidation continues via the admin's Firebase ID token. |
+| `assets/js/script.js` | Public PYQ/contributor/homepage reads now call the Worker API (`fetch('/api/...')`). Auth, profile, comments, feedback, uploads and view-increments still use the Firebase SDK directly (user-scoped reads/writes only). |
+| `assets/js/paper.js` | Paper detail + related papers come from the Worker API. Legacy view/comment behavior remains; a server-rendered `/pyq/` route defers direct comment reads and skips its automatic view write until an authenticated or intentional user interaction, keeping crawler hydration KV-first. |
+| `assets/js/admin.js` | Existing Firebase-admin writes preserved; new PYQs store a stable slug base and cache invalidation continues via the admin's Firebase ID token. |
 | `firestore.rules` | `pyqs` and `contributors` public reads removed — the Worker (service account) is the only public read path. Admin + view-increment rules preserved. |
 | `sw.js` | v6 — never serves stale cache for `/api/*` requests. |
 | `netlify.toml` | Forced external Worker rewrites for dynamic `/pyq/*` pages and `/sitemap.xml`; no SPA catch-all. |
@@ -156,7 +156,7 @@ explicitly triggered.
 
 ### Refresh order of precedence
 
-1. **Admin invalidation** (`POST /api/invalidate` from `admin.js`).
+1. **Admin invalidation** (`POST /api/invalidate` from `assets/js/admin.js`).
    Stamps an invalidation timestamp in KV; the next request detects
    `lastInvalidatedAt > lastBuiltAt`, **serves the stale index** to the
    response, and triggers a **single-flight, non-blocking background
@@ -319,7 +319,7 @@ during crawler traffic.
 
 ## 10. Rollback
 
-- **Frontend:** revert `script.js`, `paper.js`, `admin.js`, `sw.js`, and the
+- **Frontend:** revert `assets/js/script.js`, `assets/js/paper.js`, `assets/js/admin.js`, `sw.js`, and the
   `/pyq/*` plus `/sitemap.xml` rewrites in `netlify.toml` (or unset
   `DSMNRU_API_URL`) and redeploy Netlify. The old browser-direct Firestore code
   returns.
@@ -402,7 +402,7 @@ methods, rate-limit 429.
 - Invalid route + POST-on-GET 405
 
 **Frontend smoke:** `node test/frontend-smoke-test.cjs` jsdom test that
-`index.html` + `script.js` render the API-driven PYQ list and canonical pretty links.
+`index.html` + `assets/js/script.js` render the API-driven PYQ list and canonical pretty links.
 `node test/paper-smoke-test.cjs` covers legacy `paper.html?id=` hydration and
 Worker-bootstrapped `/pyq/<slug>` hydration without hiding SSR content early or
 performing automatic direct-Firestore view/comment work for a crawler.

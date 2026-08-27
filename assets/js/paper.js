@@ -464,7 +464,7 @@
                 "description": metaDesc,
                 "datePublished": createdAt ? (typeof createdAt.toDate==='function'?createdAt.toDate().toISOString(): String(createdAt)) : undefined,
                 "author": {"@type":"Organization","name":"DSMNRU Academic Archive"},
-                "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive","logo":{"@type":"ImageObject","url":"https://dsmnru-pyq.netlify.app/img/icon-512.png"}},
+                "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive","logo":{"@type":"ImageObject","url":"https://dsmnru-pyq.netlify.app/assets/icons/icon-512.png"}},
                 "mainEntityOfPage": {"@type":"WebPage","@id": pageUrl}
             };
             document.getElementById('paperJsonLd').textContent = JSON.stringify(ld);
