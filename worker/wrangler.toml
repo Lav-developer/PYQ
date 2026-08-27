@@ -23,11 +23,10 @@ ALLOWED_ORIGINS = "http://localhost:8000,http://localhost:5000,http://localhost:
 # ─── Secrets (set via CLI, NEVER commit) ──────────────────────────
 #   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
 #     → paste the FULL contents of your Firebase service account JSON file
-#   npx wrangler secret put ADMIN_API_KEY
-#     → paste a long random string used to authorize POST /api/invalidate
 #
-# FIREBASE_SERVICE_ACCOUNT_JSON and ADMIN_API_KEY are injected as secrets.
-# They are NOT defined in this file for security reasons.
+# FIREBASE_SERVICE_ACCOUNT_JSON is injected as a secret. POST /api/invalidate
+# is authorized with a Firebase ID token whose verified custom claim is
+# admin:true; there is intentionally no browser-visible static API key.
 
 # ─── Routes ───────────────────────────────────────────────────────
 # If you want the Worker to answer on your custom domain/subdomain:

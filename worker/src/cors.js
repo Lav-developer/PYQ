@@ -32,8 +32,10 @@ function isOriginAllowed(origin) {
 export function getCorsHeaders(request) {
   const origin = request.headers.get('Origin');
   const headers = {
-    'Access-Control-Allow-Methods': 'GET, HEAD, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Api-Key',
+    // Admin invalidation is a cross-origin POST from Netlify and is guarded
+    // by a Firebase ID token, not a browser-visible static API key.
+    'Access-Control-Allow-Methods': 'GET, HEAD, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };

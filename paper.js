@@ -118,6 +118,63 @@
     }
     // Helpers
     function getParam(name) { return new URLSearchParams(window.location.search).get(name); }
+    function getInjectedPaperId() {
+        const id = typeof window.DSMNRU_PYQ_ID === 'string' ? window.DSMNRU_PYQ_ID.trim() : '';
+        return id || '';
+    }
+    function normalizeSeoSlug(value) {
+        const slug = typeof value === 'string' ? value.trim() : '';
+        return /^[a-z0-9][a-z0-9_-]*$/i.test(slug) ? slug : '';
+    }
+    function getCanonicalSiteOrigin() {
+        // Keep production canonicals on the public Netlify hostname even when
+        // someone opens the Worker directly. Localhost remains useful for
+        // development and smoke tests without publishing local URLs.
+        const host = window.location.hostname;
+        if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') {
+            return window.location.origin;
+        }
+        return 'https://dsmnru-pyq.netlify.app';
+    }
+    function getCanonicalPaperUrl(paper) {
+        const injectedSlug = normalizeSeoSlug(window.DSMNRU_PYQ_SLUG);
+        const apiSlug = normalizeSeoSlug(paper && paper.seoSlug);
+        const slug = injectedSlug || apiSlug;
+        if (slug) {
+            return getCanonicalSiteOrigin() + '/pyq/' + encodeURIComponent(slug);
+        }
+        // A legacy shared URL remains functional if the index is temporarily
+        // cold. It stays noindex until the Worker can supply its SEO slug.
+        return getCanonicalSiteOrigin() + '/paper.html?id=' + encodeURIComponent((paper && paper.id) || '');
+    }
+    function getPaperDetailsHref(item) {
+        const slug = normalizeSeoSlug(item && item.slug);
+        if (slug) return '/pyq/' + encodeURIComponent(slug);
+        return '/paper.html?id=' + encodeURIComponent((item && item.id) || '');
+    }
+    function getServerSeoMeta() {
+        const value = window.DSMNRU_PYQ_SEO_META;
+        return value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+    }
+    function hideServerRenderedContent() {
+        const content = document.getElementById('seoPaperContent');
+        if (content && content.dataset.serverRendered === 'true') {
+            content.hidden = true;
+            content.setAttribute('aria-hidden', 'true');
+        }
+        const related = document.getElementById('seoRelatedSection');
+        if (related) {
+            related.hidden = true;
+            related.setAttribute('aria-hidden', 'true');
+        }
+    }
+    function hasServerRenderedContent() {
+        const content = document.getElementById('seoPaperContent');
+        return !!(content && content.dataset.serverRendered === 'true');
+    }
+    function isServerRenderedPrettyRoute() {
+        return !!getInjectedPaperId() && /^\/pyq\/[^/]+$/.test(window.location.pathname);
+    }
     function escapeHtml(v){ return String(v||'').replace(/[&<>"']/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
     function escapeJs(v){ return String(v||'').replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/\r?\n/g,' '); }
     function normalizeLink(v){
@@ -197,10 +254,12 @@
     const commentAuthPromptEl = document.getElementById('commentAuthPrompt');
     const commentErrorEl = document.getElementById('commentError');
     const commentSuccessEl = document.getElementById('commentSuccess');
+    const commentsSectionEl = document.getElementById('commentsSection');
 
     let currentPaper = null;
     let currentPaperId = null;
     let currentUser = null;
+    let deferredCommentsPaperId = '';
 
     // Auth listener for comment UI + paper lock + email verification (forces signup + verification)
     auth.onAuthStateChanged(user => {
@@ -210,6 +269,14 @@
         if (!user) {
             hidePaperVerificationBlock();
         } else {
+            // A signed-in person is an intentional interaction, unlike an
+            // indexing bot executing page JavaScript. Load deferred public
+            // discussion data only at this point on a server-rendered route.
+            if (deferredCommentsPaperId && currentPaper && currentPaper.id === deferredCommentsPaperId) {
+                const paperId = deferredCommentsPaperId;
+                deferredCommentsPaperId = '';
+                loadComments(paperId);
+            }
             // check verification after reload
             user.reload().then(() => {
                 if (requiresEmailVerificationPaper(user)) {
@@ -259,7 +326,9 @@
 
     // Main load
     async function init(){
-        const id = getParam('id');
+        // /pyq/<slug> gets its document ID from the Worker-rendered bootstrap;
+        // old /paper.html?id= links keep the existing query-string behavior.
+        const id = getInjectedPaperId() || getParam('id');
         if(!id){
             showError('No paper ID provided.', 'Please open a paper from the home page. Add ?id=PAPER_ID to the URL.');
             return;
@@ -274,6 +343,17 @@
     }
 
     function showError(title, msg){
+        // If a server-rendered /pyq page already has public content, keep it
+        // available when a later hydration request fails rather than replacing
+        // it with a generic client-side error.
+        if (hasServerRenderedContent()) {
+            loadingEl.style.display = 'none';
+            contentEl.style.display = 'none';
+            extraEl.style.display = 'none';
+            relatedSectionEl.style.display = 'none';
+            errorEl.style.display = 'none';
+            return;
+        }
         loadingEl.style.display = 'none';
         contentEl.style.display = 'none';
         extraEl.style.display = 'none';
@@ -283,8 +363,8 @@
         if(msg) errorMsgEl.textContent = msg;
         // breadcrumb
         breadcrumbEl.innerHTML = `
-            <li><a href="index.html"><i class="fas fa-home"></i> Home</a><span class="sep">/</span></li>
-            <li><a href="index.html">PYQs</a><span class="sep">/</span></li>
+            <li><a href="/"><i class="fas fa-home"></i> Home</a><span class="sep">/</span></li>
+            <li><a href="/">PYQs</a><span class="sep">/</span></li>
             <li><span class="current">Not found</span></li>
         `;
     }
@@ -311,13 +391,26 @@
             showError('Paper not found', 'The paper with ID "'+escapeHtml(id)+'" does not exist. It may have been deleted or the link is incorrect.');
             return;
         }
-        currentPaper = normalizePaper(data);
+        // The dynamic Worker page injects only already-public metadata. Merge
+        // it over an item-cache response so the title and visible facts stay
+        // current during the brief invalidation window without exposing file
+        // URLs or user-only data in the HTML response.
+        currentPaper = normalizePaper({ ...data, ...getServerSeoMeta(), id: data.id });
         renderPaper(currentPaper);
-        // increment views (write to Firestore directly — user-scoped write)
-        incrementViews(currentPaper.id);
-        // load related and comments
+        // Preserve legacy view accounting, but do not turn an indexing bot
+        // executing a server-rendered pretty page into a Firestore write.
+        // Preview/download actions still count as views for signed-in users.
+        if (!isServerRenderedPrettyRoute()) {
+            incrementViews(currentPaper.id);
+        }
+        // Related papers are Worker/KV data. Comment reads are deferred on a
+        // pretty page until an authenticated or intentional human interaction.
         loadRelated(currentPaper);
-        loadComments(currentPaper.id);
+        if (isServerRenderedPrettyRoute() && !currentUser) {
+            deferPrettyRouteComments(currentPaper.id);
+        } else {
+            loadComments(currentPaper.id);
+        }
     }
 
     function normalizePaper(p){
@@ -329,6 +422,7 @@
     }
 
     function renderPaper(p){
+        hideServerRenderedContent();
         loadingEl.style.display = 'none';
         contentEl.style.display = 'block';
         extraEl.style.display = 'grid';
@@ -340,39 +434,50 @@
         const title = p.title || (course + ' ' + semester + ' Paper');
         const views = typeof p.views === 'number' ? p.views : 0;
         const createdAt = p.createdAt || p.uploadedAt || p.addedAt || null;
+        const seoVariant = Number.isInteger(Number(p.seoVariant)) && Number(p.seoVariant) > 1
+            ? Number(p.seoVariant)
+            : 0;
+        const seoTitle = seoVariant ? 'Archive copy ' + seoVariant + ': ' + title : title;
 
         // SEO
-        const pageTitle = title + ' | DSMNRU PYQ - ' + course + (semester ? ' ' + semester : '') + (session ? ' ('+session+')' : '');
+        const pageTitle = seoTitle + ' | DSMNRU PYQ - ' + course + (semester ? ' ' + semester : '') + (session ? ' ('+session+')' : '');
         document.title = pageTitle;
-        const metaDesc = 'Download '+title+' for '+course+(semester?' '+semester:'')+(session?' '+session:'')+'. Preview and download PDF, see views, share and find related papers on DSMNRU Archive.';
+        const metaDesc = 'Download '+seoTitle+' for '+course+(semester?' '+semester:'')+(session?' '+session:'')+'. Preview and download PDF, see views, share and find related papers on DSMNRU Archive.';
         document.querySelector('meta[name="description"]').setAttribute('content', metaDesc);
-        const pageUrl = window.location.origin + window.location.pathname + '?id=' + encodeURIComponent(p.id);
+        const pageUrl = getCanonicalPaperUrl(p);
         document.getElementById('canonicalLink').setAttribute('href', pageUrl);
-        document.getElementById('ogTitle').setAttribute('content', title);
+        document.getElementById('ogTitle').setAttribute('content', seoTitle);
         document.getElementById('ogDescription').setAttribute('content', metaDesc);
         document.getElementById('ogUrl').setAttribute('content', pageUrl);
-        document.getElementById('twitterTitle').setAttribute('content', title);
+        document.getElementById('twitterTitle').setAttribute('content', seoTitle);
         document.getElementById('twitterDescription').setAttribute('content', metaDesc);
-        const ld = {
-            "@context": "https://schema.org",
-            "@type": "Article",
-            "headline": title,
-            "description": metaDesc,
-            "datePublished": createdAt ? (typeof createdAt.toDate==='function'?createdAt.toDate().toISOString(): String(createdAt)) : undefined,
-            "author": {"@type":"Organization","name":"DSMNRU Academic Archive"},
-            "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive","logo":{"@type":"ImageObject","url":"https://dsmnru-pyq.netlify.app/img/icon-512.png"}},
-            "mainEntityOfPage": {"@type":"WebPage","@id": pageUrl}
-        };
-        document.getElementById('paperJsonLd').textContent = JSON.stringify(ld);
+        document.getElementById('twitterUrl')?.setAttribute('content', pageUrl);
+        // The Worker has already emitted richer LearningResource + breadcrumb
+        // JSON-LD for a pretty route. Keep it intact after hydration so JS-capable
+        // crawlers see the same structured data as the initial response. Legacy
+        // paper.html links retain their established Article schema.
+        if (!isServerRenderedPrettyRoute()) {
+            const ld = {
+                "@context": "https://schema.org",
+                "@type": "Article",
+                "headline": title,
+                "description": metaDesc,
+                "datePublished": createdAt ? (typeof createdAt.toDate==='function'?createdAt.toDate().toISOString(): String(createdAt)) : undefined,
+                "author": {"@type":"Organization","name":"DSMNRU Academic Archive"},
+                "publisher": {"@type":"Organization","name":"DSMNRU Academic Archive","logo":{"@type":"ImageObject","url":"https://dsmnru-pyq.netlify.app/img/icon-512.png"}},
+                "mainEntityOfPage": {"@type":"WebPage","@id": pageUrl}
+            };
+            document.getElementById('paperJsonLd').textContent = JSON.stringify(ld);
+        }
 
         // Breadcrumb
         const crumbCourse = escapeHtml(course);
         const crumbSem = escapeHtml(semester);
         breadcrumbEl.innerHTML = `
-            <li><a href="index.html"><i class="fas fa-home"></i> Home</a><span class="sep">/</span></li>
-            <li><a href="index.html">PYQs</a><span class="sep">/</span></li>
-            ${course ? `<li><a href="index.html" onclick="sessionStorage.setItem('pendingCourse','${escapeJs(course)}');">${crumbCourse}</a><span class="sep">/</span></li>` : ''}
-            ${semester ? `<li><a href="index.html">${crumbSem}</a><span class="sep">/</span></li>` : ''}
+            <li><a href="/"><i class="fas fa-home"></i> Home</a><span class="sep">/</span></li>
+            <li><a href="/">PYQs</a><span class="sep">/</span></li>
+            ${course ? `<li><a href="/" onclick="sessionStorage.setItem('pendingCourse','${escapeJs(course)}');">${crumbCourse}</a><span class="sep">/</span></li>` : ''}
+            ${semester ? `<li><a href="/">${crumbSem}</a><span class="sep">/</span></li>` : ''}
             <li><span class="current" title="${escapeHtml(title)}">${escapeHtml(title)}</span></li>
         `;
 
@@ -421,7 +526,7 @@
             actionsHtml += `<button class="btn-paper btn-paper-secondary" id="btnServer2"><i class="${secondaryMeta.icon}"></i> Server 2</button>`;
         }
         actionsHtml += `<button class="btn-paper btn-paper-danger" id="btnReport"><i class="fas fa-triangle-exclamation"></i> Report Broken</button>`;
-        actionsHtml += `<a href="index.html" class="btn-paper btn-paper-secondary"><i class="fas fa-arrow-left"></i> All Papers</a>`;
+        actionsHtml += `<a href="/" class="btn-paper btn-paper-secondary"><i class="fas fa-arrow-left"></i> All Papers</a>`;
 
         actionsBarEl.innerHTML = actionsHtml;
 
@@ -648,13 +753,13 @@
             }
             items = items.slice(0,6);
             if (items.length === 0) {
-                relatedGridEl.innerHTML = `<div class="comment-empty" style="grid-column:1/-1;"><i class="fas fa-folder-open"></i> No related papers found for this course yet.<br><a href="index.html" style="color:#9cecf3; font-weight:700;">Browse all papers</a></div>`;
+                relatedGridEl.innerHTML = `<div class="comment-empty" style="grid-column:1/-1;"><i class="fas fa-folder-open"></i> No related papers found for this course yet.<br><a href="/" style="color:#9cecf3; font-weight:700;">Browse all papers</a></div>`;
                 relatedSubtitleEl.textContent = 'No related papers yet';
                 return;
             }
             relatedSubtitleEl.textContent = `More from ${escapeHtml(p.course || 'this course')}${p.semester ? ' • '+escapeHtml(p.semester):''} — ${items.length} papers`;
             relatedGridEl.innerHTML = items.map(item=>{
-                const href = `paper.html?id=${encodeURIComponent(item.id)}`;
+                const href = getPaperDetailsHref(item);
                 const sem = item.semester ? `<span><i class="fas fa-layer-group"></i> ${escapeHtml(item.semester)}</span>` : '';
                 const sess = item.session ? `<span><i class="fas fa-calendar"></i> ${escapeHtml(item.session)}</span>` : '';
                 const views = item.views ? `<span><i class="fas fa-eye"></i> ${item.views}</span>` : '';
@@ -671,6 +776,23 @@
             console.warn('related load failed', e);
             relatedGridEl.innerHTML = `<div class="comment-empty" style="grid-column:1/-1;">Unable to load related papers right now.</div>`;
         }
+    }
+
+    // Avoid a direct Firestore comments read solely because a crawler executed
+    // JavaScript on a KV-first server-rendered route. The section remains fully
+    // usable: signing in, clicking, or keyboarding into it loads the same data.
+    function deferPrettyRouteComments(paperId) {
+        if (!commentsSectionEl || !commentListEl || !paperId) return;
+        deferredCommentsPaperId = paperId;
+        commentListEl.innerHTML = `<div class="comment-empty"><i class="fas fa-comments"></i> Open the discussion to load comments.</div>`;
+
+        const activate = () => {
+            if (deferredCommentsPaperId !== paperId) return;
+            deferredCommentsPaperId = '';
+            loadComments(paperId);
+        };
+        commentsSectionEl.addEventListener('pointerdown', activate, { once: true });
+        commentsSectionEl.addEventListener('keydown', activate, { once: true });
     }
 
     // Comments - Firestore collection: 'comments' with paperId field, or subcollection 'pyqs/{id}/comments'

@@ -29,11 +29,11 @@ migrated anywhere.**
 |---|---|
 | `worker/**` | **New** — Cloudflare Worker (API, Firestore REST client, cache, search index, rate limiting) |
 | `script.js` | Public PYQ/contributor/homepage reads now call the Worker API (`fetch('/api/...')`). Auth, profile, comments, feedback, uploads and view-increments still use the Firebase SDK directly (user-scoped reads/writes only). |
-| `paper.js` | Paper detail + related papers now come from the Worker API. Comments and view increments unchanged. |
-| `admin.js` | Unchanged logic (writes to Firestore as before) + best-effort cache invalidation (`invalidateApiCache()`) after PYQ/contributor changes. |
+| `paper.js` | Paper detail + related papers come from the Worker API. Legacy view/comment behavior remains; a server-rendered `/pyq/` route defers direct comment reads and skips its automatic view write until an authenticated or intentional user interaction, keeping crawler hydration KV-first. |
+| `admin.js` | Existing Firebase-admin writes preserved; new PYQs store a stable slug base and cache invalidation continues via the admin's Firebase ID token. |
 | `firestore.rules` | `pyqs` and `contributors` public reads removed — the Worker (service account) is the only public read path. Admin + view-increment rules preserved. |
 | `sw.js` | v6 — never serves stale cache for `/api/*` requests. |
-| `_redirects` | Netlify → Worker proxy for `/api/*` (optional; see §3). |
+| `netlify.toml` | Forced external Worker rewrites for dynamic `/pyq/*` pages and `/sitemap.xml`; no SPA catch-all. |
 | `index.html`, `paper.html`, `contributors.html` | Added `window.DSMNRU_API_URL` config block. |
 
 ## 2. Frontend behavior preserved
@@ -68,7 +68,8 @@ npx wrangler kv:namespace create PYQ_CACHE
 
 # 2. Set secrets (never commit these)
 npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON   # paste full JSON file contents
-npx wrangler secret put ADMIN_API_KEY                   # any long random string
+# /api/invalidate intentionally uses a Firebase ID token with admin:true;
+# do not configure a browser-visible static invalidation key.
 
 # 3. Edit wrangler.toml:
 #    - [[kv_namespaces]] id = "<id from step 1>"
@@ -115,7 +116,6 @@ firebase deploy --only firestore:rules
 |---|---|---|
 | `PYQ_CACHE` | KV namespace | Cache: search index, per-item docs, contributors, courses, homepage, stats, rate-limit counters |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | secret | Full Firebase service-account JSON (used for Firestore REST auth) |
-| `ADMIN_API_KEY` | secret | Shared key for `POST /api/invalidate` (set the same value in `admin.js` → `API_INVALIDATE_KEY`) |
 | `FIREBASE_PROJECT_ID` | var | e.g. `dsmnru-data` |
 | `ALLOWED_ORIGINS` | var | Comma-separated CORS allow-list |
 
@@ -133,15 +133,17 @@ Base URL: `<worker>/api` (or same-origin `/api` via the proxy).
 | GET | `/courses` | Course catalog |
 | GET | `/homepage` | `{ recent, trending, courseCounts, stats }` |
 | GET | `/stats` | `{ totalPyqs, totalCourses }` |
-| POST | `/invalidate` | Purge caches — header `X-Api-Key` |
+| POST | `/invalidate` | Stamp cache invalidation — `Authorization: Bearer <Firebase ID token>` with verified `admin: true` |
 
 **Query validation:** `page` 1–100, `limit` 1–100 (server-enforced), `sort` ∈
 `newest|popular|az|za|oldest`, `semester` ∈ `1st..8th`, search `q` ≥ 2 chars,
 max 200 chars, HTML stripped. Unknown params ignored.
 
-**Responses** are JSON. List/search return `{ items, total, page, limit,
-totalPages }`. Errors return `{ error }` with appropriate status (400/401/404/
-405/429/500).
+**API responses** are JSON. List/search return `{ items, total, page, limit,
+totalPages }`; `slug` is additive on compact items and `seoSlug` is additive on
+a warm public single-item response. Errors return `{ error }` with appropriate
+status (400/401/404/405/429/500). `GET /pyq/:slug` returns HTML and
+`GET /sitemap.xml` returns XML.
 
 ## 6. Cache strategy & invalidation
 
@@ -196,8 +198,11 @@ explicitly triggered.
 
 - `pyq:search:index` — **7 days** (hard safety fallback; index is normally
   refreshed by admin invalidation, not by TTL)
-- `pyq:pyqs:item:<id>` — **1 h** (per-item cache; deletions propagate after
-  TTL or admin invalidation)
+- `pyq:pyqs:item:<id>` — **1 h** (per-item cache; SEO fields come from the
+  compact index, and a missing/deleted item is never rendered as a success).
+  A global admin invalidation makes pre-invalidation item entries logically
+  stale, so the first affected detail/SEO request revalidates that one document
+  before it can be rendered.
 - `pyq:contributors:list` — **1 h**
 - `pyq:courses:list` — **24 h**
 - `pyq:homepage:summary`, `pyq:stats` — **5 / 10 min**
@@ -222,7 +227,73 @@ The contributors endpoint only reads its own collection when its KV
 cache misses. There is no cross-collection Firestore read inside any
 single request.
 
-## 7. Failure handling
+## 7. Public SEO routes, sitemap, and slug safety
+
+Netlify keeps the canonical public hostname and performs forced **200 external
+rewrites** to the Worker:
+
+```toml
+[[redirects]]
+from = "/pyq/*"
+to = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/pyq/:splat"
+status = 200
+force = true
+
+[[redirects]]
+from = "/sitemap.xml"
+to = "https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/sitemap.xml"
+status = 200
+force = true
+```
+
+Those rules live in `netlify.toml`; update both target URLs if the deployed
+Worker hostname changes. `force = true` is required so the dynamic sitemap
+wins over the checked-in legacy `sitemap.xml` file.
+
+The Worker serves `GET /pyq/:slug` before its API rate limiter. It resolves an
+exact safe slug through the existing compact `pyq:search:index` KV value, then
+reads `pyq:pyqs:item:<id>`. A warm current-schema index plus a current warm
+item cache performs no Firestore read. A genuine item-cache miss — including an
+entry intentionally made stale by an admin invalidation — performs one document
+read; this prevents a pre-change cached document from leaking after it becomes
+private. A pre-SEO compact index has no explicit public bit, so its SEO surface
+fails closed while the existing background-rebuild path upgrades it. A cold
+index follows the pre-existing one-time index-build path. The server fills the
+single `paper.html` shell in memory, so no per-paper HTML files are generated.
+
+The response includes an index/follow robots directive, unique title and
+description, canonical/Open Graph/Twitter tags, public H1, visible breadcrumbs
+and course/semester/session/subject/branch details, related public links, and
+`LearningResource` plus breadcrumb JSON-LD. It deliberately never injects PDF
+links, comments, user data, credentials, or any document fields outside this
+public compact metadata. Explicitly private/draft records are omitted from both
+this route and the dynamic sitemap. `robots.txt` allows the public route and
+points at the sitemap.
+
+### Stable URLs, title changes, and duplicates
+
+The admin writes a simple title-derived `slug` **base** when it creates a PYQ.
+For an older record that has no base yet, its first normal edit saves the
+current base before applying the new title. Future title changes keep that base,
+which avoids changing the normal published URL without a full historical-slug
+database or crawler-triggered writes. The legacy `paper.html?id=<id>` URL stays
+functional in all cases; once a warm public index knows the item, client
+hydration sets its canonical tag to the pretty URL rather than redirecting an
+ambiguous old link.
+
+The Worker assigns the final canonical slug across the whole public index. If
+bases collide, the oldest creation timestamp (then document ID) keeps the
+readable base and every later document normally receives
+`--<base64url-document-id>`. If that exact suffix is a different title's readable
+base, the Worker inserts a deterministic numeric discriminator before the same
+reversible ID suffix. The result remains unambiguous for duplicate titles. For
+exactly matching displayed titles, later records also receive a stable
+`Archive copy N` qualifier in their document/social title, description, and
+JSON-LD so metadata remains unique while the visible H1 stays the real paper
+title. The index owns this final collision logic so Firestore remains write-free
+during crawler traffic.
+
+## 8. Failure handling
 
 - Firestore down + KV warm → stale cached data served (by design; academic
   archive tolerates slight staleness).
@@ -232,27 +303,33 @@ single request.
 - No aggressive retries: index rebuilds happen only on TTL expiry or explicit
   invalidation.
 
-## 8. Migration steps (production)
+## 9. Migration steps (production)
 
-1. Deploy the Worker (§3), point the frontend at it (Option A or B).
-2. Smoke-test: homepage, browse, Load More, search, filters, sorting,
-   contributors, paper detail, PDF open.
-3. Deploy `firestore.rules` (tightened public reads).
-4. Set `API_INVALIDATE_KEY` in `admin.js`, redeploy Netlify.
-5. Watch `wrangler tail` for cache-hit vs cache-miss logs for a day.
+1. Deploy the Worker (§3) first. Its pretty route fails closed until the
+   static shell markers are available.
+2. Deploy the matching Netlify `paper.html` and `netlify.toml` rewrite rules in
+   the same release window; this activates canonical `/pyq/*` and
+   `/sitemap.xml` traffic without generating per-paper files.
+3. Smoke-test: homepage, browse, Load More, search, filters, sorting,
+   contributors, legacy paper detail, a pretty URL, sitemap, and PDF open.
+4. Deploy `firestore.rules` (tightened public reads).
+5. Confirm the Firebase administrator used by `admin.html` has the `admin: true`
+   custom claim; the Worker verifies it for every invalidation request.
+6. Watch `wrangler tail` for cache-hit vs cache-miss logs for a day.
 
-## 9. Rollback
+## 10. Rollback
 
-- **Frontend:** revert `script.js`, `paper.js`, `admin.js`, `sw.js`,
-  `_redirects` (or unset `DSMNRU_API_URL`) and redeploy Netlify. The old
-  browser-direct Firestore code returns.
+- **Frontend:** revert `script.js`, `paper.js`, `admin.js`, `sw.js`, and the
+  `/pyq/*` plus `/sitemap.xml` rewrites in `netlify.toml` (or unset
+  `DSMNRU_API_URL`) and redeploy Netlify. The old browser-direct Firestore code
+  returns.
 - **Rules:** restore the previous `firestore.rules` (`allow read: if true` on
   `pyqs`/`contributors`) and `firebase deploy --only firestore:rules`.
 - **Worker:** `npx wrangler delete` (or keep it — harmless with no frontend
   calling it).
 - No data migration exists to roll back: Firestore and PDF URLs are untouched.
 
-## 10. Firestore read budget (normal traffic)
+## 11. Firestore read budget (normal traffic)
 
 See `worker/test/performance-simulation.md` for the full table. Summary:
 
@@ -269,10 +346,10 @@ every user; the index rebuild is **driven by admin invalidation only**
 (no short-cycle rebuild), and a single rebuild is shared by all users
 via the stale-while-revalidate pattern.
 
-## 11. Testing
+## 12. Testing
 
-`cd worker && node test/worker.test.js` — **90 assertions** against a
-mocked Firestore, exercising the full refresh-strategy contract:
+`cd worker && node test/worker.test.js` — **132 assertions** against a
+mocked Firestore, exercising the full refresh-strategy and public-SEO contract:
 
 **Endpoints & behavior:** health, list (incl. limit/page capping,
 defaults, capping), filters (course, semester, session, combined),
@@ -289,10 +366,11 @@ methods, rate-limit 429.
   homepage, stats, contributors for the lifetime of the cache
 - **Cache expiry (safety fallback)** — expiring the KV entry triggers a
   rebuild on next read, subsequent reads are 0
-- **Admin invalidation** (stale-while-revalidate) — the next request
-  after `/api/invalidate` is served immediately with **zero synchronous
-  Firestore reads** for the serving path; the rebuild happens in the
-  background and writes the fresh index; subsequent requests are 0
+- **Admin invalidation** (stale-while-revalidate) — list/search requests
+  after `/api/invalidate` are served immediately with **zero synchronous
+  Firestore reads** for the serving path while the rebuild runs in the
+  background. A detail/SEO request whose per-item cache predates that
+  invalidation deliberately revalidates just that one document first.
 - **No duplicate reads per request** — homepage cold path never reads
   the contributors collection; the Worker reads each collection at most
   once per request
@@ -309,12 +387,22 @@ methods, rate-limit 429.
   to build the index in `ceil(N/300)` pages with all ids retrievable
   via search
 
+**Public SEO routes:**
+- canonical and duplicate-suffix slug assignment, persistent bases after title edits,
+  contradictory public/private access-state filtering, no-PDF/no-private-field SSR
+  output, visible metadata, JSON-LD, related links, valid/malformed/unknown URLs,
+  a KV-only warm page, and post-invalidation item-cache privacy revalidation
+- dynamic sitemap inclusion/exclusion and no per-item Firestore reads
+- new-publication discovery through the existing invalidation → background rebuild flow
+
 **Other:**
-- Rate-limiting 429 under burst
-- Cache invalidation auth (200 with key, 401 without)
+- Rate-limiting 429 under burst (crawl routes deliberately bypass it)
+- Cache invalidation auth and CORS preflight (200 with a verified Firebase
+  `admin: true` ID token, 401 otherwise)
 - Invalid route + POST-on-GET 405
 
 **Frontend smoke:** `node test/frontend-smoke-test.cjs` jsdom test that
-`index.html` + `script.js` render the API-driven PYQ list (9 assertions).
-`node test/paper-smoke-test.cjs` for `paper.html` + `paper.js` (5
-assertions).
+`index.html` + `script.js` render the API-driven PYQ list and canonical pretty links.
+`node test/paper-smoke-test.cjs` covers legacy `paper.html?id=` hydration and
+Worker-bootstrapped `/pyq/<slug>` hydration without hiding SSR content early or
+performing automatic direct-Firestore view/comment work for a crawler.

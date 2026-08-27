@@ -30,7 +30,9 @@ stay extremely low even as the PYQ collection grows from 311 → 10,000+.
 | GET | `/api/courses` | Course catalog |
 | GET | `/api/homepage` | Homepage summary (recent, trending, course counts, stats) |
 | GET | `/api/stats` | Aggregated stats |
-| POST | `/api/invalidate` | Invalidate all caches (needs `X-Api-Key`) |
+| POST | `/api/invalidate` | Stamp cache invalidation (verified Firebase ID token with `admin: true`) |
+| GET | `/pyq/:slug` | Server-rendered public, indexable PYQ page (served through Netlify rewrite) |
+| GET | `/sitemap.xml` | Dynamic public-PYQ sitemap (served through Netlify rewrite) |
 
 ### Query params
 
@@ -46,7 +48,7 @@ stay extremely low even as the PYQ collection grows from 311 → 10,000+.
 
 ```json
 {
-  "items": [{ "id": "...", "title": "...", "course": "...", "semester": "...", "session": "...", "branch": "...", "subject": "...", "year": 2024, "views": 120 }],
+  "items": [{ "id": "...", "title": "...", "course": "...", "semester": "...", "session": "...", "branch": "...", "subject": "...", "year": 2024, "views": 120, "slug": "..." }],
   "total": 311,
   "page": 1,
   "limit": 20,
@@ -54,7 +56,27 @@ stay extremely low even as the PYQ collection grows from 311 → 10,000+.
 }
 ```
 
-`/api/pyqs/:id` returns the full Firestore document (including `file`/`file2`).
+`/api/pyqs/:id` returns the full Firestore document (including `file`/`file2`) and,
+when a warm public index knows it, an additive `seoSlug` field. Existing clients can
+ignore this field safely.
+
+### Public SEO pages
+
+`/pyq/:slug` is intentionally separate from the authenticated paper viewer. Netlify
+rewrites it to the Worker while retaining `https://dsmnru-pyq.netlify.app` as the
+visible URL. The Worker resolves the slug from the compact KV search index, then
+reads `pyq:pyqs:item:<id>`; Firestore is used only if that individual item is
+absent or was intentionally made stale by an admin invalidation. That one-document
+revalidation prevents a warm pre-change cache from rendering a paper after it has
+become private. A pre-SEO compact index has no explicit public bit, so its SEO
+surface fails closed while the normal background rebuild upgrades it. The initial
+HTML contains only public title and
+course/semester/session/subject/branch metadata, breadcrumbs, related public links,
+canonical social tags, and JSON-LD. It
+never includes PDF URLs, comments, user data, or credentials.
+
+The sitemap is generated from those same public index entries. `robots.txt` permits
+`/pyq/` and names the canonical sitemap.
 
 ---
 
@@ -85,7 +107,6 @@ Copy the returned `id` into `wrangler.toml` (`[[kv_namespaces]] → id`).
 
 ```bash
 npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON   # paste the JSON file contents
-npx wrangler secret put ADMIN_API_KEY                   # any long random string
 ```
 
 4. Set vars in `wrangler.toml`:
@@ -114,10 +135,13 @@ npx wrangler deploy
 - **KV:** stores the search index (all compact PYQ metadata; refreshed
   via admin invalidation — **no short fixed-clock rebuild**, a 7-day
   hard TTL is the safety fallback only), per-item full docs (1 h),
-  contributors (1 h), courses (24 h), homepage (5 min).
+  contributors (1 h), courses (24 h), homepage (5 min). A per-item value that
+  predates an admin invalidation is revalidated once before it is reused.
 - **Invalidation (primary refresh trigger):** `POST /api/invalidate`
-  with `X-Api-Key: <ADMIN_API_KEY>` stamps an invalidation timestamp
-  and clears derived caches (homepage / stats / contributors / courses).
+  with `Authorization: Bearer <Firebase ID token>` stamps an invalidation
+  timestamp only when the token has a verified `admin: true` custom claim,
+  then clears derived caches (homepage / stats / contributors / courses).
+  There is no static API-key fallback.
   The next request serves the stale search index to the response and
   triggers a **single-flight background rebuild** via `ctx.waitUntil`.
   After that one rebuild, the index is fresh and the system stays warm
@@ -129,4 +153,24 @@ npx wrangler deploy
 ## Rate limiting
 
 KV-backed limiter: 30 requests/min per IP per endpoint, with a 60/min burst.
-Returns `429` with `Retry-After`. Applied to all public endpoints.
+Returns `429` with `Retry-After`. API endpoints use it; public `/pyq/*` and
+`/sitemap.xml` deliberately bypass it because Netlify external rewrites do not
+reliably preserve a crawler's individual IP and a limiter write per render would
+add needless KV traffic.
+
+## Slug stability and duplicates
+
+The normal admin create flow writes a simple title-derived `slug` **base** alongside
+the PYQ. On the first edit of an older record without this field, the admin UI saves
+its current base before changing the title. Future title edits therefore retain the
+published base without a crawler-side write or a historical-slug database.
+
+The index, not Firestore, owns the final URL. If multiple public records share a
+base, the oldest timestamp (then document ID) keeps the readable URL and every later
+record normally gets `--<base64url-document-id>`. If that exact suffix is itself
+a different title's readable base, a deterministic numeric discriminator is inserted
+before the same reversible ID suffix. Exact duplicate display titles also receive an
+`Archive copy N` qualifier in document/social metadata and JSON-LD while retaining
+the real paper title as the visible H1. A legacy `/paper.html?id=<id>` link is never
+removed: it continues to hydrate normally and gets a pretty canonical URL whenever
+the warm public index supplies `seoSlug`.
