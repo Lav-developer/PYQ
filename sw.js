@@ -1,6 +1,12 @@
-// Public-shell service worker. v8 — adds points.js / PYQ contribution points UI. User data and live archive API responses are
-// deliberately never cached here.
-const CACHE_NAME = 'dsmnru-archive-v9';
+// Public-shell service worker.
+// v10 — ships the rendering/Firebase performance work (chunked PYQ render,
+//       lazy Firebase, mobile blur removal). Version bump is required because
+//       same-origin JS/CSS are served cache-first below: without it, repeat
+//       visitors would keep the previous (v9) script.js/styles.css until a
+//       hard refresh. skipWaiting()/clients.claim()/old-cache cleanup below
+//       make the new version take effect on a normal refresh.
+// User data and live archive API responses are deliberately never cached.
+const CACHE_NAME = 'dsmnru-archive-v10';
 const APP_SHELL = [
   '/', '/contributors.html', '/links.html', '/styles.css', '/manifest.json',
   '/img/icon-192.png', '/img/icon-512.png', '/img/icon-maskable-512.png'

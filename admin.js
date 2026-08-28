@@ -2193,10 +2193,13 @@ function renderPyqsFiltered(filtered) {
 function setupAdminPyqSearch() {
     const input = document.getElementById('adminPyqSearch');
     if (!input) return;
-    input.addEventListener('input', function() {
-        const q = this.value.toLowerCase().trim();
+    // Debounce: previously every keystroke rebuilt the entire PYQ table as one
+    // giant innerHTML string (a long task that scales with collection size).
+    let searchTimer = null;
+    function runAdminSearch() {
+        const q = input.value.toLowerCase().trim();
         if (!q) { renderPyqs(); return; }
-        const filtered = allData.pyqs.filter(p => 
+        const filtered = allData.pyqs.filter(p =>
             String(p.title||'').toLowerCase().includes(q) ||
             String(p.course||'').toLowerCase().includes(q) ||
             String(p.semester||'').toLowerCase().includes(q) ||
@@ -2205,7 +2208,21 @@ function setupAdminPyqSearch() {
         const list = document.getElementById('pyqsList');
         if (!list) return;
         if (!filtered.length) { list.innerHTML = '<div class="resource-empty">No matches for “'+escapeHtml(q)+'”.</div>'; return; }
-        renderPyqsFiltered(filtered);
+        // Cap rendered rows so a very broad match cannot render thousands of
+        // cards at once; the filter still narrows on further typing.
+        const MAX_RENDERED = 200;
+        renderPyqsFiltered(filtered.slice(0, MAX_RENDERED));
+        if (filtered.length > MAX_RENDERED) {
+            const note = document.createElement('div');
+            note.className = 'resource-empty';
+            note.style.marginTop = '0.75rem';
+            note.textContent = `Showing first ${MAX_RENDERED} of ${filtered.length} matches — keep typing to narrow.`;
+            list.appendChild(note);
+        }
+    }
+    input.addEventListener('input', function() {
+        if (searchTimer) clearTimeout(searchTimer);
+        searchTimer = setTimeout(runAdminSearch, 220);
     });
 }
 

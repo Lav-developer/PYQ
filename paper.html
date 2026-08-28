@@ -29,9 +29,14 @@
     <link rel="apple-touch-icon" href="/img/icon-192.png">
     <meta name="theme-color" content="#0f172a">
 
-    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
-    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <!-- Performance: Firebase SDKs are injected lazily by script.js (idle and
+         on-demand for login/comments/views). Public paper data comes from the
+         Worker API, so anonymous readers no longer download the Firestore SDK. -->
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
     <script type="application/ld+json" id="paperJsonLd">{"@context":"https://schema.org","@type":"WebPage","name":"DSMNRU PYQ paper viewer","url":"https://dsmnru-pyq.netlify.app/paper.html"}</script>
     <!-- The Worker fills these values only for /pyq/<slug>. Legacy paper.html links keep their noindex fallback. -->
     <script id="paperSeoBootstrap">window.DSMNRU_PYQ_ID = ""; window.DSMNRU_PYQ_SLUG = ""; window.DSMNRU_PYQ_SEO_META = null;</script>
@@ -60,8 +65,10 @@
         }
         .paper-lock-overlay {
             position: absolute; inset: 0;
-            background: rgba(2,6,23,0.72);
-            backdrop-filter: blur(10px);
+            background: rgba(2,6,23,0.85);
+            /* backdrop-filter blur removed: it re-rasterized the whole card
+               behind the overlay on every frame — heavy on mobile GPUs. The
+               raised opaque background keeps the legibility/dimming effect. */
             display: flex; align-items: center; justify-content: center;
             z-index: 20; padding: 1.25rem;
         }
