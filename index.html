@@ -29,8 +29,16 @@
     <meta name="apple-mobile-web-app-title" content="DSMNRU Archive">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
 
-    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
-    <script defer src="https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js"></script>
+    <!-- Performance: preconnect to the CDN origins used by this page so the
+         CSS/font/SDK handshakes don't happen serially during first paint.
+         Firebase SDKs are now injected lazily by script.js (idle/on-demand),
+         so they are no longer listed as eager <script> tags. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="preconnect" href="https://www.gstatic.com" crossorigin>
+
     <meta property="og:title" content="DSMNRU PYQ — Previous Year Question Papers">
     <meta property="og:description" content="Browse and download DSMNRU previous year question papers for B.Tech, B.Sc, B.A., B.Com, and more. Free academic resources for DSMNRU students.">
     <meta property="og:type" content="website">

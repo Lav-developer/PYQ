@@ -1,20 +1,31 @@
 // Paper detail page logic - standalone but shares Firebase from script.js
 (function() {
-    // Ensure Firebase is initialized (script.js already does it, but guard)
-    if (!firebase.apps.length) {
-        const firebaseConfig = {
-            apiKey: "AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ",
-            authDomain: "dsmnru-data.firebaseapp.com",
-            projectId: "dsmnru-data",
-            storageBucket: "dsmnru-data.firebasestorage.app",
-            messagingSenderId: "62250453477",
-            appId: "1:62250453477:web:087c07403e4fead220470c",
-            measurementId: "G-VL6V3T96YX"
-        };
-        firebase.initializeApp(firebaseConfig);
+    // ===== PERF: Firebase is loaded lazily (see script.js ensureFirebase /
+    // ensureFirestore). Public paper data comes from the Worker API, so
+    // anonymous readers never download/initialize the Firestore SDK. The
+    // accessors below resolve once the relevant SDK is available, and every
+    // authenticated/comments feature awaits them before touching `db`.
+    // `auth` is initialized lazily too, but is warmed by script.js on idle.
+    // Firestore handle is created lazily by script.js' ensureFirestore() and
+    // exposed on window.db. Awaiting it guarantees the instance exists; read it
+    // from window (not the bare lexical `db`), so cross-script/eval scopes work.
+    function _dbReady() {
+        return ensureFirestore().then(() => window.db);
     }
-    const db = firebase.firestore();
-    const auth = firebase.auth();
+    let auth = null;
+    function _getAuth() {
+        if (auth) return Promise.resolve(auth);
+        return ensureFirebase().then(() => { auth = firebase.auth(); return auth; });
+    }
+    let _paperAuthListenerInstalled = false;
+    function _installAuthListener() {
+        if (_paperAuthListenerInstalled) return;
+        _getAuth().then(a => {
+            if (_paperAuthListenerInstalled) return;
+            _paperAuthListenerInstalled = true;
+            a.onAuthStateChanged(_onAuthStateChanged);
+        }).catch(() => {});
+    }
 
     // ===== API ACCESS (Cloudflare Worker) =====
     // Paper data and related papers come from the Worker API (KV/edge-cached).
@@ -81,7 +92,7 @@
         if (_paperVerificationBlockEl) return _paperVerificationBlockEl;
         _paperVerificationBlockEl = document.createElement('div');
         _paperVerificationBlockEl.id = 'paperVerificationBlock';
-        _paperVerificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.92);backdrop-filter:blur(8px);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
+        _paperVerificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.97);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
         _paperVerificationBlockEl.innerHTML = `<div style="max-width:460px;width:100%;background:linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.88));border:1px solid rgba(110,231,216,0.22);border-radius:22px;padding:1.5rem 1.25rem;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.5);"><div style="width:64px;height:64px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:1.6rem;"><i class="fas fa-envelope"></i></div><h5 style="color:#f8fafc;font-weight:800;margin:0 0 8px;">Verify your email to continue</h5><p style="color:rgba(203,213,225,0.78);font-size:13px;line-height:1.5;margin:0 0 14px;">We sent a link to <strong id="paperVerificationBlockEmail" style="color:#f8fafc;"></strong>. Verify to preview, download and comment.</p><div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;"><button class="btn btn-primary btn-sm" onclick="resendVerificationEmail()"><i class="fas fa-redo me-1"></i> Resend</button><button class="btn btn-outline-light btn-sm" onclick="checkEmailVerification()"><i class="fas fa-check me-1"></i> I verified</button><button class="btn btn-outline-danger btn-sm" onclick="logoutAndChangeEmail()">Use different email</button></div></div>`;
         document.body.appendChild(_paperVerificationBlockEl);
         return _paperVerificationBlockEl;
@@ -262,7 +273,7 @@
     let deferredCommentsPaperId = '';
 
     // Auth listener for comment UI + paper lock + email verification (forces signup + verification)
-    auth.onAuthStateChanged(user => {
+    function _onAuthStateChanged(user) {
         currentUser = user || null;
         updateCommentAuthUI();
         updatePaperLockUI();
@@ -286,7 +297,10 @@
                 }
             }).catch(()=>{ if (requiresEmailVerificationPaper(user)) showPaperVerificationBlock(); });
         }
-    });
+    }
+
+    // Install the listener as soon as the (lazily loaded) Auth SDK is ready.
+    _installAuthListener();
     function updateCommentAuthUI(){
         if(currentUser){
             commentAuthPromptEl.style.display = 'none';
@@ -397,16 +411,23 @@
         // URLs or user-only data in the HTML response.
         currentPaper = normalizePaper({ ...data, ...getServerSeoMeta(), id: data.id });
         renderPaper(currentPaper);
-        // Preserve legacy view accounting, but do not turn an indexing bot
-        // executing a server-rendered pretty page into a Firestore write.
-        // Preview/download actions still count as views for signed-in users.
-        if (!isServerRenderedPrettyRoute()) {
+        // View accounting: Firestore rules only accept `views` writes from
+        // verified signed-in users (or admins); an anonymous write is rejected
+        // and would force-download the Firestore SDK for nothing. Only
+        // verified users count the view here, on legacy paper.html visits
+        // (the server-rendered pretty route is excluded so indexing bots are
+        // never turned into writes). Preview/download clicks count too, via
+        // openPreview()/handleDownloadClick() once a verified user is present.
+        if (!isServerRenderedPrettyRoute()
+            && currentUser && !requiresEmailVerificationPaper(currentUser)) {
             incrementViews(currentPaper.id);
         }
-        // Related papers are Worker/KV data. Comment reads are deferred on a
-        // pretty page until an authenticated or intentional human interaction.
+        // Related papers are Worker/KV data. Comment reads use Firestore, so
+        // for anonymous visitors they are deferred until interaction/sign-in
+        // on BOTH routes (this keeps Firestore off the anonymous critical
+        // path); signed-in users load them immediately.
         loadRelated(currentPaper);
-        if (isServerRenderedPrettyRoute() && !currentUser) {
+        if (!currentUser) {
             deferPrettyRouteComments(currentPaper.id);
         } else {
             loadComments(currentPaper.id);
@@ -555,14 +576,9 @@
         if(s2Btn && secondary){
             s2Btn.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
         }
-        const fbPrimary = document.getElementById('btnFallbackPrimary');
-        if(fbPrimary && primary){
-            fbPrimary.addEventListener('click', () => loadPreviewOnSameSite(primary, title + ' — Server 1'));
-        }
-        const fbSecondary = document.getElementById('btnFallbackSecondary');
-        if(fbSecondary && secondary){
-            fbSecondary.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
-        }
+        // Fallback buttons (#btnFallbackPrimary/#btnFallbackSecondary) are
+        // handled by one delegated listener registered once (see end of file),
+        // so no per-render listeners are attached here.
         const _shareTopBtn = document.getElementById('btnShare');
         if (_shareTopBtn) _shareTopBtn.addEventListener('click', () => openShare(shareTarget, title));
         document.getElementById('btnReport').addEventListener('click', () => openReportModal(p));
@@ -706,18 +722,22 @@
     // Views
     function incrementViews(id){
         if(!id) return;
-        try {
-            db.collection('pyqs').doc(id).set({ views: firebase.firestore.FieldValue.increment(1)}, { merge:true }).catch(e=> console.warn('view inc failed', e.message));
-            // optimistic UI
-            if(currentPaper && currentPaper.id===id){
-                currentPaper.views = (currentPaper.views||0)+1;
-                const el = document.getElementById('infoViews');
-                if(el) el.textContent = currentPaper.views;
-                // update pills
-                const pill = document.querySelector('.meta-pill.views');
-                if(pill) pill.innerHTML = `<i class="fas fa-eye"></i> ${currentPaper.views} views`;
-            }
-        } catch(e){}
+        // optimistic UI (immediate, no SDK wait)
+        if(currentPaper && currentPaper.id===id){
+            currentPaper.views = (currentPaper.views||0)+1;
+            const el = document.getElementById('infoViews');
+            if(el) el.textContent = currentPaper.views;
+            // update pills
+            const pill = document.querySelector('.meta-pill.views');
+            if(pill) pill.innerHTML = `<i class="fas fa-eye"></i> ${currentPaper.views} views`;
+        }
+        // Firestore write — only reached by verified users (gated by callers).
+        // Lazily initializes Firestore; never blocks the UI.
+        _dbReady().then(dbRef => {
+            return dbRef.collection('pyqs').doc(id).set(
+                { views: firebase.firestore.FieldValue.increment(1) }, { merge: true }
+            );
+        }).catch(e => console.warn('view inc failed', e && e.message));
     }
 
     // Related papers — served by the Worker API search endpoint, which runs
@@ -800,13 +820,15 @@
     async function loadComments(paperId){
         commentListEl.innerHTML = `<div class="comment-empty"><i class="fas fa-spinner fa-spin"></i> Loading comments...</div>`;
         try {
+            // Lazily initialize Firestore (only reached for interaction/sign-in).
+            const dbRef = await _dbReady();
             // Try top-level collection first
             let snap = null;
             try {
-                snap = await db.collection('comments').where('paperId','==', paperId).orderBy('createdAt','desc').limit(30).get();
+                snap = await dbRef.collection('comments').where('paperId','==', paperId).orderBy('createdAt','desc').limit(30).get();
                 if(snap.empty){
                     // also try subcollection
-                    const subSnap = await db.collection('pyqs').doc(paperId).collection('comments').orderBy('createdAt','desc').limit(30).get();
+                    const subSnap = await dbRef.collection('pyqs').doc(paperId).collection('comments').orderBy('createdAt','desc').limit(30).get();
                     if(!subSnap.empty){
                         snap = subSnap; // use subcollection
                         // mark type
@@ -815,9 +837,9 @@
                 }
             } catch(e){
                 // if orderBy fails due to missing index, fallback to unordered
-                try { snap = await db.collection('comments').where('paperId','==', paperId).limit(30).get(); } catch(err2){ snap = null; }
+                try { snap = await dbRef.collection('comments').where('paperId','==', paperId).limit(30).get(); } catch(err2){ snap = null; }
                 if(!snap || snap.empty){
-                    try { snap = await db.collection('pyqs').doc(paperId).collection('comments').limit(30).get(); } catch(err3){}
+                    try { snap = await dbRef.collection('pyqs').doc(paperId).collection('comments').limit(30).get(); } catch(err3){}
                 }
             }
             if(!snap || snap.empty){
@@ -884,6 +906,7 @@
             const oldHtml = btn.innerHTML;
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Posting...';
             try {
+                const dbRef = await _dbReady();
                 const payload = {
                     paperId: currentPaperId,
                     text: text,
@@ -895,11 +918,11 @@
                 // try top-level first
                 let wrote = false;
                 try {
-                    await db.collection('comments').add(payload);
+                    await dbRef.collection('comments').add(payload);
                     wrote = true;
                 } catch(err){
                     // fallback to subcollection
-                    await db.collection('pyqs').doc(currentPaperId).collection('comments').add(payload);
+                    await dbRef.collection('pyqs').doc(currentPaperId).collection('comments').add(payload);
                     wrote = true;
                 }
                 commentText.value = '';
@@ -962,14 +985,23 @@
             const icon = desktopPreview ? meta.icon : 'fas fa-download';
             previewBtn.innerHTML = `<i class="${icon}"></i> ${label}`;
         }
-        const fbPrimary = document.getElementById('btnFallbackPrimary');
-        if(fbPrimary && primary){
-            fbPrimary.addEventListener('click', () => loadPreviewOnSameSite(primary, title + ' — Server 1'));
-        }
-        const fbSecondary = document.getElementById('btnFallbackSecondary');
-        if(fbSecondary && secondary){
-            fbSecondary.addEventListener('click', () => loadPreviewOnSameSite(secondary, title + ' — Server 2'));
-        }
+        // Fallback buttons are handled by a single delegated listener (below)
+        // — re-binding here on every viewport/resize flip previously stacked
+        // duplicate listeners per crossing.
+    }
+    // One delegated click handler for the preview container's fallback
+    // buttons; they are re-created on each fillPreviewContainer(), so reading
+    // data-* attributes at click time avoids repeated listener registration.
+    if (previewContainerEl) {
+        previewContainerEl.addEventListener('click', (e) => {
+            const btn = e.target.closest('#btnFallbackPrimary, #btnFallbackSecondary');
+            if (!btn || !currentPaper) return;
+            const title = currentPaper.title || 'Paper';
+            const link = btn.id === 'btnFallbackPrimary'
+                ? getPrimaryLink(currentPaper)
+                : getSecondaryLink(currentPaper);
+            if (link) loadPreviewOnSameSite(link, title + (btn.id === 'btnFallbackPrimary' ? ' — Server 1' : ' — Server 2'));
+        });
     }
     if(typeof INLINE_PREVIEW_MQ.addEventListener === 'function'){
         INLINE_PREVIEW_MQ.addEventListener('change', refreshPreviewForViewport);

@@ -872,14 +872,27 @@ select.form-control {
   to { opacity: 1; transform: translateY(0); }
 }
 
-.pyq-item, .syllabus-item {
-  animation: fadeIn 0.6s var(--ease-standard) forwards;
-  opacity: 0;
+/* Entrance animation — PERFORMANCE:
+   The old rule applied `opacity: 0` + a stagger keyed to each card's global
+   index (animation-delay grew with every Load More click, up to ~6s), which
+   made appended/searched cards invisible for seconds and burst dozens of
+   animations at once. Now the short fade-in only plays for the first 8 items
+   of the very first list render (`.initial-render` is added by renderPYQs
+   once and removed afterwards). Load More / search / filter results appear
+   immediately with no delay and no animation. */
+.initial-render .pyq-item,
+.initial-render .syllabus-item {
+  animation: fadeIn 0.32s var(--ease-standard) both;
 }
 
-.pyq-item:nth-child(1), .syllabus-item:nth-child(1) { animation-delay: 0.1s; }
-.pyq-item:nth-child(2), .syllabus-item:nth-child(2) { animation-delay: 0.2s; }
-.pyq-item:nth-child(3), .syllabus-item:nth-child(3) { animation-delay: 0.3s; }
+.initial-render .pyq-item:nth-child(1), .initial-render .syllabus-item:nth-child(1) { animation-delay: 0.02s; }
+.initial-render .pyq-item:nth-child(2), .initial-render .syllabus-item:nth-child(2) { animation-delay: 0.05s; }
+.initial-render .pyq-item:nth-child(3), .initial-render .syllabus-item:nth-child(3) { animation-delay: 0.08s; }
+.initial-render .pyq-item:nth-child(4), .initial-render .syllabus-item:nth-child(4) { animation-delay: 0.11s; }
+.initial-render .pyq-item:nth-child(5), .initial-render .syllabus-item:nth-child(5) { animation-delay: 0.14s; }
+.initial-render .pyq-item:nth-child(6), .initial-render .syllabus-item:nth-child(6) { animation-delay: 0.17s; }
+.initial-render .pyq-item:nth-child(7), .initial-render .syllabus-item:nth-child(7) { animation-delay: 0.2s; }
+.initial-render .pyq-item:nth-child(8), .initial-render .syllabus-item:nth-child(8) { animation-delay: 0.23s; }
 
 body {
   font-family: var(--font-family-base);
@@ -4469,4 +4482,30 @@ section[id] {
    component variable keeps the hue and lifts it to ~5.5:1 — no !important. */
 .text-danger {
   --bs-danger-rgb: var(--color-red-400-rgb);
+}
+
+/* ── PERFORMANCE: mobile GPU cost ───────────────────────────────────────
+   backdrop-filter: blur() forces the browser to re-rasterize everything
+   behind the element every frame (modal open, dropdown, overlays), which is
+   a top source of scroll/modal jank on low-end mobile GPUs. On phones/tablets
+   we keep the visual layering via the existing semi-opaque backgrounds and
+   simply skip the blur. Desktop (>=992px) keeps the glass effect. */
+@media (max-width: 991.98px) {
+  /* Only the elements that actually carry a backdrop-filter (see the
+     blur() rules above) are targeted here. */
+  .modal-content,
+  .profile-dropdown,
+  .upload-form-lock-overlay,
+  .hero-highlight,
+  .search-box,
+  .nav-tabs .nav-link,
+  .search-gate-backdrop,
+  .card.section-card,
+  .contributor-more,
+  .paper-lock-overlay,
+  #verificationBlockOverlay,
+  #paperVerificationBlock {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
 }

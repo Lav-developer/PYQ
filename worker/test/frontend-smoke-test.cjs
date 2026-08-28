@@ -278,6 +278,19 @@ function renderedTitles() {
     window.eval("getPyqDetailsUrl({ id: 'legacy_item', slug: '' })") === '/paper.html?id=legacy_item');
   check('initial load has no leftover skeleton', !skeletonVisible());
 
+  // ── Performance regression: F1 (staggered animation) ──────────────────
+  // Cards must NOT carry the old inline `animation-delay` that grew with the
+  // item's global index (which hid Load-More cards for seconds).
+  const cardsWithInlineDelay = Array.from(
+    window.document.querySelectorAll('#pyqList .pyq-item')
+  ).filter(li => /animation-delay/i.test(li.getAttribute('style') || '')).length;
+  check('no PYQ card carries an inline animation-delay', cardsWithInlineDelay === 0, `found ${cardsWithInlineDelay}`);
+  // The initial-render stagger class must be dropped shortly after the first
+  // render so appended/searched items are never delayed.
+  await new Promise(resolve => setTimeout(resolve, 800));
+  check('list releases the first-render animation class after initial load',
+    !window.document.getElementById('pyqList').classList.contains('initial-render'));
+
   const signedInUser = {
     uid: 'test-user',
     email: 'student@example.com',
@@ -287,6 +300,12 @@ function renderedTitles() {
     reload() { return Promise.resolve(); },
   };
   window.firebase._signedIn = signedInUser;
+  // Firebase core is now loaded lazily (not via eager <script> tags). The real
+  // loader injects the SDK then fires the auth listener; here the SDK is
+  // already mocked globally, so initialize it explicitly and wait for the
+  // chunked PYQ rendering (requestAnimationFrame batches) to settle.
+  await window.ensureFirebase();
+  await new Promise((r) => setTimeout(r, 120));
   check('auth listener captured', typeof window.__authListener === 'function');
   if (typeof window.__authListener === 'function') {
     window.__authListener(signedInUser);
@@ -302,7 +321,8 @@ function renderedTitles() {
     if (extra && extra.sort !== undefined) window.document.getElementById('sortBy').value = extra.sort;
     requestedUrls.length = 0;
     await window.performSearch();
-    await new Promise((r) => setTimeout(r, 0));
+    // Wait for chunked (requestAnimationFrame-batched) rendering to finish.
+    await new Promise((r) => setTimeout(r, 120));
   }
 
   await runSearch('B.Com');
@@ -359,6 +379,31 @@ function renderedTitles() {
   await runSearch('B.Com');
   check('successive searches: no skeleton', !skeletonVisible());
   check('successive searches: latest query rendered', renderedTitles().length > 0, `got ${renderedTitles().length}`);
+
+  // ── Performance regression: F2 Load More appends, appended cards have no
+  //    animation delay and search results are not re-animated (F1). ─────────
+  // Reset to the unfiltered browse list so Load More uses server pagination.
+  window.document.getElementById('searchInput').value = '';
+  window.document.getElementById('filterCourse').value = '';
+  window.document.getElementById('filterYear').value = '';
+  window.document.getElementById('filterSession').value = '';
+  await window.performSearch();
+  await new Promise((r) => setTimeout(r, 150));
+  const countBefore = renderedTitles().length;
+  const loadMoreBtn = window.document.getElementById('loadMoreBtn');
+  check('Load More button is present for signed-in browsing',
+    !!loadMoreBtn && loadMoreBtn.style.display !== 'none');
+  if (loadMoreBtn && loadMoreBtn.style.display !== 'none') {
+    loadMoreBtn.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const countAfter = renderedTitles().length;
+    check('Load More appends additional cards (no full teardown needed)', countAfter > countBefore, `${countAfter} vs ${countBefore}`);
+    check('appended cards carry no inline animation-delay',
+      Array.from(window.document.querySelectorAll('#pyqList .pyq-item'))
+        .filter(li => /animation-delay/i.test(li.getAttribute('style') || '')).length === 0);
+    check('list no longer has the first-render animation class after pagination',
+      !window.document.getElementById('pyqList').classList.contains('initial-render'));
+  }
 
   forceSearchError = true;
   await runSearch('Java');

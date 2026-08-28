@@ -1,4 +1,10 @@
-// Initialize Firebase
+// ===== FIREBASE — LAZY CORE LOADER (performance) =====
+// Public browsing (PYQ list, search, filters, paper reading) needs no
+// Firebase at all — that data comes from the Worker API. The Firebase SDKs
+// are therefore NOT loaded via <script> tags anymore: this loader injects
+// them lazily, during browser idle time / on first user interaction, and
+// every authenticated feature awaits `ensureFirebase()` first. Anonymous
+// visitors never pay the ~270 KB Firebase parse/compile cost.
 const firebaseConfig = {
     apiKey: "AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ",
     authDomain: "dsmnru-data.firebaseapp.com",
@@ -9,19 +15,79 @@ const firebaseConfig = {
     measurementId: "G-VL6V3T96YX"
 };
 
-firebase.initializeApp(firebaseConfig);
+const FIREBASE_CORE_SRCS = [
+    'https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js',
+    'https://www.gstatic.com/firebasejs/9.22.1/firebase-auth-compat.js'
+];
+const FIRESTORE_SRC = 'https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js';
 
-// Authentication is required for the profile control, but Firestore is not
-// needed to browse public PYQs (those come from the Worker API). Loading the
-// Firestore compat bundle only when an authenticated/write feature is used
-// removes its parse/compile work from the anonymous landing-page critical path.
+function _loadExternalScript(src) {
+    return new Promise((resolve, reject) => {
+        const existing = document.querySelector('script[src="' + src + '"]');
+        if (existing) {
+            if (existing.dataset.loaded === 'true') return resolve();
+            existing.addEventListener('load', resolve);
+            existing.addEventListener('error', () => reject(new Error('Failed to load ' + src)));
+            return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.dataset.loaded = 'false';
+        script.onload = () => { script.dataset.loaded = 'true'; resolve(); };
+        script.onerror = () => reject(new Error('Failed to load ' + src));
+        document.head.appendChild(script);
+    });
+}
+
+let firebaseCorePromise = null;
+let auth = null;
+let authListenerInstalled = false;
+
+// Loads firebase-app + firebase-auth and initializes the app. Resolves with
+// the global `firebase` namespace. Safe to call repeatedly (cached).
+function ensureFirebase() {
+    // Already available (lazy scripts finished, an inline tag provided it, or
+    // a test/mock environment pre-populated the global).
+    if (typeof firebase !== 'undefined' && firebase.initializeApp) {
+        if (!firebase.apps || !firebase.apps.length) {
+            try { firebase.initializeApp(firebaseConfig); } catch (e) { /* already initialized */ }
+        }
+        _setupAuthStateListener();
+        return Promise.resolve(firebase);
+    }
+    if (firebaseCorePromise) return firebaseCorePromise;
+
+    firebaseCorePromise = (async () => {
+        for (const src of FIREBASE_CORE_SRCS) {
+            // eslint-disable-next-line no-await-in-loop
+            await _loadExternalScript(src);
+        }
+        if (!firebase.apps.length) {
+            firebase.initializeApp(firebaseConfig);
+        }
+        _setupAuthStateListener();
+        return firebase;
+    })().catch((err) => {
+        firebaseCorePromise = null;
+        throw err;
+    });
+
+    return firebaseCorePromise;
+}
+window.ensureFirebase = ensureFirebase;
+
+// Firestore is a separate, even larger bundle — only loaded for an
+// authenticated/write feature (profile, comments, uploads, view increments).
 let db = null;
-const auth = firebase.auth();
 let firestoreLoadPromise = null;
 
 function configureFirestore() {
-    if (!db && firebase.firestore) {
+    if (!db && typeof firebase !== 'undefined' && firebase.firestore) {
         db = firebase.firestore();
+        // Expose cross-script so lazily-loaded modules (paper.js) share the
+        // same Firestore instance after ensureFirestore() resolves.
+        window.db = db;
         db.enablePersistence({ synchronizeTabs: true }).catch((error) => {
             if (error.code !== 'failed-precondition' && error.code !== 'unimplemented') {
                 console.warn('Firestore persistence unavailable:', error.message);
@@ -32,24 +98,39 @@ function configureFirestore() {
 }
 
 function ensureFirestore() {
-    if (configureFirestore()) return Promise.resolve(db);
-    if (firestoreLoadPromise) return firestoreLoadPromise;
+    return ensureFirebase().then(() => {
+        if (configureFirestore()) return db;
+        if (firestoreLoadPromise) return firestoreLoadPromise;
 
-    firestoreLoadPromise = new Promise((resolve, reject) => {
-        const script = document.createElement('script');
-        script.src = 'https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js';
-        script.async = true;
-        script.onload = () => {
-            const firestore = configureFirestore();
-            if (firestore) resolve(firestore);
-            else reject(new Error('Firestore did not initialize'));
-        };
-        script.onerror = () => reject(new Error('Unable to load Firestore'));
-        document.head.appendChild(script);
+        firestoreLoadPromise = _loadExternalScript(FIRESTORE_SRC)
+            .then(() => {
+                if (configureFirestore()) return db;
+                throw new Error('Firestore did not initialize');
+            })
+            .catch((err) => {
+                firestoreLoadPromise = null;
+                throw err;
+            });
+        return firestoreLoadPromise;
     });
-    return firestoreLoadPromise;
 }
 window.ensureFirestore = ensureFirestore;
+
+// Kick off the core SDK during idle time so a returning signed-in visitor's
+// session is restored without waiting for a click, while staying completely
+// off the first-paint critical path for anonymous visitors.
+function _preloadFirebaseSoon() {
+    const start = () => { ensureFirebase().catch(() => { /* offline */ }); };
+    if (typeof window !== 'undefined' && window.requestIdleCallback) {
+        window.requestIdleCallback(start, { timeout: 3000 });
+    } else {
+        setTimeout(start, 1500);
+    }
+}
+// First interaction also triggers the load (login click, typing, touch, etc.).
+['pointerdown', 'keydown', 'focusin'].forEach((evt) => {
+    window.addEventListener(evt, () => ensureFirebase().catch(() => {}), { once: true, passive: true });
+});
 
 
 // SweetAlert is only used after a login, profile, upload or feedback action.
@@ -251,23 +332,36 @@ function clearPyqsCache() {
 
 // Courses loaded from local courses.json (used to populate course selects)
 let coursesList = [];
+let _coursesPromise = null;
 
-// Fetch courses.json and populate course filters on the homepage
-function fetchCoursesJson() {
-    fetch('/courses.json')
+// Single shared fetch of /courses.json — used both by the filter populator and
+// by the homepage-section catalog builder, so the file is requested once per
+// page load instead of twice (the second caller previously forced a
+// cache:'no-store' re-download).
+function loadCourses() {
+    if (_coursesPromise) return _coursesPromise;
+    _coursesPromise = fetch('/courses.json')
         .then(res => {
             if (!res.ok) throw new Error('Unable to load courses.json');
             return res.json();
         })
-        .then(data => {
-            // courses.json has structure { courses: [...] }
-            if (data && Array.isArray(data.courses)) {
-                coursesList = data.courses;
-                try { populateCourseFilter(); } catch (e) { /* ignore */ }
-            }
-        })
+        .then(data => Array.isArray(data && data.courses) ? data.courses : [])
         .catch(err => {
             console.warn('courses.json not loaded:', err.message);
+            return [];
+        });
+    return _coursesPromise;
+}
+
+// Fetch courses.json (single shared request — see loadCourses) and populate
+// course filters/badge where the UI supports it.
+function fetchCoursesJson() {
+    loadCourses()
+        .then(courses => {
+            if (courses.length) {
+                coursesList = courses;
+                try { populateCourseFilter(); } catch (e) { /* ignore */ }
+            }
         });
 }
 
@@ -407,8 +501,16 @@ function updateUploadAccessUI() {
     });
 }
 
-// Monitor auth state changes
-auth.onAuthStateChanged(async user => {
+// Monitor auth state changes (registered lazily once the Auth SDK exists).
+function _setupAuthStateListener() {
+    if (authListenerInstalled || typeof firebase === 'undefined' || !firebase.auth) return;
+    auth = firebase.auth();
+    if (!auth) return;
+    authListenerInstalled = true;
+    auth.onAuthStateChanged(_handleAuthStateChanged);
+}
+
+async function _handleAuthStateChanged(user) {
     currentUser = user;
     updateUserUI();
     updateUploadAccessUI();
@@ -445,7 +547,7 @@ auth.onAuthStateChanged(async user => {
     } else {
         hideVerificationBlock();
     }
-});
+}
 
 // Update UI based on auth state
 function updateUserUI() {
@@ -499,7 +601,8 @@ document.addEventListener('click', function(event) {
 });
 
 // ===== LOGIN FUNCTIONS =====
-function openLoginModal() {
+async function openLoginModal() {
+    await ensureFirebase();
     document.getElementById('profileDropdown').style.display = 'none';
     const modal = new bootstrap.Modal(document.getElementById('loginModal'));
     modal.show();
@@ -512,6 +615,7 @@ function closeLoginModal() {
 
 async function signInWithGoogle(providerEntryPoint) {
     try {
+        await ensureFirebase();
         const provider = new firebase.auth.GoogleAuthProvider();
         const result = await auth.signInWithPopup(provider);
         await result.user.reload();
@@ -561,6 +665,7 @@ async function signInWithGoogle(providerEntryPoint) {
 
 document.getElementById('loginForm').addEventListener('submit', async function(e) {
     e.preventDefault();
+    await ensureFirebase();
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     const errorDiv = document.getElementById('loginError');
@@ -612,7 +717,8 @@ async function sendSubscriberToMake(name, email) {
 }
 
 // ===== SIGNUP FUNCTIONS =====
-function openSignupModal() {
+async function openSignupModal() {
+    await ensureFirebase();
     document.getElementById('profileDropdown').style.display = 'none';
     const modal = new bootstrap.Modal(document.getElementById('signupModal'));
     modal.show();
@@ -669,7 +775,8 @@ function closeSignupModal() {
 
 document.getElementById('signupForm').addEventListener('submit', async function(e) {
     e.preventDefault();
-    
+    await ensureFirebase();
+
     // 1. Lock the submit button to prevent double-clicks
     const submitBtn = e.target.querySelector('button[type="submit"]');
     const originalBtnText = submitBtn.innerHTML;
@@ -758,7 +865,8 @@ document.getElementById('signupForm').addEventListener('submit', async function(
 });
 
 // ===== PROFILE FUNCTIONS =====
-function openProfileModal() {
+async function openProfileModal() {
+    await ensureFirebase();
     document.getElementById('profileDropdown').style.display = 'none';
     if (currentUser) {
         loadUserProfile();
@@ -904,9 +1012,10 @@ async function loadProfileRewards() {
     }
 }
 
-document.getElementById('profileForm').addEventListener('submit', async function(e) {
+    document.getElementById('profileForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     if (!currentUser) return;
+    await ensureFirebase();
 
     const name = document.getElementById('profileName').value.trim();
     const course = document.getElementById('profileCourse').value.trim();
@@ -961,7 +1070,8 @@ document.getElementById('profileForm').addEventListener('submit', async function
 });
 
 // ===== SETTINGS FUNCTIONS =====
-function openSettingsModal() {
+async function openSettingsModal() {
+    await ensureFirebase();
     document.getElementById('profileDropdown').style.display = 'none';
     const modal = new bootstrap.Modal(document.getElementById('settingsModal'));
     modal.show();
@@ -975,9 +1085,10 @@ function openChangePasswordModal() {
     modal.show();
 }
 
-document.getElementById('changePasswordForm').addEventListener('submit', async function(e) {
+    document.getElementById('changePasswordForm').addEventListener('submit', async function(e) {
     e.preventDefault();
     if (!currentUser) return;
+    await ensureFirebase();
 
     const currentPassword = document.getElementById('currentPassword').value;
     const newPassword = document.getElementById('newPassword').value;
@@ -1031,6 +1142,8 @@ function deleteAccountConfirm() {
     }).then(async (result) => {
         if (result.isConfirmed) {
             try {
+                await ensureFirebase();
+                await ensureFirestore();
                 const user = auth.currentUser;
                 await db.collection('users').doc(user.uid).delete();
                 await user.delete();
@@ -1048,7 +1161,7 @@ function ensureVerificationBlock() {
     if (_verificationBlockEl) return _verificationBlockEl;
     _verificationBlockEl = document.createElement('div');
     _verificationBlockEl.id = 'verificationBlockOverlay';
-    _verificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.92);backdrop-filter:blur(8px);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
+    _verificationBlockEl.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.97);z-index:1085;display:none;align-items:center;justify-content:center;padding:1rem;';
     _verificationBlockEl.innerHTML = `<div style="max-width:460px;width:100%;background:linear-gradient(180deg, rgba(15,23,42,0.96), rgba(15,23,42,0.88));border:1px solid rgba(110,231,216,0.22);border-radius:22px;padding:1.5rem 1.25rem;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.5);">
         <div style="width:64px;height:64px;margin:0 auto 12px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#f59e0b,#f97316);color:#fff;font-size:1.6rem;"><i class="fas fa-envelope"></i></div>
         <h5 style="color:#f8fafc;font-weight:800;margin:0 0 8px;">Verify your email to continue</h5>
@@ -1121,13 +1234,15 @@ async function logoutAndChangeEmail() {
     }).then(async (result) => {
         if (result.isConfirmed) {
             try {
+                await ensureFirebase();
+                await ensureFirestore();
                 const user = auth.currentUser;
                 const uid = user.uid;
-                
+
                 // Close verification modal
                 const modal = bootstrap.Modal.getInstance(document.getElementById('emailVerificationModal'));
                 if (modal) modal.hide();
-                
+
                 // Delete user data from Firestore
                 await db.collection('users').doc(uid).delete();
                 
@@ -1165,6 +1280,7 @@ async function logoutAndChangeEmail() {
 
 async function resendVerificationEmail() {
     try {
+        await ensureFirebase();
         const resendBtn = document.getElementById('resendVerificationBtn');
         const originalText = resendBtn.innerHTML;
         resendBtn.disabled = true;
@@ -1188,10 +1304,12 @@ async function resendVerificationEmail() {
 
 async function checkEmailVerification() {
     try {
+        await ensureFirebase();
         await currentUser.reload();
-        
+
         if (currentUser.emailVerified) {
             // Update Firestore document
+            await ensureFirestore();
             await db.collection('users').doc(currentUser.uid).set({
                 emailVerified: true
             }, { merge: true });
@@ -1302,6 +1420,7 @@ function logout() {
     }).then(async (result) => {
         if (result.isConfirmed) {
             try {
+                await ensureFirebase();
                 await auth.signOut();
                 document.getElementById('profileDropdown').style.display = 'none';
                 showAlert('Logged Out', 'You have been logged out successfully.', 'success');
@@ -2175,16 +2294,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 contributorsGrid.appendChild(joinCard);
     }
 
-    async function loadAggregatedStats() {
-        // Stats now come from the Worker API (KV-cached). Firestore is never
-        // read directly for stats anymore.
-        try {
-            await fetchStats();
-        } catch (error) {
-            console.warn('Aggregated stats unavailable:', error.message);
-        }
-    }
-
     function escapeHtml(value) {
         return String(value || '').replace(/[&<>"']/g, function(char) {
             const entities = {
@@ -2228,18 +2337,11 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     async function fetchCourseCatalog() {
-        try {
-            const response = await fetch('/courses.json', { cache: 'no-store' });
-            if (!response.ok) {
-                throw new Error('Unable to load course catalog');
-            }
-
-            const data = await response.json();
-            return Array.isArray(data.courses) ? data.courses : [];
-        } catch (error) {
-            console.warn('Course catalog unavailable:', error.message);
-            return ['B.A.', 'B.Com', 'B.Tech', 'B.Ed.', 'B.V.A.', 'BPO', 'D.Pharm', 'MBA', 'MCA', 'M.Tech'];
-        }
+        // Reuse the single shared courses.json request (loadCourses) instead of
+        // issuing a second cache:'no-store' fetch on the homepage.
+        const courses = await loadCourses();
+        if (courses.length) return courses;
+        return ['B.A.', 'B.Com', 'B.Tech', 'B.Ed.', 'B.V.A.', 'BPO', 'D.Pharm', 'MBA', 'MCA', 'M.Tech'];
     }
 
     function renderCompactPyqList(containerId, items, emptyMessage) {
@@ -2403,48 +2505,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // Load contributors only on pages that render the contributors grid.
     if (document.getElementById('contributorsGrid')) {
         loadContributors();
-        loadAggregatedStats();
     }
 
-    function renderPYQs(pyqs) {
-        const startIndex = (currentPage - 1) * itemsPerPage;
-        const endIndex = startIndex + itemsPerPage;
-        const pyqsToRender = filteredPyqs.slice(startIndex, endIndex);
-
-        if (!pyqsToRender.length) {
-            if (currentPage === 1) {
-                showEmptyState('pyqList', 'No question papers found matching your criteria');
-            }
-            document.getElementById('loadMoreBtn').style.display = 'none';
-            updatePyqFilterUI();
-            return;
+    // Build the markup for one PYQ card. Kept as a pure string (same markup as
+    // before) so it can be parsed into DOM nodes by the chunked renderer below.
+    // NOTE: no per-item animation-delay — appended items appear immediately
+    // (the short entrance animation only applies to the first-render batch via
+    // the `initial-render` class on the list; see styles.css).
+    function buildPyqCardHtml(pyq) {
+        const viewCount = Number.isFinite(Number(pyq.views)) ? Number(pyq.views) : 0;
+        // Build pills from course/sem/session/branch
+        const pills = [];
+        if (pyq.course) pills.push(`<span class="meta-tag course"><i class="fas fa-graduation-cap"></i> ${escapeHtml(pyq.course)}</span>`);
+        if (pyq.semester) pills.push(`<span class="meta-tag semester"><i class="fas fa-layer-group"></i> ${escapeHtml(pyq.semester)}</span>`);
+        if (pyq.session) pills.push(`<span class="meta-tag"><i class="fas fa-calendar"></i> ${escapeHtml(pyq.session)}</span>`);
+        if (pyq.branch) pills.push(`<span class="meta-tag"><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>`);
+        if (!pills.length && pyq.title) {
+            // fallback: try to extract from title
+            const sem = getPyqSemesterValue(pyq);
+            if (sem) pills.push(`<span class="meta-tag semester">${escapeHtml(sem)}</span>`);
         }
 
-        if (currentPage === 1) {
-            pyqList.innerHTML = '';
-        }
-
-        pyqList.insertAdjacentHTML('beforeend', pyqsToRender.map((pyq, index) => {
-            const primaryFile = getPyqPrimaryLink(pyq);
-            const secondaryFile = getPyqSecondaryLink(pyq);
-            const shareTarget = primaryFile || secondaryFile;
-            const safeTitle = escapeJsString(pyq.title || 'Document');
-            const safeId = escapeJsString(pyq.id || '');
-            const viewCount = Number.isFinite(Number(pyq.views)) ? Number(pyq.views) : 0;
-            // Build pills from course/sem/session/branch
-            const pills = [];
-            if (pyq.course) pills.push(`<span class="meta-tag course"><i class="fas fa-graduation-cap"></i> ${escapeHtml(pyq.course)}</span>`);
-            if (pyq.semester) pills.push(`<span class="meta-tag semester"><i class="fas fa-layer-group"></i> ${escapeHtml(pyq.semester)}</span>`);
-            if (pyq.session) pills.push(`<span class="meta-tag"><i class="fas fa-calendar"></i> ${escapeHtml(pyq.session)}</span>`);
-            if (pyq.branch) pills.push(`<span class="meta-tag"><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>`);
-            if (!pills.length && pyq.title) {
-                // fallback: try to extract from title
-                const sem = getPyqSemesterValue(pyq);
-                if (sem) pills.push(`<span class="meta-tag semester">${escapeHtml(sem)}</span>`);
-            }
-
-            return `
-            <li class="pyq-item" style="animation-delay: ${0.1 + (startIndex + index) * 0.05}s">
+        return `
+            <li class="pyq-item">
                 <div class="pyq-info">
                     <div class="pdf-icon">
                         <i class="fas fa-file-pdf"></i>
@@ -2463,10 +2546,100 @@ document.addEventListener('DOMContentLoaded', function() {
                 </div>
             </li>
         `;
-        }).join(''));
+    }
 
-        // Show or hide Load More button
+    // ── Non-blocking list rendering ──────────────────────────────────────
+    // Previously the whole page of cards was concatenated into one giant
+    // string and inserted synchronously, which parsed 400–600 nodes and laid
+    // the list out in a single long task (the freeze after Load More/search).
+    // Cards are now built into an off-DOM container and moved into the list in
+    // small batches across animation frames, so every frame stays short and
+    // the main thread remains responsive. A render token cancels any in-flight
+    // render superseded by a newer one (search/filter/clear).
+    let pyqRenderToken = 0;
+    let hasInitialPyqRenderOccurred = false;
+    const PYQ_RENDER_BATCH = 6;
+
+    function _rafAsync() {
+        return new Promise(resolve => {
+            if (typeof window.requestAnimationFrame === 'function') {
+                window.requestAnimationFrame(() => resolve());
+            } else {
+                setTimeout(resolve, 0);
+            }
+        });
+    }
+
+    function renderPYQs(/* pyqs arg retained for call-site compatibility */) {
+        const startIndex = (currentPage - 1) * itemsPerPage;
+        const endIndex = startIndex + itemsPerPage;
+        const pyqsToRender = filteredPyqs.slice(startIndex, endIndex);
+
+        if (!pyqsToRender.length) {
+            pyqRenderToken++;
+            if (currentPage === 1) {
+                showEmptyState('pyqList', 'No question papers found matching your criteria');
+            }
+            document.getElementById('loadMoreBtn').style.display = 'none';
+            updatePyqFilterUI();
+            return;
+        }
+
+        // Replace vs append: page 1 (search/filter/sort/clear/bootstrap)
+        // rebuilds the list; Load More (currentPage > 1) appends.
+        const isReplace = currentPage === 1;
+        // The short entrance animation only plays for the very first visible
+        // batch of the session. Newly appended / searched cards appear
+        // instantly with no delay and no re-animated stagger.
+        const animateThisRender = isReplace && !hasInitialPyqRenderOccurred;
+        if (isReplace) {
+            pyqList.innerHTML = '';
+        }
+        pyqList.classList.toggle('initial-render', animateThisRender);
+
+        // Update the Load More control and results bar immediately — the list
+        // fills in on subsequent frames without blocking these UI updates.
+        updateLoadMoreButton(endIndex);
+        updatePyqFilterUI();
+
+        const myToken = ++pyqRenderToken;
+
+        // Build all card markup once (cheap string work), then parse it into a
+        // detached container so nodes can be moved in batches.
+        const detached = document.createElement('div');
+        detached.innerHTML = pyqsToRender.map(buildPyqCardHtml).join('');
+        const nodes = Array.from(detached.children);
+
+        (async () => {
+            let offset = 0;
+            while (offset < nodes.length) {
+                if (myToken !== pyqRenderToken) return; // superseded
+                const slice = nodes.slice(offset, offset + PYQ_RENDER_BATCH);
+                const frag = document.createDocumentFragment();
+                slice.forEach(node => frag.appendChild(node));
+                pyqList.appendChild(frag);
+                offset += PYQ_RENDER_BATCH;
+                // Yield to the browser between batches.
+                // eslint-disable-next-line no-await-in-loop
+                await _rafAsync();
+            }
+            if (myToken !== pyqRenderToken) return;
+            if (animateThisRender) {
+                hasInitialPyqRenderOccurred = true;
+                // Drop the animation class shortly after the entrance so
+                // later appended items are never animated/delayed.
+                setTimeout(() => {
+                    if (myToken === pyqRenderToken) pyqList.classList.remove('initial-render');
+                }, 600);
+            } else {
+                pyqList.classList.remove('initial-render');
+            }
+        })();
+    }
+
+    function updateLoadMoreButton(endIndex) {
         const loadMoreBtn = document.getElementById('loadMoreBtn');
+        if (!loadMoreBtn) return;
         const searchTerm = document.getElementById('searchInput').value.trim();
         const filtersActive = hasActivePyqFilters();
         const moreSearchPages = searchState && searchState.page < searchState.totalPages;
@@ -2475,7 +2648,6 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             loadMoreBtn.style.display = 'none';
         }
-        updatePyqFilterUI();
     }
 
     function normalizePyqLink(value) {
@@ -2660,6 +2832,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // server-side in the Worker against its KV-cached search index.
     // No full Firestore collection reads.
     window.performSearch = async function() {
+        // Make sure auth state is known before applying the login gate so a
+        // signed-in returning visitor is not asked to log in during lazy SDK
+        // load (which would otherwise read currentUser === null).
+        await ensureFirebase();
         const rawSearch = (document.getElementById('searchInput') && document.getElementById('searchInput').value) || '';
         const searchTerm = rawSearch.toLowerCase().trim();
         const queryForApi = searchTerm.length >= 2 ? searchTerm : '';
@@ -2800,7 +2976,8 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    window.openPyqDocument = function(pyqId, filePath, title) {
+    window.openPyqDocument = async function(pyqId, filePath, title) {
+        await ensureFirebase();
         if (!currentUser) {
             openSearchGateModal();
             return;
@@ -2815,7 +2992,8 @@ document.addEventListener('DOMContentLoaded', function() {
     };
     // also gate direct preview wrapper for related cards
     const _origPreviewPDF = window.previewPDF;
-    window.previewPDF = function(filePath, title) {
+    window.previewPDF = async function(filePath, title) {
+        await ensureFirebase();
         if (!currentUser) {
             openSearchGateModal();
             return;
@@ -2936,37 +3114,12 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     }
 
-    // Show scroll to top button when needed
-    window.addEventListener('scroll', function() {
-        const scrollButton = document.getElementById('scrollToTop');
-        if (window.pageYOffset > 300) {
-            if (scrollButton) scrollButton.style.display = 'block';
-        } else {
-            if (scrollButton) scrollButton.style.display = 'none';
-        }
-    });
-
-    // Add analytics tracking (placeholder)
-    function trackEvent(category, action, label) {
-        // Example: Google Analytics 4
-        if (typeof gtag !== 'undefined') {
-            gtag('event', action, {
-                event_category: category,
-                event_label: label
-            });
-        }
-    }
-
-    // Track downloads and shares
-    document.addEventListener('click', function(event) {
-        if (event.target.classList.contains('btn-download')) {
-            trackEvent('Download', 'PDF', event.target.closest('.pyq-item, .syllabus-item').querySelector('h5').textContent);
-        } else if (event.target.classList.contains('btn-share')) {
-            trackEvent('Share', 'PDF', event.target.closest('.pyq-item, .syllabus-item').querySelector('h5').textContent);
-        } else if (event.target.classList.contains('btn-preview')) {
-            trackEvent('Preview', 'PDF', event.target.closest('.pyq-item, .syllabus-item').querySelector('h5').textContent);
-        }
-    });
+    // (Performance) The old global scroll listener only toggled a
+    // #scrollToTop button that does not exist in any shipped page, and it ran
+    // a getElementById on every non-passive scroll event — removed.
+    // The old document-level analytics click handler is also removed: gtag is
+    // never loaded and `.closest(...).querySelector('h5')` returned null on the
+    // h3-based list cards, throwing a TypeError on every card click.
 
     // Tool Information Modal Handler
 function showToolInfo(toolId) {
@@ -3440,6 +3593,9 @@ function toggleChatWidget() {
                 const due = document.getElementById('plannerDue').value || null;
                 if(!title) return;
                 plannerTasks.push({ id: Date.now(), title, due, completed:false }); savePlanner(); renderPlannerItems(); document.getElementById('plannerForm').reset(); scheduleReminders();
+                // Only ask for notification permission once the user actually
+                // creates a reminder (not during initial page load).
+                if (due && 'Notification' in window && Notification.permission === 'default') { try { Notification.requestPermission().then(() => scheduleReminders()); } catch(e) { try { Notification.requestPermission(); } catch(_) {} } }
             });
             modal.querySelector('#clearPlannerBtn').addEventListener('click', function(){ if(confirm('Clear all tasks?')){ plannerTasks = []; savePlanner(); renderPlannerItems(); } });
         }
@@ -3477,8 +3633,10 @@ function toggleChatWidget() {
     function formatDate(iso){ try{ const d = new Date(iso); return d.toLocaleString(); }catch(e){return iso} }
     function escapeHtml(s){ return String(s).replace(/[&<>"]+/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 
-    // wire open button
-    document.addEventListener('DOMContentLoaded', function(){ const openPlannerBtn = document.getElementById('openPlannerBtn'); if(openPlannerBtn) openPlannerBtn.addEventListener('click', function(){ renderPlannerModal(); }); loadPlanner(); scheduleReminders(); if('Notification' in window && Notification.permission==='default'){ try{ Notification.requestPermission(); }catch(e){} } });
+    // wire open button. Notification permission is requested lazily — only
+    // when the user actually creates a dated task that would notify — instead
+    // of prompting every anonymous visitor on page load.
+    document.addEventListener('DOMContentLoaded', function(){ const openPlannerBtn = document.getElementById('openPlannerBtn'); if(openPlannerBtn) openPlannerBtn.addEventListener('click', function(){ renderPlannerModal(); }); loadPlanner(); scheduleReminders(); });
 
 })();
 
@@ -3764,3 +3922,8 @@ if ('serviceWorker' in navigator) {
         });
     });
 }
+
+// Lazily warm the Firebase core SDK (auth) during idle time so a returning
+// signed-in user's session is restored without putting the SDK on the
+// anonymous first-load critical path.
+_preloadFirebaseSoon();
