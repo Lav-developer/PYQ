@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Base application theme (used by anything that is not the bridge
+         activity; the bridge itself uses AppTheme.NoActionBar below). -->
+    <style name="AppTheme" parent="Theme.AppCompat.Light.DarkActionBar">
+        <item name="colorPrimary">@color/dsmnru_dark</item>
+        <item name="colorPrimaryDark">@color/dsmnru_dark</item>
+        <item name="colorAccent">@color/dsmnru_teal</item>
+    </style>
+
+    <!--
+      Runtime theme of the WebView activity.
+      * DayNight parent: the website reacts to prefers-color-scheme, so the
+        app follows the system dark mode automatically.
+      * The dark window background matches the site header (#0f172a), so the
+        blank frame while the remote page loads, and the area behind the
+        system bars on edge-to-edge (Android 15+) devices, stay on-brand.
+      * statusBarColor/navigationBarColor apply to Android < 15 only; on
+        Android 15+ edge-to-edge is enforced and Capacitor's built-in
+        SystemBars plugin (config style=DARK) keeps light bar icons and pads
+        the WebView with system-bar insets because the site does not use
+        viewport-fit=cover.
+    -->
+    <style name="AppTheme.NoActionBar" parent="Theme.AppCompat.DayNight.NoActionBar">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+        <item name="android:background">@null</item>
+        <item name="android:windowBackground">@color/dsmnru_dark</item>
+        <item name="android:statusBarColor">@color/dsmnru_dark</item>
+        <item name="android:navigationBarColor">@color/dsmnru_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+
+    <!--
+      Launch/splash theme, driven by androidx.core:core-splashscreen.
+      The @capacitor/splash-screen plugin calls installSplashScreen() and
+      keeps the splash visible for a short, fixed hand-off window
+      (launchShowDuration) with a quick fade-out — see capacitor.config.json.
+
+      windowSplashScreenBackground/AnimatedIcon are the modern Android 12+
+      splash attributes (the compat library emulates them on older devices),
+      android:background is the legacy window background used before
+      installSplashScreen() runs, and postSplashScreenTheme is required by
+      the compat library to switch to the runtime theme.
+    -->
+    <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
+        <item name="android:background">@drawable/splash</item>
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_icon</item>
+        <item name="windowSplashScreenAnimationDuration">250</item>
+        <item name="postSplashScreenTheme">@style/AppTheme.NoActionBar</item>
+    </style>
+</resources>

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- DSMNRU PYQ brand palette, taken from the website (see manifest.json
+         theme_color and styles.css): deep slate background with teal/gold
+         accents used by the site header and paper cards. -->
+    <color name="dsmnru_dark">#0F172A</color>
+    <color name="dsmnru_teal">#14B8A6</color>
+    <color name="dsmnru_teal_light">#6EE7D8</color>
+    <color name="dsmnru_gold">#F59E0B</color>
+
+    <!-- Splash + adaptive icon share the site's dark background so the
+         launcher icon, splash screen and in-app header read as one brand. -->
+    <color name="splash_background">#0F172A</color>
+    <color name="ic_launcher_background">#0F172A</color>
+</resources>

@@ -160,6 +160,7 @@
 │   │                   # firestore.js, cache.js, search.js, auth.js, rateLimit.js,
 │   │                   # validation.js, cors.js
 │   └── test/           # worker.test.js + frontend smoke tests + read simulation
+├── android-app/        # Capacitor Android shell around the live site (see android-app/README.md)
 └── img/Logo.png
 ```
 

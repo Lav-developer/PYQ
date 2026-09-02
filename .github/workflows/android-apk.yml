@@ -1,0 +1,71 @@
+name: Android APK
+
+# Builds the DSMNRU PYQ debug APK on a GitHub-hosted runner.
+# No Android Studio or local Android SDK is required — the runner provides
+# Node, JDK 21 and the Android SDK; Gradle comes from the project wrapper.
+#
+# The APK is uploaded as a workflow artifact only (never committed, no
+# releases are created).
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - android-app
+    paths:
+      - 'android-app/**'
+      - '.github/workflows/android-apk.yml'
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  debug-apk:
+    name: Build debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: android-app/package-lock.json
+
+      - name: Set up Java 21 (Gradle/AGP requirement)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: gradle
+
+      - name: Install JS dependencies
+        working-directory: android-app
+        run: npm ci
+
+      - name: Sync Capacitor Android project
+        # Regenerates android/app/src/main/assets (www copy + capacitor config)
+        # and the generated gradle includes from the installed npm plugins.
+        working-directory: android-app
+        run: npx cap sync android
+
+      - name: Build debug APK
+        working-directory: android-app/android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Show APK details
+        run: ls -lh android-app/android/app/build/outputs/apk/debug/
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsmnru-pyq-debug-apk
+          path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Legacy (pre-Android-12) launch screen: brand background with the site
+     emblem centred. On Android 12+ the system splash API
+     (windowSplashScreenAnimatedIcon in styles.xml) takes over instead. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/splash_background" />
+    <item
+        android:drawable="@drawable/splash_icon"
+        android:gravity="center"
+        android:width="128dp"
+        android:height="128dp" />
+</layer-list>

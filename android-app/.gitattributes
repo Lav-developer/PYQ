@@ -1,0 +1,4 @@
+# Keep the Gradle wrapper usable on every platform: the shell script must stay
+# LF, the Windows batch file CRLF.
+gradlew text eol=lf
+*.bat text eol=crlf

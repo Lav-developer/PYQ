@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">DSMNRU PYQ</string>
+    <string name="title_activity_main">DSMNRU PYQ</string>
+    <string name="package_name">com.dsmnru.pyq</string>
+    <string name="custom_url_scheme">com.dsmnru.pyq</string>
+</resources>

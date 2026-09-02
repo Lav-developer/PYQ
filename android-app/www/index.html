@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<!--
+  DSMNRU PYQ — Android local fallback page.
+
+  The app normally loads the live website (server.url in capacitor.config.json),
+  so this bundled page is only reached if the remote start URL is unavailable
+  and Capacitor falls back to local content. It simply relaunches the site.
+  Keep this file dependency-free: it must render with zero network access.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DSMNRU PYQ</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Manrope', 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 24px;
+      text-align: center;
+    }
+    .card { max-width: 420px; width: 100%; }
+    .logo {
+      width: 88px; height: 88px; margin: 0 auto 20px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #134e4a, #0f172a);
+      border: 1px solid rgba(110, 231, 216, 0.25);
+      display: flex; align-items: center; justify-content: center;
+    }
+    h1 { font-size: 1.35rem; font-weight: 800; letter-spacing: 0.01em; }
+    p { color: rgba(203, 213, 225, 0.8); font-size: 0.9rem; line-height: 1.6; margin: 10px 0 22px; }
+    a.btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: linear-gradient(135deg, #14b8a6, #0d9488);
+      color: #04211d; font-weight: 700; font-size: 0.95rem;
+      text-decoration: none; padding: 12px 26px; border-radius: 12px;
+    }
+    .spinner {
+      width: 22px; height: 22px; margin: 26px auto 0;
+      border: 3px solid rgba(110, 231, 216, 0.25);
+      border-top-color: #6ee7d8; border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .footnote { margin-top: 26px; font-size: 0.72rem; color: rgba(148, 163, 184, 0.55); }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo" aria-hidden="true">
+      <svg width="46" height="46" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M256 96 32 192l224 96 224-96L256 96z" fill="#6ee7d8"/>
+        <path d="M112 236v92c0 38 65 68 144 68s144-30 144-68v-92l-144 62-144-62z" fill="#fbbf24"/>
+        <path d="M448 208v120h-24V219l24-11z" fill="#6ee7d8"/>
+      </svg>
+    </div>
+    <h1>DSMNRU PYQ</h1>
+    <p>Previous year question papers and academic resources for DSMNRU students.</p>
+    <a class="btn" href="https://dsmnru-pyq.netlify.app/">Open DSMNRU Archive</a>
+    <div class="spinner" aria-hidden="true"></div>
+    <div class="footnote">DSMNRU Academic Archive</div>
+  </div>
+  <script>
+    // Relaunch the live site automatically; the link above stays as a manual fallback.
+    setTimeout(function () {
+      window.location.replace('https://dsmnru-pyq.netlify.app/');
+    }, 800);
+  </script>
+</body>
+</html>
