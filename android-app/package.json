@@ -1,0 +1,26 @@
+{
+  "name": "dsmnru-pyq-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Capacitor Android shell for the DSMNRU PYQ website (https://dsmnru-pyq.netlify.app). The app renders the existing production frontend inside a native Android WebView — no second backend, no bundled copy of the site.",
+  "author": "DSMNRU Academic Archive",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "cap": "cap",
+    "sync:android": "cap sync android",
+    "build:debug": "cap sync android && cd android && ./gradlew assembleDebug",
+    "build:release": "cap sync android && cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.1",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.1",
+    "@capacitor/splash-screen": "^8.0.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.5.1"
+  }
+}

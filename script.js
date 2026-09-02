@@ -613,7 +613,28 @@ function closeLoginModal() {
     if (modal) modal.hide();
 }
 
+// The Android app (Capacitor WebView) appends this token to the user agent
+// (server.appendUserAgent in android-app/capacitor.config.json). Google blocks
+// OAuth popups inside embedded WebViews, so the app shows a friendly hint and
+// users sign in with email & password instead. Browsers never match this.
+function isNativeAppWebView() {
+    return /DSMNRU-PYQ-Android/i.test(navigator.userAgent);
+}
+
 async function signInWithGoogle(providerEntryPoint) {
+    if (isNativeAppWebView()) {
+        const message = 'Google sign-in is not available inside the Android app yet. Please use email & password, or open the website in a browser.';
+        const errorDiv = providerEntryPoint === 'signup'
+            ? document.getElementById('signupError')
+            : document.getElementById('loginError');
+        if (errorDiv) {
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        } else {
+            showAlert('Info', message, 'info');
+        }
+        return;
+    }
     try {
         await ensureFirebase();
         const provider = new firebase.auth.GoogleAuthProvider();
