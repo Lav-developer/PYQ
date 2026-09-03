@@ -94,8 +94,13 @@ jobs:
       - name: Build debug APK
         working-directory: android-app/android
         run: |
+          set -o pipefail
           chmod +x ./gradlew
-          ./gradlew --no-daemon assembleDebug
+          # tee keeps the step's exit code (pipefail) while capturing the log —
+          # the tail lands in the step summary so compile errors are readable
+          # via the API even where the raw log download is not available.
+          ./gradlew --no-daemon assembleDebug 2>&1 | tee build-log.txt
+          { echo "## Gradle build output (tail)"; echo '```'; tail -n 150 build-log.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Show APK details
         run: ls -lh android-app/android/app/build/outputs/apk/debug/
