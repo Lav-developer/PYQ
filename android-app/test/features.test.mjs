@@ -720,7 +720,7 @@ test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-for
   assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
 
   const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
-  assert.match(profile, /1\.3\.6/, 'app version visible on Profile');
+  assert.match(profile, /1\.4\.0/, 'app version visible on Profile');
   assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
   assert.match(profile, /saveProfileEdits/, 'profile editing wired to the SAME user profile');
   assert.match(profile, /reward points/, 'upload/reward points visible in Profile');

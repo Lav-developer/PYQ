@@ -91,6 +91,20 @@ jobs:
         working-directory: android-app
         run: npx cap sync android
 
+      - name: Restore Firebase config from GitHub Secrets (optional)
+        id: firebase
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
+            echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android-app/android/app/google-services.json
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "Firebase config applied from the GOOGLE_SERVICES_JSON_B64 secret (FCM + generated OAuth resources active)."
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::GOOGLE_SERVICES_JSON_B64 is not configured — the build proceeds without it (Google sign-in uses the committed web-client fallback; FCM stays inactive)."
+          fi
+
       - name: Build debug APK
         working-directory: android-app/android
         run: |
@@ -107,3 +121,105 @@ jobs:
           path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Production release build. Runs in one of two modes:
+  #  · Signing secrets configured (ANDROID_KEYSTORE_B64 + password/alias
+  #    secrets) → signed dsmnru-pyq.apk, verified with apksigner, uploaded.
+  #  · Not configured → the job stops with a clear notice and produces
+  #    NOTHING — a production APK is never falsely labelled.
+  # Credentials exist only as GitHub Secrets; they are decoded into
+  # $RUNNER_TEMP at build time and never printed or committed.
+  # ────────────────────────────────────────────────────────────────────────
+  release-apk:
+    name: Build release APK (dsmnru-pyq.apk)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Check release signing configuration
+        id: signing
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: |
+          if [ -n "${ANDROID_KEYSTORE_B64:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Production signing is not configured yet. Add the ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD repository secrets (keystore base64) to build dsmnru-pyq.apk. The keystore must stay the same for every future update."
+          fi
+
+      - name: Set up Java 21 (Gradle/AGP requirement)
+        if: steps.signing.outputs.present == 'true'
+        uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: gradle
+
+      - name: Install JS dependencies
+        if: steps.signing.outputs.present == 'true'
+        working-directory: android-app
+        run: npm ci
+
+      - name: Sync Capacitor Android project
+        if: steps.signing.outputs.present == 'true'
+        working-directory: android-app
+        run: npx cap sync android
+
+      - name: Restore Firebase config from GitHub Secrets (optional)
+        if: steps.signing.outputs.present == 'true'
+        env:
+          GOOGLE_SERVICES_JSON_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          if [ -n "${GOOGLE_SERVICES_JSON_B64:-}" ]; then
+            echo "$GOOGLE_SERVICES_JSON_B64" | base64 -d > android-app/android/app/google-services.json
+            echo "Firebase config applied from secrets."
+          else
+            echo "::notice::GOOGLE_SERVICES_JSON_B64 not configured — the release APK will not include Firebase push/OAuth generated resources (Google sign-in uses the committed web-client fallback)."
+          fi
+
+      - name: Decode production signing key
+        if: steps.signing.outputs.present == 'true'
+        env:
+          ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > "${RUNNER_TEMP}/dsmnru-release.keystore"
+
+      - name: Build signed release APK
+        if: steps.signing.outputs.present == 'true'
+        working-directory: android-app/android
+        env:
+          ANDROID_KEYSTORE_FILE: ${{ runner.temp }}/dsmnru-release.keystore
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          chmod +x ./gradlew
+          ./gradlew --no-daemon assembleRelease
+
+      - name: Verify signature, package and version (certificate fingerprints are public — safe to print)
+        if: steps.signing.outputs.present == 'true'
+        run: |
+          APK=android-app/android/app/build/outputs/apk/release/app-release.apk
+          test -f "$APK"
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BT/apksigner" verify --print-certs "$APK" | sed -n '1,4p'
+          "$BT/aapt" dump badging "$APK" | grep -E '^package:' | head -1
+
+      - name: Rename to the production artifact name
+        if: steps.signing.outputs.present == 'true'
+        run: |
+          cp android-app/android/app/build/outputs/apk/release/app-release.apk              android-app/android/app/build/outputs/apk/release/dsmnru-pyq.apk
+          ls -lh android-app/android/app/build/outputs/apk/release/
+
+      - name: Upload dsmnru-pyq.apk artifact
+        if: steps.signing.outputs.present == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: dsmnru-pyq.apk
+          path: android-app/android/app/build/outputs/apk/release/dsmnru-pyq.apk
+          if-no-files-found: error
+          retention-days: 30

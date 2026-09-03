@@ -7,8 +7,8 @@ android {
         applicationId "com.dsmnru.pyq"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 10
-        versionName "1.3.6"
+        versionCode 11
+        versionName "1.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -22,6 +22,17 @@ android {
             storePassword 'android'       // public Android debug convention
             keyAlias 'androiddebugkey'
             keyPassword 'android'
+        }
+        release {
+            // Values arrive from the CI environment (GitHub Secrets). Empty
+            // config when unset — unused and harmless for debug builds.
+            def ksFile = System.getenv('ANDROID_KEYSTORE_FILE')
+            if (ksFile != null) {
+                storeFile file(ksFile)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
         }
     }
     buildTypes {
@@ -39,8 +50,15 @@ android {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
-            // Release signing is deliberately NOT configured in-repo (no
-            // production keystore credentials are committed or invented).
+            // PRODUCTION signing is injected at CI time through environment
+            // variables fed from GitHub Secrets (ANDROID_KEYSTORE_* — see
+            // signingConfigs.release below). Nothing is committed: no
+            // keystore, no passwords, no keys. When the variables are absent
+            // (local builds, unconfigured CI) the release APK is left
+            // UNSIGNED — a production APK is never falsely labelled.
+            if (System.getenv('ANDROID_KEYSTORE_FILE') != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }

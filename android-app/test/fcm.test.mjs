@@ -22,7 +22,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -62,8 +62,8 @@ test('Gradle wires firebase-messaging and keeps google-services conditional', ()
   assert.match(gradle, /apply plugin: 'com\.google\.gms\.google-services'/,
     'google-services plugin applied when google-services.json exists');
   assert.match(gradle, /google-services\.json/, 'apply is guarded by the presence of google-services.json');
-  assert.match(gradle, /versionCode 10/, 'versionCode increased for the 1.3.6 release');
-  assert.match(gradle, /versionName "1\.3\.6"/, 'versionName 1.3.6');
+  assert.match(gradle, /versionCode 11/, 'versionCode increased for the 1.4.0 production release');
+  assert.match(gradle, /versionName "1\.4\.0"/, 'versionName 1.4.0 (production release)');
   // Consistent package identity + stable debug signature (update-in-place).
   assert.match(gradle, /applicationId "com\.dsmnru\.pyq"/, 'single applicationId preserved');
   assert.match(gradle, /signingConfig signingConfigs\.debug/, 'debug buildType uses the shared debug signing config');
@@ -71,6 +71,39 @@ test('Gradle wires firebase-messaging and keeps google-services conditional', ()
 
   const rootGradle = readFileSync(join(here, '../android/build.gradle'), 'utf8');
   assert.match(rootGradle, /com\.google\.gms:google-services:[\d.]+/, 'plugin classpath on the root buildscript');
+});
+
+test('release path: env-driven production signing (no committed secrets) and the dsmnru-pyq.apk CI artifact', () => {
+  const gradle = readFileSync(join(APP, 'build.gradle'), 'utf8');
+  // Production signing is injected through the CI environment only.
+  assert.match(gradle, /release \{[\s\S]*?System\.getenv\('ANDROID_KEYSTORE_FILE'\)/,
+    'release signing config reads the CI environment (GitHub Secrets), never repo files');
+  assert.match(gradle, /if \(System\.getenv\('ANDROID_KEYSTORE_FILE'\) != null\) \{\s*signingConfig signingConfigs\.release/,
+    'release buildType signs ONLY when the signing environment is present');
+  // No production signing material is ever committed.
+  const files = [];
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const p = join(dir, e.name);
+    return e.isDirectory() ? walk(p) : files.push(p);
+  });
+  walk(APP);
+  assert.equal(files.some((f) => f.endsWith('.jks') || f.includes('release.keystore')), false,
+    'no release keystore committed anywhere in the app module');
+  assert.ok(!gradle.includes('ANDROID_KEYSTORE_PASSWORD='), 'no signing credential literal in gradle');
+
+  // The CI workflow builds the signed release only from secrets, verifies it,
+  // renames it to dsmnru-pyq.apk and uploads it; secrets are never echoed.
+  const wf = readFileSync(join(here, '../../.github/workflows/android-apk.yml'), 'utf8');
+  assert.match(wf, /secrets\.ANDROID_KEYSTORE_B64/, 'keystore arrives from GitHub Secrets');
+  assert.match(wf, /ANDROID_KEYSTORE_PASSWORD: \$\{\{ secrets\.ANDROID_KEYSTORE_PASSWORD \}\}/,
+    'passwords flow through step env, never arguments or echo');
+  assert.equal(/echo [^\n]*ANDROID_KEYSTORE_B64\$\{/.test(wf), false, 'the keystore secret is never echoed');
+  assert.equal(wf.includes('base64 -w0'), false, 'nothing re-encodes secrets in the workflow');
+  assert.match(wf, /assembleRelease/, 'release build step present');
+  assert.match(wf, /apksigner" verify --print-certs/, 'signature verified in CI (public fingerprints printed)');
+  assert.match(wf, /app-release\.apk[\s\S]*dsmnru-pyq\.apk/, 'renamed to the exact production filename');
+  assert.match(wf, /name: dsmnru-pyq\.apk/, 'artifact uploaded as dsmnru-pyq.apk');
+  assert.match(wf, /secrets\.GOOGLE_SERVICES_JSON_B64/, 'Firebase config injectable from secrets (gitignored by policy)');
 });
 
 test('FcmService: one global topic, version-gated subscribe, no token database', () => {
