@@ -1,0 +1,40 @@
+{
+  "project_info": {
+    "project_number": "62250453477",
+    "firebase_url": "https://dsmnru-data-default-rtdb.firebaseio.com",
+    "project_id": "dsmnru-data",
+    "storage_bucket": "dsmnru-data.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:62250453477:android:f1e2be8ebb47750820470c",
+        "android_client_info": {
+          "package_name": "com.dsmnru.pyq"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "62250453477-6p0mlt79mrtsd3uq41em7ev45d60v52m.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAIXcjhzd4-UXTKz48P7l1-xPkBx_yshqQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "62250453477-6p0mlt79mrtsd3uq41em7ev45d60v52m.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
