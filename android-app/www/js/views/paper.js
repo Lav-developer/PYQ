@@ -3,16 +3,27 @@
  *
  * Metadata comes from the existing public endpoint (GET /api/pyqs/:id — the
  * full document with file URLs, KV-cached, never from Firestore on the client).
- * PDF handling mirrors the website's business rules:
- *   • links stored as `file`/`server1` (primary) and `file2`/`server2`
- *   • direct .pdf links can be previewed/started in a native viewer or
- *     downloaded via Android's DownloadManager; drive/mediafire/landing
- *     links open in the browser/app that can handle them
+ * PDF handling:
+ *   • links stored as `file`/`server1` (primary) and `file2`/`server2` —
+ *     the same URLs the website shows, never mirrored
+ *   • "Open PDF" FIRST opens the in-app viewer screen (native PdfRenderer,
+ *     zoom/scroll, progress/error states, back navigation); the viewer reads
+ *     the original host directly — no Worker bandwidth, no permanent copies.
+ *     Only when the native layer is absent (plain browser preview) does the
+ *     direct URL go to the system viewer — never to the DSMNRU website.
+ *   • landing-page links (Drive/mediafire "Server 2") open externally — that
+ *     host genuinely cannot render in-app
+ *   • download uses Android's DownloadManager (explicit user tap only)
+ *   • "Report a broken link" is an in-app form writing to the SAME Firestore
+ *     `feedback` collection the website uses (verified sign-in required —
+ *     identical rule)
  *   • preview/download require the same verified sign-in the website enforces
- * The app never stores PDFs itself and never re-downloads the archive.
+ *   • discussion (comments) is fully IN-APP — same Firestore comments data
  */
 
 import { SITE_ORIGIN } from '../api.js';
+import { submitBrokenLinkReport } from '../feedback.js';
+import { loadComments, postComment, discussionErrorMessage } from '../discussion.js';
 
 function normalizeLink(v) {
   const t = String(v || '').trim();
@@ -55,7 +66,7 @@ export default async function renderPaper(root, ctx, params = {}) {
     root.appendChild(ui.stateBlock({
       iconName: 'alert', tone: 'error',
       title: 'Paper unavailable',
-      text: ctx.state.online ? String(err.message || err) : 'Offline and this paper was never opened on this device.',
+      text: ctx.state.online ? 'Something went wrong. Please try again.' : 'Offline and this paper was never opened on this device.',
       actionLabel: 'Retry',
       onAction: () => ctx.router.replace('paper', params),
     }));
@@ -142,10 +153,34 @@ export default async function renderPaper(root, ctx, params = {}) {
 
   const locked = () => auth.canUnlockPrivileges();
 
+  /**
+   * PDF open policy: the in-app viewer screen first. It fetches the SAME
+   * direct host URL itself (never through the Cloudflare Worker) and keeps
+   * the file only in the system cache until closed. Fallback when the native
+   * viewer is unavailable = the direct URL to the system viewer — the DSMNRU
+   * website is never part of the chain.
+   */
+  async function openInAppViewer(url, label) {
+    ui.toast(`Opening ${label || 'PDF'} in the app…`);
+    await ctx.openPdf(url, title);
+  }
+
   async function performPdfAction(act) {
-    if (act === 'view' && primary) { native.openExternal(primary); return; }
-    if (act === 'server1' && primary) { native.openExternal(primary); return; }
-    if (act === 'server2' && secondary) { native.openExternal(secondary); return; }
+    if (act === 'view' && primary) {
+      if (isDirectPdfUrl(primary)) await openInAppViewer(primary, 'PDF');
+      else native.openExternal(primary); // landing page → genuinely external
+      return;
+    }
+    if (act === 'server1' && primary) {
+      if (isDirectPdfUrl(primary)) await openInAppViewer(primary, 'PDF (server 1)');
+      else native.openExternal(primary);
+      return;
+    }
+    if (act === 'server2' && secondary) {
+      if (isDirectPdfUrl(secondary)) await openInAppViewer(secondary, 'PDF (server 2)');
+      else native.openExternal(secondary); // Drive/mediafire landing → external
+      return;
+    }
     if (act === 'download' && primary) {
       const fileBase = (title || 'dsmnru-paper').replace(/[^\w\d .-]+/g, '_').slice(0, 70);
       const ok = await native.download(primary, `${fileBase}.pdf`);
@@ -193,21 +228,171 @@ export default async function renderPaper(root, ctx, params = {}) {
   meta.innerHTML = cells.map(([k, v]) => `<div class="meta-cell"><span>${k}</span><b>${ui.esc(v)}</b></div>`).join('');
   stack.appendChild(meta);
 
-  // More actions row
+  // More actions — report stays IN-APP (same Firestore `feedback` queue the
+  // website writes). The discussion below is fully in-app too.
   const more = document.createElement('section');
   more.className = 'card card-pad';
   more.innerHTML = `
     <div class="sheet-list" id="paper-more">
-      <button class="sheet-item" data-act="web" type="button">${ui.icon('globe')}<span>Open on website<small>Full page with discussion & report tools</small></span><span class="tail">${ui.icon('chevron')}</span></button>
-      <button class="sheet-item" data-act="report" type="button">${ui.icon('flag')}<span>Report a broken link<small>Goes to moderators on the website</small></span><span class="tail">${ui.icon('chevron')}</span></button>
+      <button class="sheet-item" data-act="report" type="button">${ui.icon('flag')}<span>Report a broken link<small>Reviewed by moderators — right from the app</small></span><span class="tail">${ui.icon('chevron')}</span></button>
     </div>`;
   more.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
-    if (b.dataset.act === 'web') native.openExternal(siteUrl);
-    if (b.dataset.act === 'report') native.openExternal(siteUrl);
+    if (b.dataset.act === 'report') openReportSheet();
   });
   stack.appendChild(more);
+
+  // ── Discussion — IN-APP, lazy ─────────────────────────────────────────
+  // Same `comments` data the website's paper page uses. Nothing is fetched
+  // until the user opens the section, so paper browsing never pays for it.
+  const discussion = document.createElement('section');
+  discussion.className = 'card card-pad';
+  discussion.innerHTML = `
+    <div class="section-head">${ui.icon('users')}<h2>Discussion</h2></div>
+    <div id="disc-body" style="margin-top:12px">
+      <button class="btn btn--ghost btn--sm" data-act="disc-open" type="button">${ui.icon('chevron')} Show comments</button>
+    </div>`;
+  discussion.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'disc-open') openDiscussion();
+    if (b.dataset.act === 'disc-post') submitComment();
+  });
+  stack.appendChild(discussion);
+
+  function composerHtml() {
+    const signedIn = !!auth.current();
+    const verified = auth.canUnlockPrivileges();
+    const hint = !signedIn
+      ? 'Sign in to join the discussion'
+      : (!verified ? 'Verify your email to join the discussion (same rule as the website)' : '');
+    return `
+      <textarea class="input" id="disc-text" rows="2" maxlength="600" placeholder="Write a comment…" ${verified ? '' : 'disabled'}></textarea>
+      <div class="disc-compose-row">
+        <span class="field-hint">${hint ? ui.esc(hint) : 'Be respectful — discussions are moderated.'}</span>
+        <button class="btn btn--primary btn--sm" data-act="disc-post" type="button">Post</button>
+      </div>
+      <div data-disc-err class="form-error" hidden role="alert"></div>`;
+  }
+
+  function commentHtml(c) {
+    const initials = String(c.name || 'A').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'A';
+    return `
+      <div class="disc-item" data-comment-id="${ui.esc(c.id || '')}">
+        <div class="disc-avatar">${ui.esc(initials)}</div>
+        <div class="grow" style="min-width:0">
+          <div class="disc-head"><b>${ui.esc(c.name || 'Anonymous')}</b>${c.date ? `<span class="disc-date">${ui.esc(ui.fmtDate(c.date))}</span>` : ''}</div>
+          <p class="disc-text">${ui.esc(c.text || '')}</p>
+        </div>
+      </div>`;
+  }
+
+  async function openDiscussion() {
+    const body = discussion.querySelector('#disc-body');
+    body.innerHTML = `
+      <div style="margin-bottom:14px">${composerHtml()}</div>
+      <div id="disc-list"><p class="h-sub" style="margin:0 0 10px">Loading discussion…</p>${ui.skeletonRows(2)}</div>`;
+    const list = body.querySelector('#disc-list');
+    try {
+      const items = await loadComments({ paperId: id });
+      if (!list.isConnected) return; // navigated away meanwhile
+      if (!items.length) {
+        list.innerHTML = `<p class="h-sub">No comments yet. Start the discussion.</p>`;
+        return;
+      }
+      list.innerHTML = items.map(commentHtml).join('');
+    } catch (err) {
+      if (!list.isConnected) return;
+      // Classified human message (network vs permission vs data) — the
+      // technical cause stays in the console/Logcat, never in the UI.
+      list.innerHTML = `<p class="h-sub" style="color:var(--gold)">${ui.esc(discussionErrorMessage(err))}</p>
+        <button class="btn btn--ghost btn--sm" data-act="disc-open" type="button">Retry</button>`;
+    }
+  }
+
+  async function submitComment() {
+    if (!auth.current()) {
+      ctx.requireAuth(() => openDiscussion());
+      return;
+    }
+    const body = discussion.querySelector('#disc-body');
+    const input = body.querySelector('#disc-text');
+    const errEl = body.querySelector('[data-disc-err]');
+    const btn = body.querySelector('[data-act="disc-post"]');
+    errEl.hidden = true;
+    btn.disabled = true;
+    btn.textContent = 'Posting…';
+    try {
+      const written = await postComment({ paperId: id, text: input.value }, auth.current());
+      const list = body.querySelector('#disc-list');
+      // Dedupe by the actual Firestore document id: if a refetch already
+      // surfaced this comment, never render it a second time.
+      const alreadyShown = Array.from(list.querySelectorAll('[data-comment-id]'))
+        .some((n) => n.dataset.commentId === written.id);
+      if (!alreadyShown) {
+        const emptyNote = list.querySelector('p.h-sub');
+        if (emptyNote) emptyNote.remove();
+        list.insertAdjacentHTML('afterbegin', commentHtml(written));
+      }
+      input.value = '';
+      ui.toast('Comment posted');
+    } catch (err) {
+      errEl.textContent = String(err && err.message || "Couldn't post your comment. Please try again.");
+      errEl.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Post';
+    }
+  }
+
+  /**
+   * In-app "Report a broken link" — writes to the SAME `feedback` collection
+   * with the SAME fields the website's report modal uses
+   * (type='broken_link', status='new'), via one Firestore REST insert with
+   * the user's own ID token. Gate = verified sign-in (the Firestore rule).
+   */
+  function openReportSheet() {
+    const start = () => {
+      const node = document.createElement('div');
+      node.innerHTML = `
+        <p class="sheet-text">Reporting: <b>${ui.esc(title)}</b>${course ? ` · ${ui.esc(course)}` : ''}</p>
+        <div class="field" style="margin-top:12px">
+          <label for="rep-details">What's wrong?</label>
+          <textarea class="input" id="rep-details" rows="3" maxlength="600" placeholder="e.g., Primary link opens an error page…"></textarea>
+        </div>
+        <div data-err class="form-error" hidden></div>
+        <div class="sheet-actions">
+          <button class="btn btn--ghost" data-dismiss="1" type="button">Cancel</button>
+          <button class="btn btn--primary" id="rep-send" type="button">Send report</button>
+        </div>`;
+      const s = ui.sheet({ title: 'Report a broken link', content: node });
+      node.querySelector('#rep-send').addEventListener('click', async (e2) => {
+        const btn = e2.currentTarget;
+        const details = node.querySelector('#rep-details').value.trim();
+        const errEl = node.querySelector('[data-err]');
+        if (details.length < 3) {
+          errEl.textContent = 'Please describe the problem (a few words is enough).';
+          errEl.hidden = false;
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+          await submitBrokenLinkReport({ title, course, details }, auth.current());
+          ui.closeSheet();
+          ui.toast('Report sent — thank you!');
+        } catch (err) {
+          errEl.textContent = String(err && err.message || 'Could not send the report. Please try again.');
+          errEl.hidden = false;
+          btn.disabled = false;
+          btn.textContent = 'Send report';
+        }
+      });
+    };
+    // The Firestore rule only allows verified users to create feedback docs.
+    ctx.requireAuth(start, 'Reporting needs a verified account (same rule as the website).');
+  }
 
   // Related papers — one filtered request like the website's related rail.
   const relHost = document.createElement('section');

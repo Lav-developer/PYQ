@@ -99,3 +99,17 @@ app/src/main/assets/public
 app/src/main/assets/capacitor.config.json
 app/src/main/assets/capacitor.plugins.json
 app/src/main/res/xml/config.xml
+
+# Firebase / signing secrets must NEVER be committed (injected at build time)
+google-services.json
+*.jks
+*.keystore
+# EXCEPTION: the shared DEBUG keystore (android/app/debug.keystore) is
+# deliberately committed — its credentials are the standard PUBLIC Android
+# debug credentials (store 'android', alias 'androiddebugkey'), the same ones
+# in every developer's ~/.android/debug.keystore. Committing it gives every
+# CI/debug APK the same signature, so a newly downloaded debug APK can
+# UPDATE the previously installed debug build instead of failing with
+# "package conflicts with an existing package". Release signing stays
+# out-of-repo and unrelated.
+!app/debug.keystore

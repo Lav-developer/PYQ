@@ -5,23 +5,24 @@
  * second auth system.
  *
  * Why REST instead of the firebase-auth JS SDK?
- *  - Google sign-in via popup is blocked inside embedded WebViews (Google
- *    rejects disallowed_useragent), so the website already shows a "use email
- *    & password in the app" hint for the Capacitor user agent.
- *  - The Identity Toolkit REST endpoints are exactly what the JS SDK calls
- *    under the hood for password auth: sign-in/sign-up/refresh/verification
- *    work flawlessly from the app without pulling ~270 KB of SDK or opening
- *    any popup, and without any Firestore reads at startup.
+ *  - Email/password, verification and token refresh map 1:1 to Identity
+ *    Toolkit endpoints — the same calls the JS SDK makes under the hood —
+ *    without pulling ~270 KB of SDK into the APK, and without any Firestore
+ *    reads at startup.
+ *  - Google sign-in runs NATIVELY in the app: the DsmnruApp plugin collects a
+ *    Google ID token through Android's Credential Manager (device account
+ *    chooser — no popup, no browser), and this module exchanges it with
+ *    `accounts:signInWithIdp` against the same `dsmnru-data` project, so the
+ *    user identity is identical to the website's.
  *  - The web API key below is the same public client config already embedded
  *    in the production website (script.js); it is not a secret, and no
  *    service-account or private credential is ever shipped here.
  *
- * Google accounts: users who originally signed up with Google keep working on
- * the website; inside the app, opening Google sign-in would require a native
- * OAuth flow + console changes, so the app clearly explains the limitation
- * and offers (a) email/password sign-in (same account if a password was ever
- * set) or (b) one-tap hand-off to the site in the system browser. No silent
- * breakage, no fallback backend.
+ * Google accounts get the same privileges as on the website (google.com
+ * provider claims skip the email-verification gate). If a particular APK
+ * build lacks the Google client-ID configuration (see
+ * docs/GOOGLE_SIGNIN_SETUP.md), the UI explains it and offers in-app
+ * email/password — it never sends the user to the website to sign in.
  *
  * Session storage: idToken + refresh token + parsed expiry, refreshed lazily
  * (on app resume / when within 5 minutes of expiry). No polling.
@@ -29,7 +30,6 @@
 
 export const FIREBASE_PROJECT_ID = 'dsmnru-data';
 export const FIREBASE_WEB_API_KEY = 'AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ';
-export const GOOGLE_SIGNIN_UNSUPPORTED = 'GOOGLE_SIGNIN_UNSUPPORTED_IN_APP';
 
 const IDT = 'https://identitytoolkit.googleapis.com/v1';
 const SECURE_TOKEN = 'https://securetoken.googleapis.com/v1/token';
@@ -41,14 +41,16 @@ const REFRESH_SKEW_MS = 5 * 60 * 1000;
 const FRIENDLY_ERRORS = {
   'EMAIL_NOT_FOUND': 'No account exists for this email yet.',
   'INVALID_EMAIL': 'That email address does not look valid.',
+  'INVALID_LOGIN_CREDENTIALS': 'Incorrect email or password.',
   'INVALID_PASSWORD': 'Incorrect password. Try again or reset it.',
   'WRONG_PASSWORD': 'Incorrect password. Try again or reset it.',
+  'MISSING_PASSWORD': 'Please enter your password.',
   'USER_DISABLED': 'This account has been disabled.',
   'EMAIL_EXISTS': 'An account with this email already exists — sign in instead.',
   'WEAK_PASSWORD': 'Please choose a password with at least 6 characters.',
   'OPERATION_NOT_ALLOWED': 'Email sign-in is currently disabled for this project.',
   'TOO_MANY_ATTEMPTS_TRY_LATER': 'Too many attempts. Please wait a minute and try again.',
-  'NETWORK_REQUEST_FAILED': 'Firebase is unreachable right now. Check your connection.',
+  'NETWORK_REQUEST_FAILED': 'Please check your internet connection and try again.',
   'TOKEN_EXPIRED': 'Your session expired — please sign in again.',
   'USER_NOT_FOUND': 'Your Firebase session is no longer valid — please sign in again.',
   'INVALID_REFRESH_TOKEN': 'Your saved session is no longer valid — please sign in again.',
@@ -59,7 +61,13 @@ function friendly(err) {
   for (const key of Object.keys(FRIENDLY_ERRORS)) {
     if (code.includes(key)) return FRIENDLY_ERRORS[key];
   }
-  return (err && err.message) || 'Something went wrong. Please try again.';
+  // Never surface raw backend text (it can embed URLs/identifiers) in the UI.
+  const raw = String((err && err.message) || '');
+  if (!raw || /failed to fetch|networkerror|load failed|timed?\s?out/i.test(raw)) {
+    return 'Please check your internet connection and try again.';
+  }
+  const scrubbed = raw.replace(/https?:\/\/\S+/g, '').replace(/\s{2,}/g, ' ').trim();
+  return scrubbed || 'Something went wrong. Please try again.';
 }
 
 /** Decode a JWT payload without verification — display/session metadata only. */
@@ -84,6 +92,12 @@ export function createAuth(options = {}) {
   let user = null;         // normalized session view
   let persist = true;      // false while offline-recovering
   const listeners = new Set();
+  // Session-scoped reward summary cache (see fetchRewardSummary): one pair
+  // of reads per short window instead of one pair per Profile visit.
+  let rewardCache = null;  // { uid, email, at, summary }
+  // Session-scoped profile cache (see fetchUserProfile): one users/{uid} read
+  // per short window; invalidated by saveProfileEdits and signOut.
+  let profileCache = null; // { uid, at, data }
 
   function emit() {
     for (const fn of listeners) {
@@ -108,14 +122,14 @@ export function createAuth(options = {}) {
     } catch { /* ignore quota */ }
   }
 
-  function viewFromTokens(idToken, refreshToken, obtainedAt) {
+  function viewFromTokens(idToken, refreshToken, obtainedAt, nameOverride) {
     const claims = decodeJwtPayload(idToken) || {};
     const provider = (claims.firebase && claims.firebase.sign_in_provider) || 'password';
     const exp = Number(claims.exp) || 0;
     return {
       uid: claims.user_id || claims.sub || '',
       email: claims.email || '',
-      name: claims.name || claims.email || 'Student',
+      name: nameOverride || claims.name || claims.email || 'Student',
       picture: claims.picture || '',
       emailVerified: claims.email_verified === true,
       providerId: provider,
@@ -167,8 +181,8 @@ export function createAuth(options = {}) {
   }
 
   /** Sign-in (or sign-up) responses both carry idToken/refreshToken. */
-  async function adoptTokenSession(payload) {
-    const session = viewFromTokens(payload.idToken, payload.refreshToken, now());
+  async function adoptTokenSession(payload, nameOverride) {
+    const session = viewFromTokens(payload.idToken, payload.refreshToken, now(), nameOverride);
     if (!session.uid) throw new Error('Unexpected auth response');
     setUser(session);
     await syncUserDocument().catch(() => { /* non-fatal, best effort */ });
@@ -282,6 +296,41 @@ export function createAuth(options = {}) {
       }
     },
 
+    /**
+     * Android-native Google sign-in, second (final) step.
+     *
+     * The DsmnruApp plugin first obtains a Google ID token from the device's
+     * Google account chooser (Credential Manager — see DsmnruAppPlugin.java).
+     * That token is exchanged here against the SAME Firebase project the
+     * website uses, via the Identity Toolkit `accounts:signInWithIdp`
+     * endpoint — the exact call the Firebase JS SDK makes for
+     * signInWithPopup(GoogleAuthProvider). The result is the same user
+     * identity, session shape and users/{uid} sync as every other sign-in —
+     * no second auth system, no browser, no website redirect.
+     *
+     * `nonce` (raw, generated in JS) is bound into the Google token by the
+     * plugin (SHA-256 form) and replayed here so Identity Toolkit can verify
+     * it — standard anti-replay pairing.
+     */
+    async signInWithGoogleCredential({ idToken, nonce = '' } = {}) {
+      const token = String(idToken || '').trim();
+      if (!token) throw new Error('Google did not return a credential.');
+      const postBody = 'id_token=' + encodeURIComponent(token)
+        + '&providerId=google.com'
+        + (nonce ? '&nonce=' + encodeURIComponent(String(nonce)) : '');
+      try {
+        const data = await identity('signInWithIdp', {
+          postBody,
+          requestUri: 'http://localhost',
+          returnIdpCredential: true,
+          returnSecureToken: true,
+        });
+        return await adoptTokenSession(data);
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+    },
+
     async signUp({ name, email, password }) {
       let data;
       try {
@@ -293,14 +342,14 @@ export function createAuth(options = {}) {
       } catch (err) {
         throw new Error(friendly(err));
       }
+      const displayName = String(name || '').trim();
       try {
-        const displayName = String(name || '').trim();
         if (displayName) {
           await identity('update', { idToken: data.idToken, displayName });
           data.displayName = displayName;
         }
       } catch { /* name is cosmetic; never fail signup over it */ }
-      const session = await adoptTokenSession(data);
+      const session = await adoptTokenSession(data, displayName || undefined);
       try {
         await identity('sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: session.idToken, continueUrl: VERIFY_CONTINUE_URL });
       } catch { /* the website will re-prompt verification */ }
@@ -308,7 +357,245 @@ export function createAuth(options = {}) {
     },
 
     signOut() {
+      rewardCache = null;
+      profileCache = null;
       setUser(null);
+    },
+
+    /**
+     * Profile management (same Firestore profile the website uses):
+     * updates the Firebase Auth display name AND the users/{uid}.name field
+     * (owner-writable per the existing security rules), then refreshes the
+     * in-app session. Throws human-readable errors.
+     */
+    async updateDisplayName(nextName) {
+      if (!user) throw new Error('Sign in first to update your profile.');
+      const displayName = String(nextName || '').trim();
+      if (displayName.length < 2 || displayName.length > 80) {
+        throw new Error('Name must be between 2 and 80 characters.');
+      }
+      try {
+        await identity('update', { idToken: user.idToken, displayName });
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+      try {
+        await fetchImpl(`${FS}/users/${encodeURIComponent(user.uid)}?updateMask=name&key=${FIREBASE_WEB_API_KEY}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + user.idToken,
+          },
+          body: JSON.stringify({ fields: { name: { stringValue: displayName } } }),
+        }); // best effort — the auth-side name is already updated
+      } catch { /* non-fatal */ }
+      const refreshed = await auth.reloadProfile();
+      setUser({ ...(refreshed || user), name: displayName });
+      return user;
+    },
+
+    /**
+     * Read the SAME users/{uid} profile document the website edits
+     * (fields: name, signupName, email, signupEmail, course, signupCourse,
+     * phone, uid, createdAt). One owner-scoped read, cached per session —
+     * Profile revisits cost zero reads. NEVER called at startup or for
+     * signed-out users.
+     */
+    async fetchUserProfile() {
+      if (!user || !user.uid) return null;
+      const nowMs = now();
+      if (profileCache && profileCache.uid === user.uid && nowMs - profileCache.at < 5 * 60 * 1000) {
+        return profileCache.data; // short-window cache — like fetchRewardSummary
+      }
+      let data = null;
+      try {
+        const res = await fetchImpl(`${FS}/users/${encodeURIComponent(user.uid)}?key=${FIREBASE_WEB_API_KEY}`, {
+          headers: { Authorization: 'Bearer ' + user.idToken },
+        });
+        if (res.ok) {
+          const body = await res.json().catch(() => null);
+          const f = (body && body.fields) || {};
+          const s = (k) => (f[k] && f[k].stringValue) || '';
+          data = {
+            name: s('name') || s('signupName') || user.name || '',
+            email: s('email') || s('signupEmail') || user.email || '',
+            course: s('course') || s('signupCourse') || '',
+            phone: s('phone') || '',
+          }; // email is identity data — shown read-only, never edited here
+        } else if (res.status !== 404 && res.status !== 403) {
+          throw new Error('profile lookup failed');
+        }
+      } catch (err) {
+        if (String(err && err.message) === 'profile lookup failed') throw err;
+        throw new Error('profile unavailable'); // network — caller humanizes
+      }
+      profileCache = { uid: user.uid, at: nowMs, data };
+      return data;
+    },
+
+    /**
+     * Save profile edits to the SAME users/{uid} document the website uses —
+     * an owner-scoped PATCH limited to exactly the website's editable fields
+     * (name, course, phone) so no other field can be touched. The Firebase
+     * Auth display name is updated too, mirroring the website's
+     * updateProfile({ displayName }) behavior.
+     */
+    async saveProfileEdits({ name, course, phone } = {}) {
+      if (!user || !user.uid) throw new Error('Sign in first to update your profile.');
+      const nextName = String(name || '').trim();
+      const nextCourse = String(course || '').trim();
+      const nextPhone = String(phone || '').trim();
+      if (nextName.length < 2 || nextName.length > 80) {
+        throw new Error('Name must be between 2 and 80 characters.');
+      }
+      if (nextPhone && !/^[0-9+\-\s()]{6,15}$/.test(nextPhone)) {
+        throw new Error('That phone number does not look valid.');
+      }
+      if (nextCourse && nextCourse.length > 80) {
+        throw new Error('Course must be 80 characters or fewer.');
+      }
+      try {
+        if (nextName !== (user.name || '')) {
+          await identity('update', { idToken: user.idToken, displayName: nextName });
+        }
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+      try {
+        const mask = ['name', 'course', 'phone']
+          .map((f) => `updateMask.fieldPaths=${f}`).join('&');
+        await fetchImpl(`${FS}/users/${encodeURIComponent(user.uid)}?${mask}&key=${FIREBASE_WEB_API_KEY}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + user.idToken,
+          },
+          body: JSON.stringify({ fields: {
+            name: { stringValue: nextName },
+            course: { stringValue: nextCourse },
+            phone: { stringValue: nextPhone },
+          } }),
+        });
+      } catch (err) {
+        console.warn('profile save failed:', err); // dev log only
+        throw new Error('Unable to save your profile. Please try again.');
+      }
+      profileCache = null; // next Profile visit re-reads the saved document
+      const refreshed = await auth.reloadProfile();
+      setUser({ ...(refreshed || user), name: nextName });
+      return user;
+    },
+
+    /**
+     * Change password for email/password accounts — Firebase Auth only,
+     * passwords never stored or logged. Recent-authentication is handled the
+     * way Firebase requires: the current password is verified with a fresh
+     * signInWithPassword call (that IS the re-authentication), and its fresh
+     * token performs the accounts:update. Google-only accounts have no
+     * password credential — callers show an explainer instead of this method.
+     */
+    async changePassword({ currentPassword, newPassword } = {}) {
+      if (!user || !user.email) throw new Error('Sign in first to change your password.');
+      if (user.providerId === 'google.com') {
+        throw new Error('This account uses Google sign-in and has no separate password.');
+      }
+      const current = String(currentPassword || '');
+      const next = String(newPassword || '');
+      if (!current) throw new Error('Please enter your current password.');
+      if (!next) throw new Error('Please choose a new password.');
+      if (next.length < 6) throw new Error('Please choose a password with at least 6 characters.');
+      if (next === current) throw new Error('The new password must be different from the current one.');
+      let fresh;
+      try {
+        fresh = await identity('signInWithPassword', {
+          email: user.email,
+          password: current,
+          returnSecureToken: true,
+        });
+      } catch (err) {
+        throw new Error(friendly(err)); // wrong current password, network, …
+      }
+      try {
+        const data = await identity('update', {
+          idToken: fresh.idToken,
+          password: next,
+          returnSecureToken: true,
+        });
+        // Keep the session fresh with the rotated tokens — the user stays
+        // signed in (Firebase does not force a sign-out here).
+        if (data && data.idToken) {
+          const v = viewFromTokens(data.idToken, data.refreshToken || user.refreshToken, now());
+          setUser(v);
+          storeSession(v);
+        }
+        return true;
+      } catch (err) {
+        throw new Error(friendly(err) || 'Unable to change your password. Please try again.');
+      }
+    },
+
+    /**
+     * Reward/contribution summary for the signed-in user — SAME data the
+     * website's points card reads: reward_accounts/{email-key}.points plus
+     * the user's point_transactions (rewarded uploads). Exactly TWO lazy
+     * reads, only on request (Profile screen), never at startup.
+     * Missing account ⇒ zero-state, not an error.
+     */
+    async fetchRewardSummary() {
+      if (!user || !user.email) return null;
+      const email = String(user.email).trim().toLowerCase();
+      const nowMs = now();
+      if (rewardCache && rewardCache.uid === user.uid && rewardCache.email === email
+          && nowMs - rewardCache.at < 5 * 60 * 1000) {
+        return rewardCache.summary; // short-window cache — Profile revisits cost zero reads
+      }
+      const accountKey = email.replace(/[^a-z0-9]/g, '_'); // points.js derivation
+      const headers = { Authorization: 'Bearer ' + user.idToken };
+      let points = 0;
+      try {
+        const res = await fetchImpl(`${FS}/reward_accounts/${encodeURIComponent(accountKey)}?key=${FIREBASE_WEB_API_KEY}`, { headers });
+        if (res.status === 200) {
+          const body = await res.json().catch(() => null);
+          const f = (body && body.fields) || {};
+          points = Number(f.points && (f.points.integerValue ?? f.points.doubleValue)) || 0;
+        } else if (res.status !== 404 && res.status !== 403) {
+          throw new Error('reward lookup failed');
+        }
+      } catch (err) {
+        if (String(err && err.message) === 'reward lookup failed') throw err;
+        throw new Error('points unavailable'); // network failure — caller humanizes
+      }
+      let transactions = [];
+      try {
+        const res = await fetchImpl(`${FS}:runQuery?key=${FIREBASE_WEB_API_KEY}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...headers },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: 'point_transactions' }],
+              where: { fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: email } } },
+              limit: 20,
+            },
+          }),
+        });
+        if (res.ok) {
+          const rows = await res.json().catch(() => []);
+          transactions = (Array.isArray(rows) ? rows : [])
+            .filter((r) => r && r.document && r.document.fields)
+            .map((r) => {
+              const f = r.document.fields;
+              const ts = (f.createdAt && (f.createdAt.timestampValue || '')) || (f.date && f.date.timestampValue) || '';
+              return {
+                amount: Number(f.amount && (f.amount.integerValue ?? f.amount.doubleValue)) || 0,
+                type: (f.type && f.type.stringValue) || 'Reward',
+                date: ts,
+              };
+            });
+        }
+      } catch { /* history is optional decoration — balance already shown */ }
+      const summary = { points, transactions };
+      rewardCache = { uid: user.uid, email, at: nowMs, summary };
+      return summary;
     },
 
     async resendVerification() {

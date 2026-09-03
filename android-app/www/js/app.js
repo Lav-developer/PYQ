@@ -13,6 +13,7 @@ import { native } from './native.js';
 import { parseSiteUrl } from './slug.js';
 import * as ui from './ui.js';
 import { openAuthSheet, verificationPromptSheet, googleInfoSheet, initAuthUI } from './authui.js';
+import { createDrawer } from './drawer.js';
 
 import renderHome from './views/home.js';
 import renderSearch from './views/search.js';
@@ -21,6 +22,11 @@ import renderCourse from './views/course.js';
 import renderSaved from './views/saved.js';
 import renderProfile from './views/profile.js';
 import renderPaper from './views/paper.js';
+import renderUpload from './views/upload.js';
+import renderTools from './views/tools.js';
+import renderContributors from './views/contributors.js';
+import renderLinks from './views/links.js';
+import renderAbout from './views/about.js';
 
 const VIEWS = {
   home: renderHome,
@@ -30,6 +36,11 @@ const VIEWS = {
   saved: renderSaved,
   profile: renderProfile,
   paper: renderPaper,
+  upload: renderUpload,
+  tools: renderTools,
+  contributors: renderContributors,
+  links: renderLinks,
+  about: renderAbout,
 };
 const TAB_VIEWS = new Set(['home', 'search', 'browse', 'saved', 'profile']);
 
@@ -41,12 +52,14 @@ initAuthUI(auth);
 
 const els = {
   appbar: document.getElementById('appbar'),
+  menu: document.getElementById('appbar-menu'),
   back: document.getElementById('appbar-back'),
   title: document.getElementById('appbar-title'),
   actions: document.getElementById('appbar-actions'),
   view: document.getElementById('view'),
   tabbar: document.getElementById('tabbar'),
   net: document.getElementById('net-banner'),
+  drawerRoot: document.getElementById('drawer-root'),
 };
 
 const state = {
@@ -91,9 +104,29 @@ async function renderView() {
 
 function updateHeader(entry) {
   const meta = entry.header || { title: 'DSMNRU PYQ' };
+  // A pushed screen (stack depth > 1) is the ONLY state where "back" is
+  // meaningful; tab roots — including Home — show the drawer hamburger.
+  // tab() collapses the stack to depth 1 and back() pops it, so this flag
+  // is a pure function of navigation state (never stale across bottom-nav
+  // switches; the drawer only overlays and never mutates the stack).
   const isRoot = TAB_VIEWS.has(entry.view) && stack.length === 1;
-  els.back.hidden = isRoot && !meta.back;
+  const showBack = !isRoot || !!meta.back;
+  els.back.hidden = !showBack;
+  els.back.disabled = !showBack; // never focusable/activatable while hidden
+  if (showBack) {
+    els.back.removeAttribute('aria-hidden');
+  } else {
+    els.back.setAttribute('aria-hidden', 'true');
+  }
   els.back.innerHTML = ui.icon('back');
+  // Hamburger lives at top-level screens (standard Android idiom); pushed
+  // screens show the back arrow instead. The drawer remains one tap away at
+  // every tab root, including Home.
+  if (els.menu) {
+    const showMenu = isRoot && !meta.back;
+    els.menu.hidden = !showMenu;
+    els.menu.disabled = !showMenu;
+  }
   els.title.innerHTML = (isRoot || meta.brand)
     ? `<span class="brand-logo" aria-hidden="true"></span><span>DSMNRU PYQ<small>PYQ archive · Android</small></span>`
     : `<span>${ui.esc(meta.title || '')}${meta.sub ? `<small>${ui.esc(meta.sub)}</small>` : ''}</span>`;
@@ -123,6 +156,30 @@ function updateTabbar() {
 
 els.back.innerHTML = ui.icon('back');
 els.back.addEventListener('click', () => routerBack());
+
+// ── side drawer (in-app feature hub) ───────────────────────────────────
+const drawer = createDrawer({
+  onNavigate({ kind, view, params }) {
+    if (kind === 'tab') router.tab(view, params);
+    else router.go(view, params);
+  },
+  onAbout() { router.go('about'); },
+});
+function syncDrawerAuth() {
+  const u = auth.current();
+  drawer.setAuthState({
+    signedIn: !!u,
+    userName: (u && u.name) || '',
+    email: (u && u.email) || '',
+  });
+}
+auth.onChange(syncDrawerAuth);
+if (els.menu) {
+  els.menu.innerHTML = ui.icon('menu');
+  els.menu.addEventListener('click', () => { syncDrawerAuth(); drawer.open(); });
+}
+if (els.drawerRoot) els.drawerRoot.replaceWith(drawer.el);
+
 els.tabbar.querySelectorAll('.tab').forEach((t) => {
   t.querySelector('.tab-ic').innerHTML = ui.icon({
     home: 'home', search: 'search', browse: 'courses', saved: 'bookmark', profile: 'user',
@@ -198,6 +255,21 @@ function buildContext(entry) {
     },
     openGoogleInfo() { googleInfoSheet(); },
     openPaper(params) { openPaperTarget(params); },
+    /**
+     * Open a PDF INSIDE the app (native viewer screen). When the native
+     * layer is missing (browser preview / harness) hand the SAME direct URL
+     * to the system viewer — never the DSMNRU website. The viewer activity
+     * owns progress/error/retry UX; here we only route.
+     */
+    async openPdf(url, title) {
+      const res = await native.pdfViewer(url, title);
+      if (res && res.ok) return true;
+      return native.openExternal(url);
+    },
+    drawer: {
+      open() { syncDrawerAuth(); drawer.open(); },
+      closeIfOpen: () => drawer.closeIfOpen(),
+    },
     setHeader(header) {
       entry.header = header;
       updateHeader(entry);
@@ -208,9 +280,10 @@ function buildContext(entry) {
 
 /**
  * Open a paper from id and/or slug. A slug without an id (shared deep link)
- * is resolved with one exact Worker lookup — with a local fallback — so the
- * app never has to render the website. Unresolvable slugs hand off to the
- * browser instead of dead-ending.
+ * is resolved with one exact Worker lookup — the app never renders or opens
+ * the website. Unresolvable slugs stay IN-APP: the search screen opens
+ * pre-filled with the slug's words so the user can find the paper (or see a
+ * proper empty state) — no browser hand-off, no dead end.
  */
 async function openPaperTarget(params) {
   const target = { ...(params || {}) };
@@ -222,10 +295,10 @@ async function openPaperTarget(params) {
   const item = await api.resolveSlug(target.slug).catch(() => null);
   if (item && item.id) {
     router.go('paper', { id: item.id, slug: target.slug });
-  } else {
-    ui.toast('Opening on the website instead');
-    native.openExternal(`${SITE_ORIGIN}/pyq/${encodeURIComponent(target.slug)}`);
+    return;
   }
+  ui.toast('That exact paper isn\'t in the archive — showing search');
+  router.go('search', { q: String(target.slug).replace(/[-_]+/g, ' ').trim() });
 }
 
 // ── deep links ─────────────────────────────────────────────────────────
@@ -275,6 +348,9 @@ function wireAndroid() {
   if (!App) return;
   try {
     App.addListener('backButton', () => {
+      // Standard Android precedence: drawer → sheet → in-app stack → exit.
+      if (drawer.closeIfOpen()) return;
+      if (ui.closeSheet()) return;
       if (!routerBack()) App.exitApp();
     });
     App.addListener('resume', () => {

@@ -43,6 +43,16 @@ const ICONS = {
   users: '<circle cx="9" cy="8" r="3.2"/><path d="M3.5 20c0-3.3 2.4-5.2 5.5-5.2s5.5 1.9 5.5 5.2"/><path d="M15.5 5.5a3.2 3.2 0 0 1 0 6.4M17.5 14.9c2.2.6 3.5 2.3 3.5 5.1"/>',
   flag: '<path d="M5.5 21V4"/><path d="M5.5 4.5h11l-2 3.5 2 3.5h-11"/>',
   logout: '<path d="M15 4h-9v16h9"/><path d="M11.5 12H21"/><path d="m18 8.5 3.5 3.5L18 15.5"/>',
+  menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+  link: '<path d="M10 14a4.5 4.5 0 0 0 6.4.4l2.8-2.8a4.5 4.5 0 0 0-6.4-6.4L11.4 6.6"/><path d="M14 10a4.5 4.5 0 0 0-6.4-.4l-2.8 2.8a4.5 4.5 0 0 0 6.4 6.4l1.4-1.4"/>',
+  calc: '<rect x="5" y="3" width="14" height="18" rx="2.5"/><path d="M8.5 7.5h7"/><path d="M8.5 12h.01M12 12h.01M15.5 12h.01M8.5 15.5h.01M12 15.5h.01M15.5 15.5h.01M8.5 19h.01M12 19h.01M15.5 19h.01"/>',
+  calcheck: '<rect x="4" y="5.5" width="16" height="15" rx="2"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4"/><path d="m9 15 2.2 2.2L15.5 13"/>',
+  tasks: '<path d="M4 6.5h9M4 12h9M4 17.5h9"/><path d="m16 5.5 2 2 3.5-3.5M16 11l2 2 3.5-3.5M16 16.5l2 2 3.5-3.5"/>',
+  send: '<path d="M21 3 10.5 13.5"/><path d="M21 3 14 21l-3.5-7.5L3 10z"/>',
+  rupee: '<path d="M7 4h10M7 8.5h10"/><path d="M7 4c6 0 6 8.5 0 8.5H13l5 7.5"/>',
+  bank: '<path d="m3 9 9-5.5L21 9"/><path d="M4.5 9.5v8M9.5 9.5v8M14.5 9.5v8M19.5 9.5v8M3 20.5h18"/>',
+  shield: '<path d="M12 3 5 5.5v5.6c0 4.4 3 7.4 7 9.9 4-2.5 7-5.5 7-9.9V5.5z"/><path d="m9 11.5 2.2 2.2L15.5 9.5"/>',
+  briefcase: '<rect x="3" y="8" width="18" height="12" rx="1.5"/><path d="M9 8V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V8"/><path d="M3 13h18"/>',
   mail: '<rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.5 7 8.5 6.5L20.5 7"/>',
   google: '<path d="M21 12.2c0 5-3.6 8.3-8.9 8.3A9 9 0 1 1 12 3a8.7 8.7 0 0 1 6.2 2.5"/><path d="M12 8.5v7.2M8.4 12.1h7.2"/>',
   filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
@@ -93,13 +103,25 @@ export function toast(message, kind = 'ok') {
 // ── bottom sheet ───────────────────────────────────────────────────────
 let openSheetEl = null;
 
+/**
+ * Close the open bottom sheet, if any.
+ * @returns true when a sheet was actually open (so callers can treat the
+ * event — e.g. the Android back button — as consumed).
+ */
 export function closeSheet() {
   if (openSheetEl) {
     const el = openSheetEl;
     openSheetEl = null;
     el.classList.remove('is-open');
     setTimeout(() => el.remove(), 180);
+    return true;
   }
+  return false;
+}
+
+/** true while a bottom sheet is showing (back-button precedence checks). */
+export function sheetIsOpen() {
+  return !!openSheetEl;
 }
 
 /**

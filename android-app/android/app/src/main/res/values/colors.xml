@@ -10,6 +10,6 @@
 
     <!-- Splash + adaptive icon share the site's dark background so the
          launcher icon, splash screen and in-app header read as one brand. -->
-    <color name="splash_background">#0F172A</color>
-    <color name="ic_launcher_background">#0F172A</color>
+    <color name="splash_background">#0B245B</color>
+    <color name="ic_launcher_background">#0B245B</color>
 </resources>

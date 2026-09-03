@@ -56,7 +56,7 @@ export default async function renderBrowse(root, ctx) {
       iconName: 'wifiOff',
       tone: 'error',
       title: 'Course list unavailable',
-      text: ctx.state.online ? String(err.message || err) : 'Offline and nothing cached yet.',
+      text: ctx.state.online ? 'Something went wrong. Please try again.' : 'Offline and nothing cached yet.',
       actionLabel: 'Retry',
       onAction: () => ctx.router.tab('browse'),
     }));

@@ -10,6 +10,7 @@
  *   GET /api/pyqs/search     → server-side search (never client-side archive scans)
  *   GET /api/pyqs/:id        → full paper document (PDF links included)
  *   GET /api/pyqs/slug/:s    → deep-link slug → index item (additive Worker route)
+ *   GET /api/contributors    → contributor list (KV-cached server-side)
  *
  * Traffic discipline (Cloudflare free-tier friendly):
  *  - Every GET is deduplicated by request key: concurrent identical calls
@@ -42,6 +43,7 @@ const TTL_MS = {
   search: 3 * 60 * 1000,
   detail: 30 * 60 * 1000,
   slug: 10 * 60 * 1000,
+  contributors: 24 * 60 * 60 * 1000,
 };
 
 const PERSIST_PREFIX = 'dsm.cache.v1.';
@@ -224,6 +226,15 @@ export function createApi(options = {}) {
     /** Course catalog. Rarely changes — persisted with a 24h fresh window. */
     courses(opts = {}) {
       return withCache('/courses', null, { ttl: TTL_MS.courses, persist: true, force: !!opts.force });
+    },
+
+    /**
+     * Contributor list — ONE Worker request for the whole screen (the Worker
+     * serves it from KV; it never fans out per contributor). Persisted with a
+     * 24h fresh window so re-opening the screen is free, SWR afterwards.
+     */
+    contributors(opts = {}) {
+      return withCache('/contributors', null, { ttl: TTL_MS.contributors, persist: true, force: !!opts.force });
     },
 
     /** Paginated browse list. Cached per page/filters; never prefetched ahead. */

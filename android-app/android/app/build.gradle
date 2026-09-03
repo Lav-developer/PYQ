@@ -7,8 +7,8 @@ android {
         applicationId "com.dsmnru.pyq"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 2
-        versionName "1.1.0"
+        versionCode 11
+        versionName "1.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,49 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'       // public Android debug convention
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+        release {
+            // Values arrive from the CI environment (GitHub Secrets). Empty
+            // config when unset — unused and harmless for debug builds.
+            def ksFile = System.getenv('ANDROID_KEYSTORE_FILE')
+            if (ksFile != null) {
+                storeFile file(ksFile)
+                storePassword System.getenv('ANDROID_KEYSTORE_PASSWORD')
+                keyAlias System.getenv('ANDROID_KEY_ALIAS')
+                keyPassword System.getenv('ANDROID_KEY_PASSWORD')
+            }
+        }
+    }
     buildTypes {
+        debug {
+            // All debug APKs — local AND CI — are signed with the shared,
+            // COMMITTED debug.keystore (standard PUBLIC Android debug
+            // credentials). One stable debug signature means a newly
+            // downloaded debug APK can UPDATE an installed debug build in
+            // place instead of failing with "App not installed as package
+            // conflicts with an existing package". The applicationId
+            // (com.dsmnru.pyq) stays identical across debug/release — one
+            // app identity.
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // PRODUCTION signing is injected at CI time through environment
+            // variables fed from GitHub Secrets (ANDROID_KEYSTORE_* — see
+            // signingConfigs.release below). Nothing is committed: no
+            // keystore, no passwords, no keys. When the variables are absent
+            // (local builds, unconfigured CI) the release APK is left
+            // UNSIGNED — a production APK is never falsely labelled.
+            if (System.getenv('ANDROID_KEYSTORE_FILE') != null) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
@@ -35,6 +74,19 @@ dependencies {
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
+    // Firebase Cloud Messaging: registration, topic subscribe (`all_users`)
+    // and notification delivery. Firebase itself initializes ONLY when a
+    // google-services.json exists (see the conditional google-services apply
+    // at the bottom of this file) — every FCM code path degrades silently
+    // when it doesn't, so debug builds without the file run normally.
+    implementation 'com.google.firebase:firebase-messaging:24.1.1'
+    // Android Credential Manager + Google ID token library for the NATIVE
+    // Google sign-in (account chooser → Google ID token → Firebase
+    // accounts:signInWithIdp in www/js/auth.js — same dsmnru-data project).
+    // Compatible with AGP 8.13 / Gradle 8.14.3 / Java 21 / Capacitor 8.5.
+    implementation 'androidx.credentials:credentials:1.3.0'
+    implementation 'androidx.credentials:credentials-play-services-auth:1.3.0'
+    implementation 'com.google.android.libraries.identity.googleid:googleid:1.1.1'
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"

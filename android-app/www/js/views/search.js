@@ -225,7 +225,8 @@ export default async function renderSearch(root, ctx, params = {}) {
     } catch (err) {
       if (err && err.name === 'AbortError') return;
       if (myGen !== gen) return;
-      s.error = err.message || 'Network problem — pull down to try again.';
+      console.warn('search failed:', err); // detail in the log, never in the UI
+      s.error = 'Something went wrong. Please try again.';
     } finally {
       if (myGen === gen) {
         s.loading = false;
@@ -283,7 +284,8 @@ export default async function renderSearch(root, ctx, params = {}) {
     } catch (err) {
       if (err && err.name === 'AbortError') return;
       if (myGen !== gen) return;
-      s.error = err.message || 'Network problem';
+      console.warn('search failed:', err);
+      s.error = "Couldn't load results. Check your connection and try again.";
       s.mode = 'results';
       s.items = [];
     } finally {
