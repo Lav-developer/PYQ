@@ -111,7 +111,9 @@ public class DsmnruAppPlugin extends Plugin {
         String nonceHash = sha256Hex(call.getString("nonce", ""));
 
         try {
-            CredentialManager credentialManager = CredentialManager.getClient(activity);
+            // androidx.credentials 1.3.0 renamed the companion factory
+            // getClient(context) → create(context) (@JvmStatic — direct call).
+            CredentialManager credentialManager = CredentialManager.create(activity);
             GetGoogleIdOption googleOption = new GetGoogleIdOption.Builder()
                     .setServerClientId(clientId)
                     // false → show ALL device Google accounts (fresh chooser),
