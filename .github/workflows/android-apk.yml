@@ -5,7 +5,8 @@ name: Android APK
 # Node, JDK 21 and the Android SDK; Gradle comes from the project wrapper.
 #
 # The APK is uploaded as a workflow artifact only (never committed, no
-# releases are created).
+# releases are created). A `checks` job runs the Node test suites first so a
+# broken app-logic change can't produce a green APK build unnoticed.
 on:
   workflow_dispatch:
   push:
@@ -13,6 +14,7 @@ on:
       - android-app
     paths:
       - 'android-app/**'
+      - 'worker/**'
       - '.github/workflows/android-apk.yml'
 
 concurrency:
@@ -20,6 +22,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  checks:
+    name: App logic + Worker API tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            android-app/package-lock.json
+            worker/package-lock.json
+
+      # The Android app's unit tests + jsdom smoke test are dependency-free
+      # Node tests (jsdom is reused from the Worker devDependencies below).
+      - name: Install Worker test dependencies
+        run: npm ci --prefix worker --no-audit --no-fund
+
+      - name: Run Worker API suite (unchanged backend contract)
+        run: |
+          node worker/test/worker.test.js
+          node worker/test/frontend-smoke-test.cjs
+          node worker/test/paper-smoke-test.cjs
+          node worker/test/contribution-points-test.cjs
+          node worker/test/duplicate-detection-test.cjs
+          node worker/test/duplicate-index-freshness-test.cjs
+          node worker/test/admin-ia-test.cjs
+
+      - name: Run Android app logic + UI smoke tests
+        run: npm test --prefix android-app
+
   debug-apk:
     name: Build debug APK
     runs-on: ubuntu-latest

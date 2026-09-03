@@ -2,7 +2,7 @@
   "name": "dsmnru-pyq-android",
   "version": "1.0.0",
   "private": true,
-  "description": "Capacitor Android shell for the DSMNRU PYQ website (https://dsmnru-pyq.netlify.app). The app renders the existing production frontend inside a native Android WebView — no second backend, no bundled copy of the site.",
+  "description": "Native-feeling DSMNRU PYQ Android app: a dedicated mobile-first UI (bottom navigation, app-designed home/search/courses/saved/profile/paper screens) bundled inside the APK, talking directly to the existing Cloudflare Worker API and the existing Firebase Auth project. It is NOT a WebView copy of the website and adds no second backend.",
   "author": "DSMNRU Academic Archive",
   "license": "MIT",
   "engines": {
@@ -12,7 +12,8 @@
     "cap": "cap",
     "sync:android": "cap sync android",
     "build:debug": "cap sync android && cd android && ./gradlew assembleDebug",
-    "build:release": "cap sync android && cd android && ./gradlew assembleRelease"
+    "build:release": "cap sync android && cd android && ./gradlew assembleRelease",
+    "test": "NODE_OPTIONS=--experimental-vm-modules node --test test/*.test.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.1",

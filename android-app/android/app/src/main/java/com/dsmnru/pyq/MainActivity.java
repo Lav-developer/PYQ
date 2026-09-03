@@ -2,99 +2,78 @@ package com.dsmnru.pyq;
 
 import android.content.Intent;
 import android.net.Uri;
-import android.webkit.WebView;
-
-import androidx.activity.OnBackPressedCallback;
 
 import com.getcapacitor.BridgeActivity;
 
+
 /**
- * DSMNRU PYQ — Android shell around the existing production website
- * (https://dsmnru-pyq.netlify.app, alias https://dsmnru-pyq.email).
+ * DSMNRU PYQ — host activity for the DEDICATED Android app interface.
  *
- * The shell deliberately contains no business logic: browsing, search,
- * filters, papers, auth and PDFs all stay on the live frontend. This activity
- * only wires up the two things a remote-URL Capacitor app must own natively:
+ * The app UI is bundled in the APK (android/app assets → capacitor www/) and
+ * talks directly to the shared production backends (Cloudflare Worker API +
+ * Firebase Auth) — it does not render the website. This activity therefore
+ * only owns the three things a Capacitor shell must do natively:
  *
- *  1. Android back navigation — walk the WebView history first, and only
- *     finish the activity when the history is exhausted (Capacitor's JS-side
- *     backButton event is not relied upon, because the page is remote).
- *  2. https deep links for the site hosts — the manifest registers
- *     unverified VIEW intent filters; tapping a dsmnru-pyq link can open the
- *     app and this routes the URL into the WebView (cold start and warm).
+ *  1. Register the app's own tiny native plugin ({@link DsmnruAppPlugin})
+ *     for the share sheet, system downloads, and external link hand-off.
+ *  2. Android back navigation is driven by the JS router through the built-in
+ *     @capacitor/app 'backButton' event (pop the in-app stack, then exit) —
+ *     no WebView history walking is needed because the app is not a browser.
+ *  3. https deep links for the site hosts (a shared /pyq/&lt;slug&gt; link) are
+ *     forwarded to the app router instead of loading the website:
+ *       • cold start  → DsmnruAppPlugin.getLaunchUrl()
+ *       • warm start  → onNewIntent() triggers the 'siteDeepLink' event
+ *     Unverified intent filters: tapping such a link shows the standard
+ *     Android chooser; the website itself is completely unaffected.
  */
 public class MainActivity extends BridgeActivity {
 
-    private static final String[] SITE_HOSTS = new String[] {
-        "dsmnru-pyq.netlify.app",
-        "dsmnru-pyq.email"
-    };
-
     @Override
     public void onCreate(android.os.Bundle savedInstanceState) {
+        // Custom in-app plugin must be known before the bridge initializes so
+        // the bundled JS can call it through window.Capacitor.Plugins.DsmnruApp.
+        registerPlugin(DsmnruAppPlugin.class);
         super.onCreate(savedInstanceState);
-
-        // Android back button: go back in web history, otherwise exit the app
-        // (standard Android behavior at the top of the history stack). This
-        // callback is registered after super.onCreate(), so it takes priority
-        // over the @capacitor/app plugin's default handler, which would
-        // swallow the press at the root page.
-        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
-            @Override
-            public void handleOnBackPressed() {
-                WebView webView = getWebViewOrNull();
-                if (webView != null && webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    // History exhausted: leave the app (default Android behavior).
-                    finish();
-                }
-            }
-        });
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        loadSiteDeepLink(intent);
-    }
+        setIntent(intent); // getLaunchUrl() must observe warm-start links too
 
-    private WebView getWebViewOrNull() {
-        if (bridge == null) {
-            return null;
-        }
-        return bridge.getWebView();
-    }
-
-    /**
-     * Loads ACTION_VIEW https intents for the site hosts into the WebView.
-     * Everything else (external PDF hosts, share links, mailto, …) keeps
-     * Capacitor's default behavior of being handed to the system.
-     */
-    private void loadSiteDeepLink(Intent intent) {
         if (intent == null || !Intent.ACTION_VIEW.equals(intent.getAction())) {
             return;
         }
         Uri data = intent.getData();
-        if (data == null || !"https".equals(data.getScheme())) {
+        if (data == null || !isSupportedScheme(data)) {
             return;
         }
-        String host = data.getHost();
-        if (host == null || !isSiteHost(host)) {
-            return;
-        }
-        WebView webView = getWebViewOrNull();
-        if (webView != null) {
-            webView.loadUrl(data.toString());
-        }
+        forwardToAppRouter(data.toString());
     }
 
-    private boolean isSiteHost(String host) {
-        for (String siteHost : SITE_HOSTS) {
-            if (siteHost.equalsIgnoreCase(host)) {
-                return true;
+    private boolean isSupportedScheme(Uri data) {
+        return "https".equals(data.getScheme()) && data.getHost() != null;
+    }
+
+    /**
+     * Pushes the incoming link into the running app; the JS router validates
+     * the host/path (see www/js/slug.js#parseSiteUrl) and either opens the
+     * matching screen or forwards the URL to the system browser.
+     */
+    private void forwardToAppRouter(String url) {
+        runOnUiThread(() -> {
+            if (getBridge() == null) {
+                return;
             }
-        }
-        return false;
+            try {
+                com.getcapacitor.PluginHandle handle = getBridge().getPlugin("DsmnruApp");
+                if (handle != null && handle.getInstance() instanceof DsmnruAppPlugin) {
+                    ((DsmnruAppPlugin) handle.getInstance()).emitSiteLink(url);
+                }
+            } catch (Exception ignored) {
+                // The JS side also re-reads the launch intent on every resume,
+                // so a failed push can never strand an incoming link.
+            }
+        });
     }
 }

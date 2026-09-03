@@ -1,0 +1,361 @@
+/**
+ * DSMNRU PYQ Android — authentication against the EXISTING Firebase project
+ * (`dsmnru-data`). This is the same user base, the same email/password
+ * credentials, and the same verification rules the website uses — NOT a
+ * second auth system.
+ *
+ * Why REST instead of the firebase-auth JS SDK?
+ *  - Google sign-in via popup is blocked inside embedded WebViews (Google
+ *    rejects disallowed_useragent), so the website already shows a "use email
+ *    & password in the app" hint for the Capacitor user agent.
+ *  - The Identity Toolkit REST endpoints are exactly what the JS SDK calls
+ *    under the hood for password auth: sign-in/sign-up/refresh/verification
+ *    work flawlessly from the app without pulling ~270 KB of SDK or opening
+ *    any popup, and without any Firestore reads at startup.
+ *  - The web API key below is the same public client config already embedded
+ *    in the production website (script.js); it is not a secret, and no
+ *    service-account or private credential is ever shipped here.
+ *
+ * Google accounts: users who originally signed up with Google keep working on
+ * the website; inside the app, opening Google sign-in would require a native
+ * OAuth flow + console changes, so the app clearly explains the limitation
+ * and offers (a) email/password sign-in (same account if a password was ever
+ * set) or (b) one-tap hand-off to the site in the system browser. No silent
+ * breakage, no fallback backend.
+ *
+ * Session storage: idToken + refresh token + parsed expiry, refreshed lazily
+ * (on app resume / when within 5 minutes of expiry). No polling.
+ */
+
+export const FIREBASE_PROJECT_ID = 'dsmnru-data';
+export const FIREBASE_WEB_API_KEY = 'AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ';
+export const GOOGLE_SIGNIN_UNSUPPORTED = 'GOOGLE_SIGNIN_UNSUPPORTED_IN_APP';
+
+const IDT = 'https://identitytoolkit.googleapis.com/v1';
+const SECURE_TOKEN = 'https://securetoken.googleapis.com/v1/token';
+const FS = `https://firestore.googleapis.com/v1/projects/${FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+const SESSION_KEY = 'dsm.auth.session.v1';
+const VERIFY_CONTINUE_URL = 'https://dsmnru-pyq.netlify.app/';
+const REFRESH_SKEW_MS = 5 * 60 * 1000;
+
+const FRIENDLY_ERRORS = {
+  'EMAIL_NOT_FOUND': 'No account exists for this email yet.',
+  'INVALID_EMAIL': 'That email address does not look valid.',
+  'INVALID_PASSWORD': 'Incorrect password. Try again or reset it.',
+  'WRONG_PASSWORD': 'Incorrect password. Try again or reset it.',
+  'USER_DISABLED': 'This account has been disabled.',
+  'EMAIL_EXISTS': 'An account with this email already exists — sign in instead.',
+  'WEAK_PASSWORD': 'Please choose a password with at least 6 characters.',
+  'OPERATION_NOT_ALLOWED': 'Email sign-in is currently disabled for this project.',
+  'TOO_MANY_ATTEMPTS_TRY_LATER': 'Too many attempts. Please wait a minute and try again.',
+  'NETWORK_REQUEST_FAILED': 'Firebase is unreachable right now. Check your connection.',
+  'TOKEN_EXPIRED': 'Your session expired — please sign in again.',
+  'USER_NOT_FOUND': 'Your Firebase session is no longer valid — please sign in again.',
+  'INVALID_REFRESH_TOKEN': 'Your saved session is no longer valid — please sign in again.',
+};
+
+function friendly(err) {
+  const code = String((err && (err.code || err.error && err.error.message)) || '');
+  for (const key of Object.keys(FRIENDLY_ERRORS)) {
+    if (code.includes(key)) return FRIENDLY_ERRORS[key];
+  }
+  return (err && err.message) || 'Something went wrong. Please try again.';
+}
+
+/** Decode a JWT payload without verification — display/session metadata only. */
+export function decodeJwtPayload(token) {
+  try {
+    const parts = String(token || '').split('.');
+    if (parts.length !== 3) return null;
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = atob(b64.padEnd(Math.ceil(b64.length / 4) * 4, '='));
+    return JSON.parse(json);
+  } catch {
+    return null;
+  }
+}
+
+export function createAuth(options = {}) {
+  const fetchImpl = options.fetchImpl || ((...args) => fetch(...args));
+  const storage = options.storage || null;
+  const now = options.now || (() => Date.now());
+  const onUserDocMissing = options.syncUserDoc || null; // optional test seam
+
+  let user = null;         // normalized session view
+  let persist = true;      // false while offline-recovering
+  const listeners = new Set();
+
+  function emit() {
+    for (const fn of listeners) {
+      try { fn(user); } catch { /* ignore */ }
+    }
+  }
+
+  function loadSession() {
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(SESSION_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch { return null; }
+  }
+
+  function storeSession(session) {
+    persist = true;
+    if (!storage) return;
+    try {
+      if (session) storage.setItem(SESSION_KEY, JSON.stringify(session));
+      else storage.removeItem(SESSION_KEY);
+    } catch { /* ignore quota */ }
+  }
+
+  function viewFromTokens(idToken, refreshToken, obtainedAt) {
+    const claims = decodeJwtPayload(idToken) || {};
+    const provider = (claims.firebase && claims.firebase.sign_in_provider) || 'password';
+    const exp = Number(claims.exp) || 0;
+    return {
+      uid: claims.user_id || claims.sub || '',
+      email: claims.email || '',
+      name: claims.name || claims.email || 'Student',
+      picture: claims.picture || '',
+      emailVerified: claims.email_verified === true,
+      providerId: provider,
+      admin: claims.admin === true,
+      expiresAt: exp ? exp * 1000 : obtainedAt + 3600 * 1000,
+      obtainedAt,
+      idToken,
+      refreshToken,
+    };
+  }
+
+  function persistFromUser() {
+    if (!user || !persist) return;
+    storeSession({
+      idToken: user.idToken,
+      refreshToken: user.refreshToken,
+      expiresAt: user.expiresAt,
+      obtainedAt: user.obtainedAt,
+    });
+  }
+
+  function setUser(next, { remember = true } = {}) {
+    user = next;
+    persist = remember;
+    if (remember) persistFromUser();
+    if (!next && storage) {
+      try { storage.removeItem(SESSION_KEY); } catch { /* ignore */ }
+    }
+    emit();
+  }
+
+  async function postJson(url, body, headers = {}) {
+    const res = await fetchImpl(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...headers },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const err = new Error((data && (data.error && data.error.message || data.error)) || 'Request failed');
+      err.code = data && data.error ? String(data.error.message || '') : '';
+      throw err;
+    }
+    return data;
+  }
+
+  async function identity(endpoint, body) {
+    return postJson(`${IDT}/accounts:${endpoint}?key=${FIREBASE_WEB_API_KEY}`, body);
+  }
+
+  /** Sign-in (or sign-up) responses both carry idToken/refreshToken. */
+  async function adoptTokenSession(payload) {
+    const session = viewFromTokens(payload.idToken, payload.refreshToken, now());
+    if (!session.uid) throw new Error('Unexpected auth response');
+    setUser(session);
+    await syncUserDocument().catch(() => { /* non-fatal, best effort */ });
+    return session;
+  }
+
+  /**
+   * Mirror the website's `ensureUserDocumentSynced` — create users/{uid} only
+   * when it is missing (one Firestore read, zero-or-one write, and ONLY right
+   * after a manual sign-in — never at app startup).
+   */
+  async function syncUserDocument() {
+    if (!user || !user.uid) return;
+    const docUrl = `${FS}/users/${encodeURIComponent(user.uid)}?key=${FIREBASE_WEB_API_KEY}`;
+    const get = await fetchImpl(docUrl, {
+      headers: { Authorization: 'Bearer ' + user.idToken },
+    });
+    if (get.status === 200) return; // already synced (web signup flow or earlier app login)
+    if (get.status !== 404) throw new Error('profile lookup failed');
+
+    const fields = {
+      uid: { stringValue: user.uid },
+      email: { stringValue: user.email || '' },
+      name: { stringValue: user.name || 'User' },
+      signupName: { stringValue: user.name || 'User' },
+      signupEmail: { stringValue: user.email || '' },
+      signupCourse: { stringValue: '' },
+      course: { stringValue: '' },
+      phone: { stringValue: '' },
+      role: { stringValue: 'user' },
+      emailVerified: { booleanValue: !!user.emailVerified },
+      createdAt: { timestampValue: new Date().toISOString() },
+    };
+    if (onUserDocMissing) { await onUserDocMissing(fields); return; }
+    await fetchImpl(`${FS}/users?documentId=${encodeURIComponent(user.uid)}&key=${FIREBASE_WEB_API_KEY}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + user.idToken,
+      },
+      body: JSON.stringify({ fields }),
+    }); // best effort; profile features tolerate a late sync on web
+  }
+
+  const auth = {
+    current() { return user; },
+
+    /** Website-parity gate helpers (see paper.js/script.js in the web frontend). */
+    isGoogle() { return !!user && user.providerId === 'google.com'; },
+    needsEmailVerification() { return !!user && !auth.isGoogle() && !user.emailVerified; },
+    /** Search / filters / load-more / PDF actions require a verified session. */
+    canUnlockPrivileges() { return !!user && !auth.needsEmailVerification(); },
+
+    onChange(fn) { listeners.add(fn); return () => listeners.delete(fn); },
+
+    /**
+     * Restore a persisted session at startup (called once), refreshing the ID
+     * token when it is expired or close to it. Network failure while a
+     * session still exists → user stays visible with a "degraded" flag so the
+     * cached app keeps working offline; a rejected refresh → hard sign-out.
+     */
+    async restore() {
+      const saved = loadSession();
+      if (!saved || !saved.idToken) return null;
+      let session = viewFromTokens(saved.idToken, saved.refreshToken, saved.obtainedAt || now());
+      if (now() >= session.expiresAt - REFRESH_SKEW_MS && session.refreshToken) {
+        try {
+          const data = await postJson(`${SECURE_TOKEN}?key=${FIREBASE_WEB_API_KEY}`, {
+            grant_type: 'refresh_token',
+            refresh_token: session.refreshToken,
+          });
+          session = viewFromTokens(data.id_token, data.refresh_token || session.refreshToken, now());
+        } catch (err) {
+          if (err instanceof TypeError) {
+            // Network layer failed — keep the (possibly expired) session for
+            // offline UI, but do not persist a new expiry.
+            setUser({ ...session, degraded: true }, { remember: false });
+            return user;
+          }
+          setUser(null);
+          return null;
+        }
+      }
+      setUser(session);
+      return user;
+    },
+
+    /** Lightweight refresh on resume when the session is close to expiry. */
+    async refreshIfNeeded() {
+      if (!user || !user.refreshToken) return;
+      if (now() < user.expiresAt - REFRESH_SKEW_MS && !user.degraded) return;
+      try {
+        const data = await postJson(`${SECURE_TOKEN}?key=${FIREBASE_WEB_API_KEY}`, {
+          grant_type: 'refresh_token',
+          refresh_token: user.refreshToken,
+        });
+        setUser(viewFromTokens(data.id_token, data.refresh_token || user.refreshToken, now()));
+      } catch { /* keep current session; privileged calls will surface errors */ }
+    },
+
+    async signIn(email, password) {
+      try {
+        const data = await identity('signInWithPassword', {
+          email: String(email || '').trim(),
+          password: String(password || ''),
+          returnSecureToken: true,
+        });
+        return await adoptTokenSession(data);
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+    },
+
+    async signUp({ name, email, password }) {
+      let data;
+      try {
+        data = await identity('signUp', {
+          email: String(email || '').trim(),
+          password: String(password || ''),
+          returnSecureToken: true,
+        });
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+      try {
+        const displayName = String(name || '').trim();
+        if (displayName) {
+          await identity('update', { idToken: data.idToken, displayName });
+          data.displayName = displayName;
+        }
+      } catch { /* name is cosmetic; never fail signup over it */ }
+      const session = await adoptTokenSession(data);
+      try {
+        await identity('sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: session.idToken, continueUrl: VERIFY_CONTINUE_URL });
+      } catch { /* the website will re-prompt verification */ }
+      return session;
+    },
+
+    signOut() {
+      setUser(null);
+    },
+
+    async resendVerification() {
+      if (!user) return;
+      try {
+        await identity('sendOobCode', { requestType: 'VERIFY_EMAIL', idToken: user.idToken, continueUrl: VERIFY_CONTINUE_URL });
+        return true;
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+    },
+
+    async requestPasswordReset(email) {
+      try {
+        await identity('sendOobCode', { requestType: 'PASSWORD_RESET', email: String(email || '').trim() });
+        return true;
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+    },
+
+    /**
+     * Re-checks email_verified + profile claims against accounts:lookup
+     * (used by the "I verified my email" button — one request, on tap only).
+     */
+    async reloadProfile() {
+      if (!user) return null;
+      try {
+        const data = await identity('lookup', { idToken: user.idToken });
+        const acct = data && Array.isArray(data.users) ? data.users[0] : null;
+        if (acct) {
+          setUser({
+            ...user,
+            name: acct.displayName || user.name,
+            picture: acct.photoUrl || user.picture,
+            email: acct.email || user.email,
+            emailVerified: !!acct.emailVerified,
+            providerId: (acct.providerData && acct.providerData[0] && acct.providerData[0].providerId) || user.providerId,
+          });
+        }
+        await syncUserDocument().catch(() => {});
+      } catch (err) {
+        if (/expired|invalid/i.test(String(err && err.code))) await auth.restore();
+      }
+      return user;
+    },
+  };
+
+  return auth;
+}

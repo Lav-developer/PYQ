@@ -6,6 +6,7 @@
  *   GET /api/pyqs            — List PYQs (pagination, sorting, filters)
  *   GET /api/pyqs/search     — Search PYQs
  *   GET /api/pyqs/:id        — Single PYQ detail (full doc with file URLs)
+ *   GET /api/pyqs/slug/:slug — Resolve a public /pyq/:slug link to its index item
  *   GET /api/contributors    — Contributors list
  *   GET /api/courses         — Course catalog
  *   GET /api/homepage        — Homepage summary (recent, trending, course counts)
@@ -213,6 +214,8 @@ async function handleRequest(request, ctx) {
       response = await handlePyqsList(url, ctx);
     } else if (path === '/api/pyqs/search' && method === 'GET') {
       response = await handlePyqsSearch(url, ctx);
+    } else if (path.startsWith('/api/pyqs/slug/') && method === 'GET') {
+      response = await handlePyqsBySlug(path, ctx);
     } else if (path.match(/^\/api\/pyqs\/([^\/]+)$/) && method === 'GET') {
       const id = decodeURIComponent(path.match(/^\/api\/pyqs\/([^\/]+)$/)[1]);
       response = await handlePyqsSingle(id);
@@ -410,6 +413,41 @@ async function handlePyqsSingle(id) {
   // Additive field only; existing clients still receive the full document.
   return jsonResponse(seoSlug ? { ...doc, seoSlug } : doc, 200);
 }
+
+/**
+ * GET /api/pyqs/slug/:slug — resolve a canonical /pyq/:slug SEO slug to the
+ * same compact-index item shape the list/search endpoints already return.
+ *
+ * This is an ADDITIVE read-only lookup for API clients that only have the
+ * public link (e.g. a shared /pyq/<slug> URL opened by the Android app). It
+ * serves exclusively from the existing KV-cached search index that every
+ * list/search/browse request already uses, so it adds zero Firestore reads
+ * and changes no existing endpoint. Private/non-public slugs are never
+ * resolvable here because the compact index only carries public items.
+ */
+async function handlePyqsBySlug(path, ctx) {
+  const raw = path.slice('/api/pyqs/slug/'.length);
+  let slug = '';
+  try {
+    slug = decodeURIComponent(raw);
+  } catch {
+    return jsonResponse({ error: 'Invalid slug' }, 400);
+  }
+
+  if (!isSafePyqSlug(slug)) {
+    return jsonResponse({ error: 'Invalid slug' }, 400);
+  }
+
+  const index = await ensureFreshIndex(ctx);
+  const item = getItemBySlug(index, slug);
+  if (!item) {
+    return jsonResponse({ error: 'PYQ not found' }, 404);
+  }
+
+  const [mapped] = mapIndexItems([item]);
+  return jsonResponse(mapped, 200);
+}
+
 
 function stableStringCompare(a, b) {
   const left = String(a);
