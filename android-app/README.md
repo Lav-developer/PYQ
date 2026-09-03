@@ -225,9 +225,12 @@ cd android && ./gradlew assembleDebug
 # APK: android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-The GitHub Actions workflow (`.github/workflows/android-apk.yml`) runs the
-test job + builds the debug APK in the cloud and uploads it as an artifact —
-nothing binary is committed, and no releases are created automatically. A
+The GitHub Actions workflow (`.github/workflows/android-apk.yml`) runs on
+pushes to `android-app` **and on pull requests targeting it**: the `checks`
+job runs the Worker suite and the app's `npm test` (jsdom reused from the
+Worker devDependencies) first, then the `debug-apk` job builds the debug APK
+in the cloud and uploads it as a workflow artifact — nothing binary is
+committed, and no releases are created automatically. A
 signed release APK/AAB can be added later via repository secrets
 (keystore + `google-services.json` are **never** committed; `build.gradle`
 already auto-applies the Google Services plugin when `android/app/google-services.json`

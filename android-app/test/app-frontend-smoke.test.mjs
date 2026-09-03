@@ -7,8 +7,11 @@
  * search executes → paper detail opens → actions (external open, save) →
  * Saved tab → offline-safe re-render.
  *
- * Skips gracefully when jsdom is unavailable (it is provided by
- * worker/node_modules or CI `npm i jsdom`; see the android-apk workflow).
+ * Skips gracefully when jsdom is unavailable (jsdom is not an android-app
+ * dependency — CI installs the Worker devDependencies via
+ * `npm ci --prefix worker` in the android-apk workflow's checks job, and this
+ * suite reuses jsdom from worker/node_modules; the workflow now runs for
+ * pull_request events too, so these UI flows are enforced on every PR).
  * Run: npm test  (from android-app/)
  */
 
