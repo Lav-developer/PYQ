@@ -149,7 +149,7 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     }
     const text = (el) => (el ? el.textContent : '');
 
-    assert.ok(await waitFor(() => view().querySelector('.hero')), 'app booted with the native bridge');
+    assert.ok(await waitFor(() => view().querySelector('#home-courses')), 'app booted with the native bridge');
 
     // ── Website-parity gate: a typed query requires a VERIFIED session ────
     document.querySelector('.tab[data-tab="search"]').click();

@@ -182,24 +182,28 @@ if (JSDOM) {
     const view = () => document.getElementById('view');
 
     // ── Home ────────────────────────────────────────────────────────────
-    assert.ok(view().querySelector('.hero'), 'brand hero present');
-    assert.match(text(view().querySelector('#home-stats')), /5\s*papers/, 'stats from ONE homepage call');
+    assert.ok(!view().querySelector('.hero'), 'NO hero section on Home');
+    assert.ok(!view().querySelector('#home-search') && !view().querySelector('.search-entry'),
+      'Home carries NO search field — the bottom-nav Search tab is the single full search');
+    assert.ok(view().querySelector('#home-courses'), 'Home starts with the quick-access section');
+    assert.ok(view().querySelector('#home-courses .course-card'), 'course cards rendered from ONE homepage call');
+    assert.match(text(view().querySelector('#home-courses')), /B\.Tech/, 'course card shows the course');
+    assert.match(text(view().querySelector('#home-courses')), /papers/, 'course card shows the paper count');
     assert.match(text(view().querySelector('.paper-card-title')), /Data Structures/, 'recent paper card rendered');
     const homeCalls = calls.filter((c) => c.url.includes('/api/homepage')).length;
     assert.equal(homeCalls, 1, 'exactly one /api/homepage request for home');
 
     // v1.3.3 — ONE brand area (the app bar): Home adds no duplicate logo/text.
     assert.ok(!view().querySelector('.hero-emblem'), 'no duplicate brand block on Home');
-    assert.ok(view().querySelector('.search-entry #home-search'), 'compact search entry present');
 
-    // Home search entry hands off to the dedicated Search screen (query kept).
-    const homeEntry = view().querySelector('#home-search');
-    homeEntry.value = ' ';
-    homeEntry.dispatchEvent(new window.Event('focus', { bubbles: true }));
-    assert.ok(await waitFor(() => view().querySelector('#sq') !== null), 'focusing the home entry opens Search');
-    assert.equal(view().querySelector('#sq').value, '', 'blank entry opens the idle Search screen (no fake query)');
+    // v1.3.5 — hero (greeting/search/stats) fully removed; the dedicated
+    // Search TAB remains the one full search experience.
+    document.querySelector('.tab[data-tab="search"]').click();
+    assert.ok(await waitFor(() => view().querySelector('#sq') !== null), 'Search tab opens the full search screen');
+    assert.equal(view().querySelector('#sq').value, '', 'Search screen opens idle (no fake query)');
+    assert.ok(view().querySelector('#btn-filter'), 'full Search experience intact (filters present)');
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
 
     // ── Bottom nav → Courses (anonymous course pick is gated like the site) ─
     document.querySelector('.tab[data-tab="browse"]').click();
@@ -301,7 +305,7 @@ if (JSDOM) {
     // ── Cache discipline: re-visiting Home immediately issues NO new homepage fetch ─
     const before = calls.length;
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     const after = calls.filter((c) => c.url.includes('/api/homepage')).length;
     assert.equal(after, homeCalls, 'homepage cache prevented a refetch on revisit');
     assert.ok(calls.length - before <= 1, 'no request storm on navigation');
@@ -378,7 +382,7 @@ if (JSDOM) {
 
     // ── Drawer → Study Tools: fully on-device (no API traffic at all) ────
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     await openDrawer();
     document.querySelector('#drawer-root [data-view="tools"]').click();
     assert.ok(await waitFor(() => view().querySelector('.tool-card')), 'tools screen rendered');
@@ -397,7 +401,7 @@ if (JSDOM) {
 
     // ── Drawer → Contributors: ONE cached Worker request ────────────────
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     await openDrawer();
     document.querySelector('#drawer-root [data-view="contributors"]').click();
     assert.ok(await waitFor(() => view().querySelector('.contrib-card')), 'contributors rendered');
@@ -410,7 +414,7 @@ if (JSDOM) {
 
     // Re-open contributors → still exactly one request (cache/SWR).
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     await openDrawer();
     document.querySelector('#drawer-root [data-view="contributors"]').click();
     await waitFor(() => view().querySelector('.contrib-card'));
@@ -418,7 +422,7 @@ if (JSDOM) {
 
     // ── Drawer → Links: static in-app list; only the tapped portal is external ──
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     await openDrawer();
     document.querySelector('#drawer-root [data-view="links"]').click();
     assert.ok(await waitFor(() => view().querySelector('.link-item')), 'links rendered in-app');
@@ -431,7 +435,7 @@ if (JSDOM) {
 
     // ── Drawer → About: in-app screen with the external-destination audit ──
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     await openDrawer();
     document.querySelector('#drawer-root [data-view="about"]').click();
     assert.ok(await waitFor(() => view().querySelector('.about-hero')), 'about screen rendered in-app');
@@ -439,7 +443,7 @@ if (JSDOM) {
 
     // ── Home shortcuts are in-app navigations now (no browser hand-off) ──
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     const openedBeforeShortcuts = opened.length;
     assert.ok(await waitFor(() => view().querySelector('.shortcut[data-i="0"]')), 'in-app shortcuts rendered');
     view().querySelector('.shortcut[data-i="0"]').click(); // Upload a paper
@@ -455,7 +459,7 @@ if (JSDOM) {
     await waitFor(() => view().querySelector('.profile-card'));
     assert.match(text(view().querySelector('.profile-card')), /Test Student/, 'profile shows display name');
     assert.match(text(view().querySelector('.profile-card')), /stud@dsmnru\.in/, 'profile shows email');
-    assert.match(text(view()), /Version 1\.3\.4/, 'app version visible on Profile');
+    assert.match(text(view()), /Version 1\.3\.5/, 'app version visible on Profile');
     assert.ok(await waitFor(() => view().querySelector('#pf-rewards .hero-title')), 'rewards section loads lazily');
     assert.equal(view().querySelectorAll('#pf-rewards .hero-title')[0].textContent, '40',
       'points balance from the SAME reward account the website reads');
@@ -508,7 +512,7 @@ if (JSDOM) {
 
     // ── Back-arrow state: Home NEVER shows one; pushed screens do ───────
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     const backArrow = document.getElementById('appbar-back');
     const menuBtn2 = document.getElementById('appbar-menu');
     assert.equal(backArrow.hidden, true, 'Home shows NO back arrow');
@@ -520,13 +524,13 @@ if (JSDOM) {
     assert.equal(backArrow.hidden, false, 'pushed paper screen shows the back arrow');
     assert.equal(menuBtn2.hidden, true, 'menu hidden while pushed');
     backArrow.click();
-    assert.ok(await waitFor(() => view().querySelector('.hero')), 'back arrow pops to Home');
+    assert.ok(await waitFor(() => view().querySelector('#home-courses')), 'back arrow pops to Home');
     assert.equal(backArrow.hidden, true, 'back arrow removed after returning Home');
     document.querySelector('.tab[data-tab="search"]').click();
     await waitFor(() => view().querySelector('#sq'));
     assert.equal(backArrow.hidden, true, 'tab switch never leaves stale back state');
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     document.getElementById('appbar-menu').click();
     await waitFor(() => !document.getElementById('drawer-root').hidden);
     document.querySelector('#drawer-root [data-view="upload"]').click();
@@ -534,7 +538,7 @@ if (JSDOM) {
     assert.equal(backArrow.hidden, false, 'drawer-navigated screen shows the back arrow');
     document.getElementById('appbar-menu').hidden = true; // guard: must be hidden while pushed
     document.querySelector('.tab[data-tab="home"]').click();
-    await waitFor(() => view().querySelector('.hero'));
+    await waitFor(() => view().querySelector('#home-courses'));
     assert.equal(backArrow.hidden, true, 'Home via bottom nav clears the back arrow again');
 
     // ── Create account: real Firebase error feedback, then success ──────

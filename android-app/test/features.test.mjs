@@ -442,7 +442,9 @@ test('branding: the repository logo drives every brand surface; Home has ONE bra
 
   const css = readFileSync(join(here, '../www/css/app.css'), 'utf8');
   assert.ok(!css.includes('emblem.png'), 'old generated emblem is fully retired from CSS');
-  assert.ok(css.includes("url('../img/logo.png')"), 'app bar / hero / drawer brand surfaces use logo.png');
+  assert.ok(css.includes("url('../img/logo.png')"), 'app bar / drawer brand surfaces use logo.png');
+  assert.ok(!/\.hero\s*{/.test(css) && !css.includes('.hero-kicker') && !css.includes('.stat-pill ') && !css.includes('.search-entry'),
+    'dead hero CSS fully removed (emblem/title kept for About/Profile)');
   assert.ok(!readdirSync(join(here, '../www/img')).includes('emblem.png'),
     'stale emblem asset removed from the bundle so old branding cannot resurface');
   const indexHtml = readFileSync(join(here, '../www/index.html'), 'utf8');
@@ -450,9 +452,15 @@ test('branding: the repository logo drives every brand surface; Home has ONE bra
 
   const home = readFileSync(join(here, '../www/js/views/home.js'), 'utf8');
   assert.ok(!home.includes('hero-emblem'), 'Home renders NO duplicate brand block (app bar is the one brand area)');
-  assert.match(home, /search-entry/, 'Home keeps a compact search entry point');
-  assert.match(home, /ctx\.router\.tab\('search', q \? \{ q } : \{\}\)/,
-    'home search hands its query to the dedicated Search screen');
+  assert.ok(!home.includes('class="hero"') && !home.includes('hero-kicker'),
+    'Home has NO hero section (greeting/search/stats removed)');
+  assert.ok(!home.includes('search-entry') && !home.includes('home-search'),
+    'Home has NO search field — the bottom-nav Search tab is the single full search');
+  const firstSection = home.indexOf('id="home-courses"');
+  assert.ok(firstSection !== -1
+    && firstSection < home.indexOf('id="home-recent"')
+    && home.indexOf('id="home-recent"') < home.indexOf('id="home-trending"'),
+    'Home order: Quick access → course cards → recently added → trending');
 
   // Native launcher + adaptive + splash use the same logo (generated assets
   // exist for every density).
@@ -602,7 +610,7 @@ test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-for
   assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
 
   const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
-  assert.match(profile, /1\.3\.4/, 'app version visible on Profile');
+  assert.match(profile, /1\.3\.5/, 'app version visible on Profile');
   assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
   assert.match(profile, /saveProfileEdits/, 'profile editing wired to the SAME user profile');
   assert.match(profile, /reward points/, 'upload/reward points visible in Profile');

@@ -3,9 +3,11 @@
  *
  * Built from ONE Worker request (`GET /api/homepage`) served through the
  * app's cached client (instant re-render from cache, background revalidate,
- * offline fallback). Nothing here reuses website markup: greeting hero,
- * search launcher, stat pills, quick courses, continue-reading (device
- * history), recent/trending rails and shortcuts are app-native sections.
+ * offline fallback). Nothing here reuses website markup: quick-access
+ * courses, recent/trending rails, continue-reading (device history) and
+ * shortcuts are app-native sections. There is deliberately NO hero/greeting
+ * block and NO second search field here — the app bar is the one branding
+ * surface and the bottom-navigation Search tab is the one full search.
  */
 
 export default async function renderHome(root, ctx) {
@@ -13,54 +15,27 @@ export default async function renderHome(root, ctx) {
 
   ctx.setHeader({ title: 'DSMNRU PYQ', brand: true });
 
-  // ONE branding surface per screen: the app bar already carries the logo,
-  // so the hero is greeting → search → stats only (no duplicate logo/text).
+  // ONE branding surface per screen: the app bar already carries the logo.
+  // Home starts straight with the useful content — no hero, no duplicate
+  // search UI (the bottom-navigation Search tab is the single full search).
   root.innerHTML = `
     <div class="stack">
-      <section class="hero">
-        <div class="hero-kicker" id="home-greet">Bharatpur University archive</div>
-        <div class="hero-title">Find any <em>PYQ</em> in seconds</div>
-        <form id="home-search-form" class="search-entry" role="search">
-          ${ui.icon('search')}
-          <input id="home-search" type="search" placeholder="Search papers…" autocomplete="off" enterkeyhint="search" aria-label="Search papers">
-        </form>
-        <div class="stat-pills" id="home-stats"></div>
-      </section>
-
-      <section id="home-continue" class="hidden"></section>
-
       <section id="home-courses"></section>
 
       <section id="home-recent"></section>
 
       <section id="home-trending"></section>
 
+      <section id="home-continue" class="hidden"></section>
+
       <section id="home-shortcuts"></section>
     </div>`;
-
-  // Compact entry point, not a second search screen: focusing or submitting
-  // opens the dedicated Search tab, carrying over whatever was typed.
-  const searchInput = root.querySelector('#home-search');
-  const openSearch = () => {
-    const q = searchInput.value.trim();
-    ctx.router.tab('search', q ? { q } : {});
-  };
-  searchInput.addEventListener('focus', openSearch);
-  root.querySelector('#home-search-form').addEventListener('submit', (e) => {
-    e.preventDefault();
-    openSearch();
-  });
-
-  const hour = new Date().getHours();
-  const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-  root.querySelector('#home-greet').textContent = `${greet} — ${new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'short' })}`;
 
   // One request for everything below (cached + SWR; 0 network on re-entry).
   let res;
   try {
     res = await api.homepage();
   } catch (err) {
-    root.querySelector('#home-stats').innerHTML = '';
     const box = document.createElement('div');
     box.appendChild(ui.stateBlock({
       iconName: 'wifiOff',
@@ -75,7 +50,6 @@ export default async function renderHome(root, ctx) {
   }
 
   const data = res.data || {};
-  renderStats(data);
   renderCourses(data);
   renderContinue();
   renderRecent(data);
@@ -87,7 +61,6 @@ export default async function renderHome(root, ctx) {
   if (res.revalidating) {
     res.revalidating.then((fresh) => {
       if (!fresh || JSON.stringify(fresh) === JSON.stringify(data)) return;
-      renderStats(fresh);
       renderRecent(fresh);
       renderTrending(fresh);
       renderCourses(fresh);
@@ -97,7 +70,6 @@ export default async function renderHome(root, ctx) {
   ctx.setRefresh(() => {
     api.homepage({ force: true }).then((r) => {
       const fresh = r.data || {};
-      renderStats(fresh);
       renderCourses(fresh);
       renderRecent(fresh);
       renderTrending(fresh);
@@ -106,16 +78,6 @@ export default async function renderHome(root, ctx) {
   });
 
   // ── sections ─────────────────────────────────────────────────────────
-  function renderStats(d) {
-    const stats = d.stats || {};
-    const el = root.querySelector('#home-stats');
-    if (!el) return; // view changed before a late async render (revalidate/refresh) — nothing to update
-    el.innerHTML = `
-      <span class="stat-pill"><b>${Number(stats.totalPyqs) || 0}</b> papers</span>
-      <span class="stat-pill"><b>${Number(stats.totalCourses) || 0}</b> courses</span>
-      ${res.stale ? ui.stalePill('Offline copy') : ''}`;
-  }
-
   function renderCourses(d) {
     const host = root.querySelector('#home-courses');
     if (!host) return; // view changed before a late async render
