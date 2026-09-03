@@ -216,6 +216,20 @@ public class FcmService extends FirebaseMessagingService {
         }
     }
 
+    /**
+     * Static signal that the Google Services plugin processed a
+     * google-services.json at build time (it always generates the
+     * google_app_id resource). Independent of runtime init order.
+     */
+    public static boolean hasFirebaseConfigResources(Context context) {
+        try {
+            return context.getResources().getIdentifier(
+                    "google_app_id", "string", context.getPackageName()) != 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** True when notifications may be posted (API < 33: implicitly true). */
     public static boolean notificationsGranted(Context context) {
         if (Build.VERSION.SDK_INT < 33) return true;

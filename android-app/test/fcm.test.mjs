@@ -62,8 +62,8 @@ test('Gradle wires firebase-messaging and keeps google-services conditional', ()
   assert.match(gradle, /apply plugin: 'com\.google\.gms\.google-services'/,
     'google-services plugin applied when google-services.json exists');
   assert.match(gradle, /google-services\.json/, 'apply is guarded by the presence of google-services.json');
-  assert.match(gradle, /versionCode 5/, 'versionCode increased for the 1.3.1 release');
-  assert.match(gradle, /versionName "1\.3\.1"/, 'versionName 1.3.1');
+  assert.match(gradle, /versionCode 6/, 'versionCode increased for the 1.3.2 release');
+  assert.match(gradle, /versionName "1\.3\.2"/, 'versionName 1.3.2');
   // Consistent package identity + stable debug signature (update-in-place).
   assert.match(gradle, /applicationId "com\.dsmnru\.pyq"/, 'single applicationId preserved');
   assert.match(gradle, /signingConfig signingConfigs\.debug/, 'debug buildType uses the shared debug signing config');
@@ -116,8 +116,8 @@ test('MainActivity: real system permission dialog, asked once, correctly gated',
 
   assert.match(src, /Manifest\.permission\.POST_NOTIFICATIONS/, 'asks for POST_NOTIFICATIONS');
   assert.match(src, /ActivityCompat\.requestPermissions/, 'the REAL system dialog (no fake in-app toggle)');
-  assert.match(src, /KEY_NOTIF_ASKED[\s\S]{0,120}putBoolean\(KEY_NOTIF_ASKED, true\)[\s\S]{0,120}requestPermissions/,
-    'the asked-flag is persisted BEFORE the dialog (never re-asked)');
+  assert.match(src, /requestPermissions\([\s\S]{0,120}\)[\s\S]{0,80}putBoolean\(KEY_NOTIF_ASKED, true\)/,
+    'the asked-flag is persisted only after the dialog request was accepted by the OS (never re-asked afterwards)');
   assert.match(src, /if \(Build\.VERSION\.SDK_INT < 33\) return;/, 'gated to Android 13+');
   assert.match(src, /isFirebaseAvailable/, 'skipped when the build has no Firebase config');
   assert.match(src, /notificationsGranted\(this\)\) return/, 'already granted → nothing to do');
@@ -125,6 +125,59 @@ test('MainActivity: real system permission dialog, asked once, correctly gated',
   assert.match(src, /FcmService\.ensureChannel\(this\)/, 'notification channel created at app start');
   assert.match(src, /FcmService\.subscribeAllUsers\(this, false\)/,
     'version-gated topic subscribe bootstrapped (not forced) at app start');
+});
+
+test('FCM: token + all_users subscription are independent of the notification permission', () => {
+  const src = main('java/com/dsmnru/pyq/FcmService.java');
+  const activity = main('java/com/dsmnru/pyq/MainActivity.java');
+
+  // Subscription path never consults POST_NOTIFICATIONS (permission only
+  // governs the visual posting of notifications).
+  const subscribeFn = src.match(/public static void subscribeAllUsers[\s\S]*?\n    \}/);
+  assert.ok(subscribeFn, 'subscribeAllUsers present');
+  assert.ok(!subscribeFn[0].includes('POST_NOTIFICATIONS') && !subscribeFn[0].includes('checkSelfPermission'),
+    'topic subscription is NOT blocked by the notification permission');
+
+  // Bootstrapped unconditionally at app start (no permission gate around it).
+  assert.match(activity, /FcmService\.subscribeAllUsers\(this, false\);/,
+    'all_users subscribe bootstrapped in onCreate');
+  assert.match(src, /onNewToken[\s\S]{0,200}subscribeAllUsers\(this, true\)/,
+    'token rotation re-asserts the subscription (force)');
+
+  // Token lives ONLY in device-local prefs — never uploaded by the app.
+  assert.ok(!/firestore|Firestore|documents\/|runQuery/.test(subscribeFn[0]), 'no token sync to any backend');
+  assert.match(src, /getSharedPreferences\(PREFS, (Context\.)?MODE_PRIVATE\)\.edit\(\)\.putString\("token", token\)/,
+    'token cached device-locally for diagnostics only');
+});
+
+test('FCM: the first-session permission dialog actually executes (and only once)', () => {
+  const activity = main('java/com/dsmnru/pyq/MainActivity.java');
+
+  // Scheduled from onResume → runs in a RESUMED activity state.
+  assert.match(activity, /protected void onResume\(\)|public void onResume\(\)[\s\S]{0,120}scheduleNotificationPermissionAsk/,
+    'ask scheduled from onResume (valid resumed lifecycle state)');
+  assert.match(activity, /mainHandler\.postDelayed\(permissionAsk, PERMISSION_ASK_DELAY_MS\)/,
+    'delayed first-session ask (~9s) is actually scheduled');
+
+  // The dialog call is real, happens while the activity is alive, and the
+  // once-flag is written only AFTER the OS accepted the request.
+  const ask = activity.match(/private final Runnable permissionAsk[\s\S]*?\n    };/);
+  assert.ok(ask, 'permissionAsk runnable present');
+  assert.match(ask[0], /isFinishing\(\) \|\| isDestroyed\(\)/, 'never posts from a dying activity');
+  assert.match(ask[0], /ActivityCompat\.requestPermissions\(this,[\s\S]{0,120}POST_NOTIFICATIONS[\s\S]{0,60}REQ_POST_NOTIFICATIONS\)/,
+    'the REAL system dialog is requested');
+  assert.ok(ask[0].indexOf('requestPermissions') < ask[0].indexOf('putBoolean(KEY_NOTIF_ASKED, true)'),
+    'asked-flag persisted only after the request was handed to the OS (a failed call can never silence the dialog forever)');
+
+  // Already granted → no request; already asked → never again.
+  assert.match(ask[0], /notificationsGranted\(this\)\) return;/, 'already granted → no request');
+  assert.match(ask[0], /getBoolean\(KEY_NOTIF_ASKED, false\)\) return;/, 'denied → never re-asked');
+
+  // Config gate now accepts the generated google_app_id resource too, so a
+  // google-services.json build always shows the dialog regardless of the
+  // runtime Firebase init order.
+  assert.match(activity, /hasFirebaseConfigResources/,
+    'Firebase-config gate accepts the generated google_app_id resource');
 });
 
 test('app JS never polls for notifications or fakes the permission', () => {

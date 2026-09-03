@@ -52,13 +52,24 @@ public class MainActivity extends BridgeActivity {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private final Runnable permissionAsk = () -> {
+        if (isFinishing() || isDestroyed()) return; // never from a dying activity
         if (Build.VERSION.SDK_INT < 33) return;
         if (FcmService.notificationsGranted(this)) return; // already granted — nothing to ask
         SharedPreferences prefs = getSharedPreferences(PREFS_FCM, MODE_PRIVATE);
         if (prefs.getBoolean(KEY_NOTIF_ASKED, false)) return; // asked once — respect the decision
-        prefs.edit().putBoolean(KEY_NOTIF_ASKED, true).apply();
-        ActivityCompat.requestPermissions(this,
-                new String[]{ Manifest.permission.POST_NOTIFICATIONS }, REQ_POST_NOTIFICATIONS);
+        try {
+            // We are inside a postDelayed() on the main handler started from
+            // onResume(), i.e. in a valid RESUMED state — the system dialog
+            // can attach. The asked-flag is written only AFTER the request
+            // was handed to the OS, so a failed call never silences the
+            // dialog forever.
+            ActivityCompat.requestPermissions(this,
+                    new String[]{ Manifest.permission.POST_NOTIFICATIONS }, REQ_POST_NOTIFICATIONS);
+            prefs.edit().putBoolean(KEY_NOTIF_ASKED, true).apply();
+        } catch (Exception dialogCouldNotShow) {
+            // Rare OEM failure — leave the flag unset so the next session
+            // retries once instead of never asking at all.
+        }
     };
 
     @Override
@@ -93,6 +104,11 @@ public class MainActivity extends BridgeActivity {
      * new user sees. Never shown again afterwards — granted or denied — and
      * the app works identically either way (push simply stays silent when
      * denied). On Android < 13 no runtime dialog exists or is needed.
+     *
+     * Note: builds WITHOUT Firebase configuration (no google-services.json)
+     * intentionally never ask — there is nothing to deliver. With the config
+     * committed on the branch, every CI/installed build initializes Firebase
+     * via FirebaseInitProvider and this gate is open.
      */
     private void scheduleNotificationPermissionAsk() {
         if (Build.VERSION.SDK_INT < 33) return;
@@ -100,7 +116,10 @@ public class MainActivity extends BridgeActivity {
         SharedPreferences prefs = getSharedPreferences(PREFS_FCM, MODE_PRIVATE);
         if (prefs.getBoolean(KEY_NOTIF_ASKED, false)) return;
         // Pointless to ask when the build carries no Firebase configuration.
-        if (!FcmService.isFirebaseAvailable(this)) return;
+        // FirebaseApp.getApps() is the live signal; the generated google_app_id
+        // resource is the static fallback (the plugin writes it whenever
+        // google-services.json is present), covering any init-order gap.
+        if (!FcmService.isFirebaseAvailable(this) && !FcmService.hasFirebaseConfigResources(this)) return;
         mainHandler.postDelayed(permissionAsk, PERMISSION_ASK_DELAY_MS);
     }
 

@@ -6,17 +6,17 @@
     <string name="custom_url_scheme">com.dsmnru.pyq</string>
 
     <!--
-      Android OAuth **Web client ID** used by the native Google sign-in
+      Fallback Android OAuth **Web client ID** for the native Google sign-in
       (Credential Manager → Google ID token → Firebase accounts:signInWithIdp).
-      This is a PUBLIC identifier (not a secret) but it is project-specific:
-      before Google sign-in works in an APK build, replace the placeholder
-      with the dsmnru-data project's Web client ID (Firebase console →
-      Authentication → Google, or google-services.json →
-      oauth_client / client_type 3), AND register this app's package name +
-      signing-certificate SHA-1 as an Android OAuth client of the same
-      project. Full step-by-step: android-app/docs/GOOGLE_SIGNIN_SETUP.md.
-      Until it is set, the plugin reports GOOGLE_SIGNIN_NOT_CONFIGURED and the
-      app offers in-app email/password instead — never a website redirect.
+      The plugin now prefers `default_web_client_id`, which the Google
+      Services plugin GENERATES from google-services.json (oauth_client /
+      client_type 3) — this manual string is only used when that generated
+      resource is absent. Public identifier (not a secret). The Android OAuth
+      client is never used as serverClientId. The app's package name +
+      signing SHA-1 must still be registered as an Android OAuth client of
+      the same project (docs/GOOGLE_SIGNIN_SETUP.md). Without either value
+      the plugin reports GOOGLE_SIGNIN_NOT_CONFIGURED and the app offers
+      in-app email/password instead — never a website redirect.
     -->
     <string name="google_web_client_id" translatable="false">REPLACE_WITH_WEB_CLIENT_ID.apps.googleusercontent.com</string>
 </resources>

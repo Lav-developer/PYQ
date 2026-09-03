@@ -431,6 +431,42 @@ test('links dataset: https-only university/government portals, zero PYQ-website 
   assert.equal(total, 14, 'same 14 destinations as links.html');
 });
 
+// ── Native Google sign-in wiring (Credential Manager → Firebase) ────────
+
+test('native Google sign-in: serverClientId is the WEB OAuth client, never the Android client', () => {
+  const jsDir = join(here, '../www/js');
+  const plugin = readFileSync(
+    join(here, '../android/app/src/main/java/com/dsmnru/pyq/DsmnruAppPlugin.java'), 'utf8');
+
+  // The GENERATED default_web_client_id (written by the Google Services
+  // plugin from google-services.json's client_type:3 entry) is preferred.
+  assert.match(plugin, /getIdentifier\(\s*"default_web_client_id", "string"/,
+    'uses the generated default_web_client_id resource (the WEB client from google-services.json)');
+  // Manual google_web_client_id remains only as a fallback.
+  assert.match(plugin, /R\.string\.google_web_client_id/,
+    'manual google_web_client_id kept as fallback');
+  const genIdx = plugin.indexOf('default_web_client_id');
+  const fbIdx = plugin.indexOf('R.string.google_web_client_id');
+  assert.ok(genIdx !== -1 && fbIdx > genIdx, 'generated web client is resolved BEFORE the fallback');
+  // No Android OAuth client is ever wired as serverClientId.
+  assert.ok(!/serverClientId\([^)]*android_client/i.test(plugin), 'Android client never used as serverClientId');
+  // Flow shape intact: Credential Manager → Google ID token → Firebase IdP.
+  assert.match(plugin, /GetGoogleIdOption\.Builder\(\)/, 'Credential Manager option built');
+  assert.match(plugin, /GoogleIdTokenCredential\.createFrom/, 'Google ID token extracted');
+  const authjs = readFileSync(join(jsDir, 'auth.js'), 'utf8');
+  assert.match(authjs, /signInWithIdp/, 'token exchanged with Firebase Identity Toolkit');
+  assert.match(authjs, /providerId=google\.com/, 'google.com provider asserted to Firebase');
+  // No website hand-off anywhere in the native google path.
+  const authui = readFileSync(join(jsDir, 'authui.js'), 'utf8');
+  assert.ok(!authui.includes('netlify'), 'Google sign-in never mentions or opens the website');
+  // Existing Google users + brand-new Google users both go through the same
+  // Identity Toolkit IdP exchange (sign-in and sign-up are the same call).
+  assert.match(authjs, /returnSecureToken: true/, 'session tokens requested (new users get accounts automatically)');
+  // Profile schema reused: users/{uid} sync after Google authentication.
+  assert.match(authjs, /users\/\$\{encodeURIComponent\(user\.uid\)\}|users\/\$\{user\.uid\}/,
+    'profile sync targets the SAME users/{uid} doc as the website');
+});
+
 // ── v1.3.1: no technical endpoints in the UI; hidden semantics; signup ──
 
 test('audit: no API/worker/Firebase endpoints are rendered anywhere in the UI', () => {
@@ -479,7 +515,7 @@ test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-for
   assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
 
   const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
-  assert.match(profile, /1\.3\.1/, 'app version visible on Profile');
+  assert.match(profile, /1\.3\.2/, 'app version visible on Profile');
   assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
   assert.match(profile, /updateDisplayName/, 'name editing wired to the SAME user profile');
   assert.match(profile, /reward points/, 'upload/reward points visible in Profile');

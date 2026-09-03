@@ -390,7 +390,7 @@ if (JSDOM) {
     await waitFor(() => view().querySelector('.profile-card'));
     assert.match(text(view().querySelector('.profile-card')), /Test Student/, 'profile shows display name');
     assert.match(text(view().querySelector('.profile-card')), /stud@dsmnru\.in/, 'profile shows email');
-    assert.match(text(view()), /Version 1\.3\.1/, 'app version visible on Profile');
+    assert.match(text(view()), /Version 1\.3\.2/, 'app version visible on Profile');
     assert.ok(await waitFor(() => view().querySelector('#pf-rewards .hero-title')), 'rewards section loads lazily');
     assert.equal(view().querySelectorAll('#pf-rewards .hero-title')[0].textContent, '40',
       'points balance from the SAME reward account the website reads');

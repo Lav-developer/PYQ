@@ -92,15 +92,34 @@ public class DsmnruAppPlugin extends Plugin {
             call.reject("GOOGLE_SIGNIN_UNAVAILABLE: app activity is not running");
             return;
         }
+        // serverClientId MUST be the WEB OAuth client (audience of the Google
+        // ID token that Firebase's accounts:signInWithIdp accepts). With
+        // google-services.json present, the Google Services plugin generates
+        // `default_web_client_id` from the file's client_type: 3 entry — the
+        // authoritative web client. The manual `google_web_client_id` string
+        // stays as a fallback for builds generated without the file. The
+        // ANDROID OAuth client (client_type: 1/2) is never used here — it is
+        // identified by package + SHA-1 at the OS level, not by client id.
         String clientId = "";
         try {
-            clientId = getContext().getString(R.string.google_web_client_id);
-        } catch (Exception e) {
+            int resId = getContext().getResources().getIdentifier(
+                    "default_web_client_id", "string", getContext().getPackageName());
+            if (resId != 0) {
+                clientId = getContext().getString(resId);
+            }
+        } catch (Exception generatedResourceMissing) {
             clientId = "";
         }
         if (clientId == null || clientId.trim().isEmpty() || clientId.contains("REPLACE_WITH")) {
+            try {
+                clientId = getContext().getString(R.string.google_web_client_id);
+            } catch (Exception e) {
+                clientId = "";
+            }
+        }
+        if (clientId == null || clientId.trim().isEmpty() || clientId.contains("REPLACE_WITH")) {
             call.reject("GOOGLE_SIGNIN_NOT_CONFIGURED: this build has no Google Web client ID — "
-                + "set res/value google_web_client_id and register the signing SHA-1 "
+                + "add google-services.json (or set google_web_client_id) and register the signing SHA-1 "
                 + "(see android-app/docs/GOOGLE_SIGNIN_SETUP.md)");
             return;
         }
