@@ -101,7 +101,7 @@ jobs:
         run: ls -lh android-app/android/app/build/outputs/apk/debug/
 
       - name: Upload debug APK artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: dsmnru-pyq-debug-apk
           path: android-app/android/app/build/outputs/apk/debug/app-debug.apk
