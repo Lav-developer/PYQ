@@ -77,7 +77,10 @@ function setupDom() {
   const opened = [];
   window.open = (u) => { opened.push(String(u)); return null; };
 
-  for (const key of ['window', 'document', 'navigator', 'location', 'localStorage', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'MouseEvent', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+  // 'FormData'/'File'/'Blob'/'FileReader' are bridged too so upload code that
+// does `new FormData()` resolves to the SAME realm as the jsdom File
+// objects (Node's undici FormData would reject jsdom Blobs).
+for (const key of ['window', 'document', 'navigator', 'location', 'localStorage', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'MouseEvent', 'requestAnimationFrame', 'cancelAnimationFrame', 'FormData', 'File', 'Blob', 'FileReader']) {
     try {
       Object.defineProperty(globalThis, key, { value: window[key], configurable: true, writable: true });
     } catch { /* node-owned globals (navigator) may resist — code paths guard with typeof */ }
@@ -240,6 +243,11 @@ if (JSDOM) {
     assert.match(text(view()), /10\s*points/, 'reward explanation rendered');
 
     // Validation errors render inside the app (no navigation, no fetches).
+    // The signed-in session prefills "your name"/email (intended app behavior),
+    // so clear the form first to exercise the empty-form validation state.
+    view().querySelector('#up-title').value = '';
+    view().querySelector('#up-name').value = '';
+    view().querySelector('#up-email').value = '';
     const uploadCallsBefore = calls.length;
     view().querySelector('#up-submit').click();
     assert.ok(await waitFor(() => !view().querySelector('[data-err]').hidden), 'validation error shown');

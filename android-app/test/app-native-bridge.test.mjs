@@ -51,10 +51,17 @@ const PAPER = {
   seoSlug: 'data-structures-2023', createdAt: '2023-06-01T10:00:00Z',
 };
 
-function jwt(exp, provider) {
+function jwt(exp, provider, who = 'google') {
+  const people = {
+    google: { uid: 'g-uid-1', email: 'student@gmail.com', name: 'Google Student' },
+    // Verified password account (email_verified: true — the website-parity
+    // privilege gate requires it before search / PDF actions unlock).
+    password: { uid: 'pw-uid-1', email: 'stud@dsmnru.in', name: 'Test Student' },
+  };
+  const who_ = people[who] || people.google;
   const b64u = (s) => Buffer.from(s).toString('base64url');
   return b64u('{"alg":"none"}') + '.' + b64u(JSON.stringify({
-    exp, user_id: 'g-uid-1', sub: 'g-uid-1', email: 'student@gmail.com', name: 'Google Student',
+    exp, user_id: who_.uid, sub: who_.uid, email: who_.email, name: who_.name,
     email_verified: true, firebase: { sign_in_provider: provider },
   })) + '.s';
 }
@@ -71,7 +78,10 @@ if (JSDOM) {
     const opened = [];
     window.open = (u) => { opened.push(String(u)); return null; };
 
-    for (const key of ['window', 'document', 'navigator', 'location', 'localStorage', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'MouseEvent', 'requestAnimationFrame', 'cancelAnimationFrame']) {
+    // 'FormData'/'File'/'Blob'/'FileReader' are bridged too so upload code that
+// does `new FormData()` resolves to the SAME realm as the jsdom File
+// objects (Node's undici FormData would reject jsdom Blobs).
+for (const key of ['window', 'document', 'navigator', 'location', 'localStorage', 'HTMLElement', 'Element', 'Node', 'Event', 'CustomEvent', 'MouseEvent', 'requestAnimationFrame', 'cancelAnimationFrame', 'FormData', 'File', 'Blob', 'FileReader']) {
       try {
         Object.defineProperty(globalThis, key, { value: window[key], configurable: true, writable: true });
       } catch { /* node-owned globals resist — code guards with typeof */ }
@@ -115,9 +125,12 @@ if (JSDOM) {
       if (u.includes('/api/courses')) return ok(['B.Tech']);
       if (u.includes('/api/pyqs/p1')) return ok(PAPER);
       if (u.includes('/api/pyqs/search')) return ok({ items: [{ id: 'p1', title: PAPER.title, course: 'B.Tech', views: 12, slug: PAPER.seoSlug }], total: 1, page: 1, totalPages: 1 });
+      if (u.includes('signInWithPassword')) {
+        return ok({ idToken: jwt(nowSec + 3600, 'password', 'password'), refreshToken: 'RT-P', expiresIn: '3600' });
+      }
       if (u.includes('accounts:signInWithIdp')) {
         idpBodies.push(JSON.parse(opts.body));
-        return ok({ idToken: jwt(nowSec + 3600, 'google.com'), refreshToken: 'RT-G', expiresIn: '3600', providerId: 'google.com' });
+        return ok({ idToken: jwt(nowSec + 3600, 'google.com', 'google'), refreshToken: 'RT-G', expiresIn: '3600', providerId: 'google.com' });
       }
       if (u.includes('/documents')) return { ok: true, status: 200, json: async () => ({ fields: {} }) };
       return { ok: false, status: 404, json: async () => ({ error: 'mock: not mocked ' + u }) };
@@ -138,43 +151,35 @@ if (JSDOM) {
 
     assert.ok(await waitFor(() => view().querySelector('.hero')), 'app booted with the native bridge');
 
-    // ── PDF gate mirrors the website policy for signed-out users ─────────
+    // ── Website-parity gate: a typed query requires a VERIFIED session ────
     document.querySelector('.tab[data-tab="search"]').click();
     await waitFor(() => view().querySelector('#sq'));
-    const input = view().querySelector('#sq');
-    input.value = 'data structures';
-    input.dispatchEvent(new window.Event('input', { bubbles: true }));
-    assert.ok(await waitFor(() => view().querySelector('[data-paper-id="p1"]')), 'search result rendered');
+    const typeQuery = async () => {
+      const input = view().querySelector('#sq');
+      input.value = 'data structures';
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    };
+    await typeQuery();
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root #auth-email')),
+      'anonymous typed search opens the in-app sign-in gate (website rule) — no results leak');
+
+    // ── Sign in through the gate sheet (email/password → same Firebase) ────
+    document.querySelector('.sheet-root #auth-email').value = 'stud@dsmnru.in';
+    document.querySelector('.sheet-root #auth-pass').value = 'hunter22';
+    document.querySelector('.sheet-root form[data-form="login"] button[type="submit"]').click();
+    assert.ok(await waitFor(() => !document.querySelector('.sheet-root')), 'gate sheet closes on sign-in');
+    assert.ok(calls.some((c) => c.url.includes('signInWithPassword')), 'Identity Toolkit password sign-in called');
+
+    // ── Verified → debounced search executes against the Worker endpoint ───
+    await waitFor(() => view().querySelector('#sq'));
+    await typeQuery();
+    assert.ok(await waitFor(() => view().querySelector('[data-paper-id="p1"]')), 'search result rendered for the verified session');
     view().querySelector('[data-paper-id="p1"]').click();
     assert.ok(await waitFor(() => view().querySelector('.paper-hero')), 'paper screen rendered');
 
     const externalBefore = bridgeCalls.filter((c) => c.kind === 'openExternal').length;
-    view().querySelector('[data-act="view"]').click();
-    assert.ok(await waitFor(() => document.querySelector('.sheet-root #auth-email')), 'verified-sign-in gate opens the in-app auth sheet first');
 
-    // ── Google: not configured → in-app explainer, no website hand-off ────
-    googleResult = { err: 'GOOGLE_SIGNIN_NOT_CONFIGURED: no client id in this build' };
-    document.querySelector('.sheet-root [data-act="google"]').click();
-    assert.ok(await waitFor(() => {
-      const sheet = document.querySelector('.sheet-root');
-      return sheet && /Google sign-in/.test(text(sheet)) && /configured/.test(text(sheet));
-    }), 'not-configured explainer shown');
-    assert.ok(!/Open website/.test(text(document.querySelector('.sheet-root'))), 'never sends the user to the website');
-    document.querySelector('.sheet-root [data-act="email"]').click();
-    assert.ok(await waitFor(() => document.querySelector('.sheet-root #auth-email')), 'email/password path offered in-app');
-
-    // ── Google sign-in: device chooser → Firebase → Google session ─────────
-    googleResult = { idToken: 'GOOGLE_ID_TOKEN' };
-    document.querySelector('.sheet-root [data-act="google"]').click();
-    assert.ok(await waitFor(() => idpBodies.length === 1), 'Identity Toolkit signInWithIdp called');
-    const seenNonce = bridgeCalls.filter((c) => c.kind === 'googleSignIn').at(-1).nonce;
-    assert.ok(seenNonce && seenNonce.length >= 16, 'JS generated a nonce for the chooser');
-    assert.match(idpBodies[0].postBody, new RegExp(`nonce=${seenNonce}`), 'the same nonce is replayed to Firebase');
-    assert.match(idpBodies[0].postBody, /id_token=GOOGLE_ID_TOKEN/);
-    assert.match(idpBodies[0].postBody, /providerId=google\.com/);
-
-    // ── Signed in → Open PDF goes to the IN-APP viewer (pdfView bridge call) ──
-    assert.ok(await waitFor(() => view().querySelector('.paper-hero [data-act="view"]')), 'paper re-rendered for the verified session');
+    // ── Open PDF → the IN-APP viewer (pdfView bridge call, direct URL) ─────
     view().querySelector('[data-act="view"]').click();
     assert.ok(await waitFor(() => bridgeCalls.some((c) => c.kind === 'pdfView')), 'native viewer took over');
     const pdfCall = bridgeCalls.find((c) => c.kind === 'pdfView');
@@ -194,14 +199,45 @@ if (JSDOM) {
     view().querySelector('[data-act="server2"]').click();
     assert.ok(await waitFor(() => bridgeCalls.some((c) => c.kind === 'openExternal' && c.url === PAPER.file2)), 'Drive landing page opens externally (unavoidable destination)');
 
-    // ── Profile reflects the SAME Firebase identity, flagged as Google ──────
+    // ── Sign out → the Google scenarios run from the signed-out profile ────
     document.querySelector('.tab[data-tab="profile"]').click();
+    assert.ok(await waitFor(() => view().querySelector('[data-act="signout"]')), 'profile shows the signed-in card');
+    view().querySelector('[data-act="signout"]').click();
+    await waitFor(() => document.querySelector('.sheet-root [data-confirm]'));
+    document.querySelector('.sheet-root [data-confirm]').click();
+    assert.ok(await waitFor(() => view().querySelector('[data-act="google"]')), 'signed out — native Google row back');
+
+    // ── Google: not configured → in-app explainer, no website hand-off ──────
+    googleResult = { err: 'GOOGLE_SIGNIN_NOT_CONFIGURED: no client id in this build' };
+    view().querySelector('[data-act="google"]').click();
+    assert.ok(await waitFor(() => {
+      const sheet = document.querySelector('.sheet-root');
+      return sheet && /Google sign-in/.test(text(sheet)) && /configured/.test(text(sheet));
+    }), 'not-configured explainer shown');
+    assert.ok(!/Open website/.test(text(document.querySelector('.sheet-root'))), 'never sends the user to the website');
+    document.querySelector('.sheet-root [data-act="email"]').click();
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root #auth-email')), 'email/password path offered in-app');
+    document.querySelector('.sheet-root [data-dismiss]').click();
+    await waitFor(() => !document.querySelector('.sheet-root'));
+
+    // ── Google sign-in: device chooser → Firebase → Google session ──────────
+    googleResult = { idToken: 'GOOGLE_ID_TOKEN' };
+    view().querySelector('[data-act="google"]').click();
+    assert.ok(await waitFor(() => idpBodies.length === 1), 'Identity Toolkit signInWithIdp called');
+    const seenNonce = bridgeCalls.filter((c) => c.kind === 'googleSignIn').at(-1).nonce;
+    assert.ok(seenNonce && seenNonce.length >= 16, 'JS generated a nonce for the chooser');
+    assert.match(idpBodies[0].postBody, new RegExp(`nonce=${seenNonce}`), 'the same nonce is replayed to Firebase');
+    assert.match(idpBodies[0].postBody, /id_token=GOOGLE_ID_TOKEN/);
+    assert.match(idpBodies[0].postBody, /providerId=google\.com/);
+
+    // ── Profile reflects the SAME Firebase identity, flagged as Google ──────
     assert.ok(await waitFor(() => {
       const card = view().querySelector('.profile-card');
       return card && /Google Student/.test(text(card)) && /Google account/.test(text(card));
     }), 'profile shows the same Firebase identity flagged as a Google account');
-    assert.ok(calls.some((c) => c.url.includes('/documents/users/g-uid-1')), 'one-time users/{uid} sync ran');
+    assert.ok(calls.some((c) => c.url.includes('/documents/users/g-uid-1')), 'Google sign-in synced users/g-uid-1');
+    assert.ok(calls.some((c) => c.url.includes('/documents/users/pw-uid-1')), 'password sign-in synced users/pw-uid-1');
     const firestoreCalls = calls.filter((c) => c.url.includes('firestore.googleapis.com')).length;
-    assert.ok(firestoreCalls <= 2, 'no Firestore chatter beyond the profile sync');
+    assert.ok(firestoreCalls <= 2, 'exactly one owner-scoped profile sync per manual sign-in, nothing else');
   });
 }

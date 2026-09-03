@@ -100,6 +100,7 @@ export default async function renderHome(root, ctx) {
   function renderStats(d) {
     const stats = d.stats || {};
     const el = root.querySelector('#home-stats');
+    if (!el) return; // view changed before a late async render (revalidate/refresh) — nothing to update
     el.innerHTML = `
       <span class="stat-pill"><b>${Number(stats.totalPyqs) || 0}</b> papers</span>
       <span class="stat-pill"><b>${Number(stats.totalCourses) || 0}</b> courses</span>
@@ -108,6 +109,7 @@ export default async function renderHome(root, ctx) {
 
   function renderCourses(d) {
     const host = root.querySelector('#home-courses');
+    if (!host) return; // view changed before a late async render
     const counts = Array.isArray(d.courseCounts) ? d.courseCounts.slice(0, 6) : [];
     host.innerHTML = '';
     if (!counts.length) return;
@@ -137,6 +139,7 @@ export default async function renderHome(root, ctx) {
 
   function renderContinue() {
     const host = root.querySelector('#home-continue');
+    if (!host) return; // view changed before a late async render
     const items = store.recentViews().slice(0, 4);
     if (!items.length) { host.classList.add('hidden'); return; }
     host.classList.remove('hidden');
@@ -150,6 +153,7 @@ export default async function renderHome(root, ctx) {
 
   function rail(d, key, title, iconName) {
     const host = root.querySelector(`#home-${key === 'recent' ? 'recent' : 'trending'}`);
+    if (!host) return; // view changed before a late async render
     const items = Array.isArray(d[key]) ? d[key].slice(0, 6) : [];
     host.innerHTML = '';
     const head = ui.sectionHead(title, {
@@ -177,6 +181,7 @@ export default async function renderHome(root, ctx) {
 
   function renderShortcuts() {
     const host = root.querySelector('#home-shortcuts');
+    if (!host) return; // view changed before a late async render
     host.innerHTML = '';
     host.appendChild(ui.sectionHead('Shortcuts', { iconName: 'tools' }));
     const row = document.createElement('div');

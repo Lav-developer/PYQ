@@ -617,6 +617,8 @@ public class PdfViewerActivity extends Activity {
         private float scale = 1f;
         private float lastTouchX = 0f;
         private float lastTouchY = 0f;
+        /** The bitmap currently attached to this view (ImageView has no getter). */
+        private Bitmap displayed;
 
         PageImageView(android.content.Context context, int pageNumber, float aspect) {
             super(context);
@@ -644,6 +646,7 @@ public class PdfViewerActivity extends Activity {
             setLayoutParams(lp);
             Bitmap ph = Bitmap.createBitmap(8, Math.max(1, Math.round(8 * aspect)), Bitmap.Config.ARGB_8888);
             ph.eraseColor(Color.parseColor("#16213B"));
+            displayed = ph;
             setImageBitmap(ph);
             resetMatrix();
         }
@@ -652,7 +655,10 @@ public class PdfViewerActivity extends Activity {
         void setRendering(boolean value) { rendering = value; }
 
         void setPageBitmap(Bitmap bitmap) {
-            if (getPageBitmap() == bitmap) return;
+            // Same instance already attached (LruCache hit on a re-scroll) —
+            // keep the current matrix instead of resetting an ongoing zoom.
+            if (displayed == bitmap) return;
+            displayed = bitmap;
             setImageBitmap(bitmap);
             resetMatrix();
         }

@@ -76,13 +76,13 @@ public class MainActivity extends BridgeActivity {
     }
 
     @Override
-    protected void onResume() {
+    public void onResume() {
         super.onResume();
         scheduleNotificationPermissionAsk();
     }
 
     @Override
-    protected void onPause() {
+    public void onPause() {
         mainHandler.removeCallbacks(permissionAsk);
         super.onPause();
     }
