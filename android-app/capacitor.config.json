@@ -2,29 +2,25 @@
   "appId": "com.dsmnru.pyq",
   "appName": "DSMNRU PYQ",
   "webDir": "www",
-  "server": {
-    "url": "https://dsmnru-pyq.netlify.app",
-    "errorPath": "offline.html",
-    "appendUserAgent": "DSMNRU-PYQ-Android",
-    "allowNavigation": [
-      "dsmnru-pyq.email",
-      "dsmnru-data.firebaseapp.com"
-    ]
-  },
+  "backgroundColor": "#0F172A",
+  "Zooming": false,
+  "loggingBehavior": "production",
+  "appendUserAgent": "DSMNRU-PYQ-Android/2-native",
   "android": {
-    "backgroundColor": "#0f172a",
-    "allowMixedContent": false
+    "backgroundColor": "#0F172A",
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": false
   },
   "plugins": {
     "SplashScreen": {
-      "launchShowDuration": 1200,
+      "launchShowDuration": 900,
       "launchAutoHide": true,
       "launchFadeInDuration": 0,
-      "fadeOutDuration": 250,
-      "backgroundColor": "#0f172a",
+      "launchFadeOutDuration": 220,
+      "backgroundColor": "#0F172A",
       "androidSplashResourceName": "splash",
       "showSpinner": false,
-      "splashFullScreen": false,
+      "splashFullScreen": true,
       "splashImmersive": false
     },
     "SystemBars": {

@@ -1,97 +1,156 @@
-# DSMNRU PYQ — Android App (Capacitor)
+# DSMNRU PYQ — Android App (dedicated mobile UI)
 
-A lightweight native Android shell around the **existing production DSMNRU PYQ
-website** (<https://dsmnru-pyq.netlify.app>, alias <https://dsmnru-pyq.email>).
+A **real, app-specific Android interface** for the DSMNRU PYQ / Syllabus
+Archive — *not* a WebView wrapper around the website. The app bundles its own
+mobile-first front-end in `www/` (bottom navigation, app-designed screens,
+touch-sized cards and sheets) while sharing the website's existing backends
+verbatim:
 
-The app does **not** bundle or fork the frontend. It loads the live website in
-a Capacitor WebView, so Home, PYQ browsing, search, filters, course/semester
-navigation, paper pages (`/pyq/<slug>` and `/paper.html?id=…`), Firebase
-authentication, admin uploads and PDF links behave exactly like the mobile
-website — updated the moment the site is updated. There is no second backend,
-no second database and no copy of the site logic in this folder.
+```
+Android app (bundled UI)
+   ├── Cloudflare Worker API  https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/api/*
+   │        └── same KV search index / pagination / cache the website uses
+   └── Firebase Auth (project `dsmnru-data`, same accounts as the site)
+            └── Identity Toolkit REST for in-app email/password sign-in
+```
+
+There is **no second backend, no second database, no duplicate PYQ storage**
+and no app-specific business data. Public archive data never reads Firestore;
+the only Firestore touch-point in the entire app is the one-time
+`users/{uid}` profile-row sync immediately after a manual sign-in (the same
+record the website's `ensureUserDocumentSynced` creates).
 
 ## Contents
 
 | Path | Purpose |
 | --- | --- |
-| `package.json` | Capacitor toolchain + the two official plugins used (`@capacitor/app`, `@capacitor/splash-screen`) |
-| `capacitor.config.json` | App id/name, remote server URL, allow-navigation list, splash & system-bar config |
-| `www/index.html` | Local fallback page (normally unreachable; relaunches the site) |
-| `www/offline.html` | Branded offline/error page (`server.errorPath`) shown if the site cannot be reached and no service-worker cache exists |
+| `www/index.html` | App shell: app bar, routed view, bottom nav, sheets/toasts |
+| `www/css/app.css` | The app's own dark "DSMNRU academic" design system (safe-area aware, 44px+ targets, no blur/animation bloat) |
+| `www/js/app.js` | Shell: view stack router, Android back button, network banner, deep-link handoff, auth gates |
+| `www/js/api.js` | Worker API client: TTL cache + persisted layer + in-flight dedupe + SWR + abort/timeout |
+| `www/js/auth.js` | Firebase Authentication via Identity Toolkit REST (same project as the website) |
+| `www/js/authui.js` | Sign-in / sign-up / reset / email-verification sheets |
+| `www/js/store.js` | On-device persistence: saved papers, recent views, recent searches |
+| `www/js/slug.js` | Canonical-slug mirror of the Worker's allocator + deep-link URL parser |
+| `www/js/views/` | home · search · browse(courses) · course drill-down · paper · saved · profile |
+| `www/js/native.js` | Wrapper for the app's own Java plugin (share sheet, downloads, external intents, launch link) |
+| `android/app/src/main/java/com/dsmnru/pyq/DsmnruAppPlugin.java` | The custom plugin: ACTION_VIEW / ACTION_SEND / DownloadManager / launch deep-link |
+| `android/app/src/main/java/com/dsmnru/pyq/MainActivity.java` | BridgeActivity: registers the plugin, forwards warm-start deep links to the JS router |
 | `android/` | Generated + customized Capacitor Android project (Gradle wrapper included) |
+| `test/` | Node unit tests + jsdom integration smoke test of the app UI (`npm test`) |
 
-## How it works
+## Screens & navigation
 
-- **UI**: `server.url` points the WebView at `https://dsmnru-pyq.netlify.app`.
-  Because `/pyq/*` and `/sitemap.xml` are Netlify rewrites to the Cloudflare
-  Worker, the pretty paper routes work in-app with zero changes; the Worker and
-  Firebase/Firestore remain the only backend.
-- **External links & PDFs**: taps on PDF hosts (Google Drive, catbox,
-  MediaFire, archive.org, WhatsApp/Telegram shares, …) leave the WebView and
-  are handled by the browser/PDF viewer — identical to the mobile site's
-  `window.open(..., '_blank')` behaviour. Nothing is duplicated into app
-  storage. Inline PDF preview stays desktop-only (`min-width: 992px`), exactly
-  as on the website.
-- **Back navigation**: handled natively in `MainActivity` — Android back walks
-  the WebView history and exits the app only when the history is exhausted.
-- **System bars**: dark brand bars (`#0F172A`). On Android 15+ (enforced
-  edge-to-edge) Capacitor's built-in `SystemBars` plugin pads the WebView by
-  the system-bar insets because the site does not use `viewport-fit=cover`;
-  icon style is forced light via config (`style: DARK`).
-- **Offline**: the website's own service worker keeps previously visited pages
-  available offline inside the app. On a cold start with no network and no
-  cached copy, Capacitor redirects to `www/offline.html`.
-- **Deep links**: unverified `https` intent filters for both site hosts, so a
-  `dsmnru-pyq.netlify.app/pyq/…` link can be opened with the app
-  (`MainActivity` routes it into the WebView). Verified Android App Links
-  (`assetlinks.json`) are intentionally deferred until a release keystore
-  exists. The website is unaffected either way.
-- **App detection**: Capacitor appends `DSMNRU-PYQ-Android` to the user agent;
-  `script.js` uses it only to show a friendly notice for Google sign-in
-  (Google blocks OAuth popups in embedded WebViews). Email/password auth works
-  normally.
+Bottom tabs: **Home · Search · Courses · Saved · Profile**. Paper detail and
+course drill-downs are pushed onto an in-app view stack (Android back pops it;
+at a tab root, back goes to Home; at Home, back exits — standard behavior).
+
+* **Home** — brand hero + search launcher, archive stats, quick-access course
+  grid, "pick up where you left off" (device history), recently added and
+  trending rails, and shortcuts (upload/tools/contributors open the live site
+  externally). Fed by **one** cached `GET /api/homepage` call.
+* **Search** — server-side `GET /api/pyqs/search` (title/subject/course/
+  semester/session), 350 ms debounce, previous in-flight query aborted via
+  `AbortController`, filter + sort chips, paged results (20/page), full
+  loading/empty/error/offline states. Never downloads the archive.
+* **Courses** — app-native course grid (catalog + live paper counts) →
+  semester/session chips + in-course subject search → paged papers.
+* **Paper** — app-designed detail: title, course, semester, session, branch,
+  subject, views, date, document id; **Open PDF / Server 2 / Download / Save /
+  Share** actions; metadata table; related papers (one filtered request);
+  "Open on website" for comments/report flows.
+* **Saved** — on-device bookmarks with local filter, works fully offline.
+* **Profile** — session state, email-verification flow, device data controls
+  (cache refresh/clear), sign-out, about.
+
+## API-request discipline (Cloudflare free tier)
+
+* Every public screen reads the **existing paginated Worker endpoints** with
+  the exact same params the website uses — behavior/pagination unchanged.
+* `api.js` adds: per-kind TTL memory cache + small persisted layer
+  (homepage 10 min, catalog 24 h, opened papers 30 min LRU-24 entries,
+  browse pages 5 min, search 3 min), **in-flight dedupe**, and
+  **stale-while-revalidate** so tab switches and back-navigation issue zero
+  network traffic while a payload is fresh.
+* Network failure falls back to the last cached payload (marked "stale" in
+  the UI); nothing on the error path re-fires automatically — retry is a
+  user tap.
+* No polling, no prefetch of unseen pages, no request-per-card, no Firestore
+  reads for public data, and no anonymous-startup Firebase traffic at all.
+* The `GET /api/pyqs/slug/:slug` lookup used for deep links is an *additive*
+  read-only Worker route (same KV index, zero Firestore). Before it is
+  deployed, the app transparently falls back to a single title-search request,
+  and finally opens the link in the browser.
+
+## PDFs
+
+PDF URLs come from the paper documents themselves (`file`/`server1`,
+`file2`/`server2`) — the same links the website shows. "Open" hands the URL to
+the system (Chrome/Drive/PDF viewer); "Download" (direct `.pdf` hosts only)
+uses Android's DownloadManager into the public *Downloads* folder. Nothing is
+mirrored, cached in app storage, or re-hosted.
+
+## Authentication
+
+The existing Firebase project (`dsmnru-data`) with its email/password sign-in,
+sign-up, reset and email-verification flows — driven through the public
+Identity Toolkit REST endpoints (the same calls the website's SDK makes), so
+no popup windows are needed and no new auth system exists. Sessions persist
+`idToken/refreshToken` locally and refresh lazily (app resume / expiry), never
+on a timer. The website's gate policy is mirrored in-app: verified sign-in is
+required for search, filters, page 2+ and PDF actions; metadata browsing stays
+public. **Google sign-in cannot run inside embedded WebViews (Google's own
+policy — identical to the notice on the website):** the app explains this
+explicitly and offers email/password or a one-tap hand-off to the site.
+
+## Deep links
+
+`https://dsmnru-pyq.netlify.app/pyq/<slug>` (and `paper.html?id=…`) shared
+links can open the app via the existing unverified intent filters
+(cold start reads the launch intent; warm start receives a `siteDeepLink`
+event). The JS router validates host + path, resolves the slug to the paper,
+and opens the app's own Paper screen; the website's URL behavior is untouched.
+Verified App Links (`/.well-known/assetlinks.json`) remain deferred until a
+release keystore exists.
+
+## Branding
+
+The app reuses the existing DSMNRU identity: `img/icon-512.png` (site emblem)
+is the source for the launcher icon, adaptive icon (foreground at the 66%
+safe zone on brand slate `#0F172A`), round icon, and the Android 12 splash
+icon; `www/img/emblem.png` is the in-app mark. Colors (slate navy base,
+teal→mint gradient, amber accent) and typography hierarchy follow the
+website's dark theme — the layout itself is app-only. No third-party icons.
 
 ## Building
 
-No Android Studio required. From `android-app/`:
+No Android Studio required:
 
 ```bash
 npm ci
 npx cap sync android
+npm test                     # app logic + jsdom UI smoke tests (no Android SDK needed)
 cd android && ./gradlew assembleDebug
 # APK: android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Requirements: Node.js ≥ 20, JDK 21, Android SDK (compileSdk 36 is installed
-automatically by Android Studio, or via `sdkmanager "platforms;android-36"`).
+The GitHub Actions workflow (`.github/workflows/android-apk.yml`) runs the
+test job + builds the debug APK in the cloud and uploads it as an artifact —
+nothing binary is committed, and no releases are created automatically. A
+signed release APK/AAB can be added later via repository secrets
+(keystore + `google-services.json` are **never** committed; `build.gradle`
+already auto-applies the Google Services plugin when `android/app/google-services.json`
+is present at build time).
 
-The easiest way to get an APK is the GitHub Actions workflow
-(`.github/workflows/android-apk.yml`): run **Actions → Android APK → Run
-workflow** (or push to the `android-app` branch with changes under
-`android-app/`), then download the `dsmnru-pyq-debug-apk` artifact from the
-run page. Nothing is committed or released automatically.
+## Deferred by design
 
-## Branding
-
-Launcher icon, adaptive icon (`mipmap-anydpi-v26` + density foregrounds,
-`#0F172A` background) and the splash are derived from the site's existing PWA
-icons (`img/icon-512.png`, `img/icon-maskable-512.png`), so the app, the
-installed PWA and the website share one identity. Splash uses the modern
-Android 12 splash API via `androidx.core:core-splashscreen` +
-`@capacitor/splash-screen` (short 1.2 s hand-off with a 250 ms fade, dark
-background in both light and dark mode; the legacy pre-12 launch theme uses a
-`layer-list` with the same emblem).
-
-## Future work (intentionally not done now)
-
-- **FCM notifications** — deliberately not implemented. The project is ready:
-  `android/app/build.gradle` already auto-applies the Google Services plugin
-  when `android-app/android/app/google-services.json` exists (keep it out of
-  git), and `@capacitor/app` is present for notification-open routing. The plan
-  is to extend the *existing* web admin panel to send FCM messages; no extra
-  admin UI will be added here.
-- **Google sign-in in-app** — requires a native Google auth plugin or OAuth
-  redirect flow; the app currently directs users to email/password.
-- **Verified App Links** — needs `/.well-known/assetlinks.json` on the site
-  host signed with the release certificate fingerprint.
-- **Release signing** — debug builds only for now; no keystores are committed.
+* **FCM notifications** — not implemented yet. Prepared: single-activity
+  `MainActivity` already routes link-shaped intents (notification taps can
+  reuse `siteDeepLink`), and the Google Services plugin auto-applies when a
+  build-time `google-services.json` exists. Admin sends keep using the
+  existing web admin panel (no second panel).
+* **Release signing** — debug builds only, see above.
+* **In-app Google sign-in** — needs a native Google credential flow; until
+  then the app shows the documented fallback (see Authentication).
+* **View-count increments** — the app intentionally does not write
+  `pyqs.views` increments (the website keeps counting); saves stay on-device.

@@ -7,6 +7,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
+        android:enableOnBackInvokedCallback="true"
         android:theme="@style/AppTheme">
 
         <activity
@@ -15,7 +16,8 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -25,10 +27,12 @@
             <!--
               Site deep links (unverified https links — Android offers the app
               in a chooser; the website keeps working exactly as before).
-              Verified Android App Links would require publishing
-              /.well-known/assetlinks.json with the release signing
-              fingerprint on the site host, which is deliberately deferred
-              until a release keystore flow exists.
+              Tapping e.g. https://dsmnru-pyq.netlify.app/pyq/<slug> can open
+              the PAPER SCREEN natively — MainActivity forwards the URL to the
+              app's JS router. Verified Android App Links would require
+              publishing /.well-known/assetlinks.json with the release signing
+              fingerprint, deliberately deferred until a release keystore flow
+              exists.
             -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -45,20 +49,17 @@
 
         </activity>
 
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths"></meta-data>
-        </provider>
     </application>
 
     <!-- Permissions -->
-    <!-- The app is a shell around the live website: it needs the network and
-         nothing else. Notifications/FCM permissions will be added later,
-         together with the Firebase messaging integration. -->
+    <!-- The dedicated app UI is bundled in the APK; its only data path is the
+         existing Cloudflare Worker API (HTTPS), so INTERNET is the single
+         required permission. DownloadManager needs no permission, and no
+         storage permission is requested or needed.
+         POST_NOTIFICATIONS / FCM are intentionally NOT added yet — the project
+         stays ready for the planned notification feature (Google Services
+         plugin auto-applies when a non-committed google-services.json exists,
+         and MainActivity already forwards notification deep links through the
+         same siteDeepLink channel used by share links). -->
     <uses-permission android:name="android.permission.INTERNET" />
 </manifest>

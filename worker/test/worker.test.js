@@ -541,6 +541,27 @@ console.log('6. Single PYQ');
   await expectJson(res3, 400, 'GET /api/pyqs/<bad> (400)');
 }
 
+// 6b. Slug lookup (deep-link handoff route used by the Android app)
+console.log('6b. Slug lookup');
+{
+  const detail = await expectJson(await request('/api/pyqs/pyq_42'), 200, 'GET /api/pyqs/pyq_42 (for slug)');
+  const slug = detail && detail.seoSlug;
+  check('fixture exposes a canonical slug', !!slug);
+
+  const res = await request(`/api/pyqs/slug/${encodeURIComponent(slug)}`);
+  const data = await expectJson(res, 200, `GET /api/pyqs/slug/${slug}`);
+  check('slug lookup returns the same paper id', data && data.id === 'pyq_42');
+  check('slug lookup returns list-item shape',
+    data && typeof data.title === 'string' && typeof data.course === 'string' && data.slug === slug);
+
+  const missing = await request('/api/pyqs/slug/not-a-real-paper-slug');
+  await expectJson(missing, 404, 'GET /api/pyqs/slug/<unknown> (404)');
+
+  const bad = await request('/api/pyqs/slug/%3Cbad%3E');
+  await expectJson(bad, 400, 'GET /api/pyqs/slug/<bad> (400)');
+}
+
+
 // 7. Contributors
 console.log('7. Contributors + courses');
 {

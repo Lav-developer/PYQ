@@ -26,6 +26,7 @@ stay extremely low even as the PYQ collection grows from 311 → 10,000+.
 | GET | `/api/pyqs?page=1&limit=20&sort=newest&course=..&semester=..&session=..` | Paginated PYQ list with filters |
 | GET | `/api/pyqs/search?q=..&course=..&semester=..&session=..&sort=..&page=1&limit=20` | Search PYQs |
 | GET | `/api/pyqs/:id` | Single PYQ detail (full doc incl. file URLs) |
+| GET | `/api/pyqs/slug/:slug` | Resolve a canonical `/pyq/:slug` to its index item (KV-index only; used by the Android app for deep links) |
 | GET | `/api/contributors` | Contributors list |
 | GET | `/api/courses` | Course catalog |
 | GET | `/api/homepage` | Homepage summary (recent, trending, course counts, stats) |
