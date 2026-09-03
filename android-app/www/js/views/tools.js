@@ -24,8 +24,7 @@ export default async function renderTools(root, ctx) {
     <div class="stack">
       <section class="notice notice--info">
         ${ctx.ui.icon('shield')}
-        <div><b>Everything here runs offline, on your device.</b> No account needed and nothing about your
-        marks, attendance or plans ever leaves the phone.</div>
+        <div><b>Runs fully offline on this device.</b> Your marks, attendance and plans never leave the phone.</div>
       </section>
       <section class="tool-grid" id="tools-grid"></section>
     </div>`;

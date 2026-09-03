@@ -22,8 +22,7 @@ export default async function renderLinks(root, ctx) {
     <div class="stack">
       <section class="notice notice--info">
         ${ui.icon('link')}
-        <div><b>Official portals, one tap away.</b> These open in your browser because they are external
-        university & government services — everything else in this app stays in-app.</div>
+        <div><b>Official university & government portals.</b> These open in your browser — everything else stays in-app.</div>
       </section>
       <div id="links-body"></div>
     </div>`;

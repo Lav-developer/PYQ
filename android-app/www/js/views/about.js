@@ -6,10 +6,10 @@
  * genuinely external destinations.
  */
 
-import { SITE_ORIGIN, WORKER_ORIGIN } from '../api.js';
+import { SITE_ORIGIN } from '../api.js';
 import * as ui from '../ui.js';
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.3.1';
 
 export default async function renderAbout(root, ctx) {
   ctx.setHeader({ title: 'About', brand: false });
@@ -41,23 +41,23 @@ export default async function renderAbout(root, ctx) {
         <ul class="about-list">
           <li>University/government portals on the Links screen</li>
           <li>Paper hosts that cannot render in-app (e.g. Drive landing pages)</li>
-          <li>The full website & moderation tools: <a href="${ui.esc(SITE_ORIGIN)}" class="link-ext">${ui.esc(SITE_ORIGIN.replace('https://', ''))}</a></li>
+          <li>The full website & moderation tools (button below)</li>
           <li>Email verification / password-reset links sent by Firebase</li>
         </ul>
       </section>
 
       <section class="card card-pad">
-        <h3 class="about-h3">${ui.icon('info')} Data sources</h3>
+        <h3 class="about-h3">${ui.icon('info')} Data & accounts</h3>
         <ul class="about-list">
-          <li>Archive API: <span class="mono">${ui.esc(WORKER_ORIGIN.replace('https://', ''))}</span> (KV-cached, one shared backend with the website)</li>
-          <li>Accounts & submissions: Firebase project <span class="mono">dsmnru-data</span></li>
+          <li>Papers, search and courses come from the shared archive service — the same data as the website</li>
+          <li>Accounts and uploads use the same account system as the website — nothing new is created</li>
           <li>No second database, no mirrored PDFs, no duplicate backend</li>
         </ul>
       </section>
 
       <section class="card card-pad center">
         <button class="btn btn--ghost btn--block" id="about-web" type="button">${ui.icon('globe')} Open full website (external)</button>
-        <p class="form-note">© DSMNRU Academic Archive · explicit choice, not a fallback</p>
+        <p class="form-note">© DSMNRU Academic Archive</p>
       </section>
     </div>`;
 

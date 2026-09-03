@@ -56,8 +56,8 @@ export default async function renderHome(root, ctx) {
     box.appendChild(ui.stateBlock({
       iconName: 'wifiOff',
       tone: 'error',
-      title: 'Couldn\'t load the archive overview',
-      text: ctx.state.online ? (err.message || 'Network error') : 'You appear to be offline and no cached copy exists yet.',
+      title: "Couldn't load the archive overview",
+      text: ctx.state.online ? 'Something went wrong. Please try again.' : 'You appear to be offline and no cached copy exists yet.',
       actionLabel: 'Retry',
       onAction: () => ctx.router.tab('home'),
     }));
@@ -156,20 +156,18 @@ export default async function renderHome(root, ctx) {
     if (!host) return; // view changed before a late async render
     const items = Array.isArray(d[key]) ? d[key].slice(0, 6) : [];
     host.innerHTML = '';
-    const head = ui.sectionHead(title, {
-      iconName,
-      actionLabel: items.length ? 'Browse all' : '',
-      onAction: () => ctx.router.tab('browse'),
-    });
-    host.appendChild(head);
     if (!items.length) {
-      const p = document.createElement('p');
-      p.className = 'h-sub';
-      p.style.marginTop = '8px';
-      p.textContent = d[key] ? 'Nothing here yet.' : 'Load once you are online.';
-      host.appendChild(p);
+      // Empty rails stay invisible — no placeholder boxes, no filler text.
+      host.innerHTML = '';
+      host.classList.add('hidden');
       return;
     }
+    host.classList.remove('hidden');
+    host.appendChild(ui.sectionHead(title, {
+      iconName,
+      actionLabel: 'Browse all',
+      onAction: () => ctx.router.tab('browse'),
+    }));
     const list = document.createElement('div');
     list.style.marginTop = '10px';
     ui.paperList(list, ctx, items);

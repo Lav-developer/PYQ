@@ -91,7 +91,7 @@ export default async function renderContributors(root, ctx) {
       iconName: ctx.state.online ? 'alert' : 'wifiOff',
       tone: 'error',
       title: "Couldn't load contributors",
-      text: ctx.state.online ? String(err.message || err) : 'You appear to be offline and no cached copy exists yet.',
+      text: ctx.state.online ? 'Something went wrong. Please try again.' : 'You appear to be offline and no cached copy exists yet.',
       actionLabel: 'Retry',
       onAction: () => renderContributors(root, ctx),
     }));

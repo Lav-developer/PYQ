@@ -59,10 +59,15 @@ const CONTRIBUTORS = [
   { id: 'c2', name: 'Meera N.', avatar: '', role: '5 papers' },
 ];
 
-function jwt(exp) {
+function jwt(exp, who) {
+  const people = {
+    existing: { uid: 'uid-9', email: 'stud@dsmnru.in', name: 'Test Student' },
+    fresh: { uid: 'uid-10', email: 'new@dsmnru.in', name: 'Aarav Sharma' },
+  };
+  const w = people[who] || people.existing;
   const b64u = (s) => Buffer.from(s).toString('base64url');
   return b64u('{"alg":"none"}') + '.' + b64u(JSON.stringify({
-    exp, user_id: 'uid-9', sub: 'uid-9', email: 'stud@dsmnru.in', name: 'Test Student',
+    exp, user_id: w.uid, sub: w.uid, email: w.email, name: w.name,
     email_verified: true, firebase: { sign_in_provider: 'password' },
   })) + '.s';
 }
@@ -101,8 +106,30 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     if (u.includes('/api/contributors')) return ok(CONTRIBUTORS);
     if (u.includes('api.gofile.io/servers')) return ok({ status: 'ok', data: { servers: [{ name: 'store1' }] } });
     if (u.includes('/pendingUploads')) return ok({});
+    if (u.includes('accounts:signUp')) {
+      const body = JSON.parse(opts.body || '{}');
+      if (body.email === 'taken@dsmnru.in') {
+        return { ok: false, status: 400, json: async () => ({ error: { message: 'EMAIL_EXISTS' } }) };
+      }
+      return ok({ idToken: jwt(nowSec + 3600, 'fresh'), refreshToken: 'RT-N', expiresIn: '3600' });
+    }
+    if (u.includes('accounts:lookup')) {
+      return ok({ users: [{ email: 'stud@dsmnru.in', displayName: 'Test Student', emailVerified: true }] });
+    }
+    if (u.includes('sendOobCode')) return ok({});
+    if (u.includes('/reward_accounts/')) {
+      return ok({ fields: { points: { integerValue: '40' }, email: { stringValue: 'stud@dsmnru.in' } } });
+    }
+    if (u.includes(':runQuery')) {
+      const row = (n) => ({ document: { fields: {
+        amount: { integerValue: '10' }, type: { stringValue: 'PYQ_UPLOAD' },
+        email: { stringValue: 'stud@dsmnru.in' },
+        createdAt: { timestampValue: '2026-08-1' + n + 'T10:00:00Z' },
+      } } });
+      return ok([row(1), row(2), row(3)]);
+    }
     if (u.includes('signInWithPassword')) return ok({
-      idToken: jwt(nowSec + 3600), refreshToken: 'RT', expiresIn: '3600', email: 'stud@dsmnru.in',
+      idToken: jwt(nowSec + 3600, 'existing'), refreshToken: 'RT', expiresIn: '3600', email: 'stud@dsmnru.in',
     });
     if (u.includes('accounts:signInWithIdp')) return ok({
       idToken: jwt(nowSec + 3600), refreshToken: 'RT-G', expiresIn: '3600',
@@ -353,6 +380,95 @@ if (JSDOM) {
     view().querySelector('.shortcut[data-i="0"]').click(); // Upload a paper
     assert.ok(await waitFor(() => view().querySelector('#up-form')), 'home shortcut opens the in-app upload screen');
     assert.equal(opened.length, openedBeforeShortcuts, 'shortcuts never open the browser');
+
+    // ══════════════════════════════════════════════════════════════════
+    // v1.3.1 — profile management, rewards, back-arrow state, signup
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── Profile: identity, version, lazy rewards, editable name ─────────
+    document.querySelector('.tab[data-tab="profile"]').click();
+    await waitFor(() => view().querySelector('.profile-card'));
+    assert.match(text(view().querySelector('.profile-card')), /Test Student/, 'profile shows display name');
+    assert.match(text(view().querySelector('.profile-card')), /stud@dsmnru\.in/, 'profile shows email');
+    assert.match(text(view()), /Version 1\.3\.1/, 'app version visible on Profile');
+    assert.ok(await waitFor(() => view().querySelector('#pf-rewards .hero-title')), 'rewards section loads lazily');
+    assert.equal(view().querySelectorAll('#pf-rewards .hero-title')[0].textContent, '40',
+      'points balance from the SAME reward account the website reads');
+    assert.match(text(view()), /PYQ contribution/, 'rewarded contributions listed');
+    assert.ok(calls.some((c) => c.url.includes('/reward_accounts/')), 'reward account read lazily (auth only)');
+    assert.ok(calls.some((c) => c.url.includes(':runQuery')), 'reward history read once');
+    const rewardReads = calls.filter((c) => c.url.includes('/reward_accounts/') || c.url.includes(':runQuery')).length;
+    view().querySelector('[data-act="editname"]').click();
+    await waitFor(() => document.querySelector('.sheet-root #pf-name'));
+    document.querySelector('.sheet-root #pf-name').value = 'Aarav Test';
+    document.querySelector('.sheet-root #pf-save').click();
+    assert.ok(await waitFor(() => text(view()).includes('Aarav Test')), 'name updated in UI after save');
+    assert.ok(await waitFor(() => text(document.body).includes('Profile updated')), 'success feedback shown');
+    assert.ok(calls.some((c) => c.url.includes('updateMask=name')), 'users/{uid}.name patched — SAME website profile row');
+    assert.ok(calls.some((c) => c.url.includes('accounts:update')), 'Auth display name updated too');
+    assert.ok(calls.filter((c) => c.url.includes('/reward_accounts/') || c.url.includes(':runQuery')).length === rewardReads,
+      'rewards not re-fetched during unrelated actions');
+
+    // ── Back-arrow state: Home NEVER shows one; pushed screens do ───────
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    const backArrow = document.getElementById('appbar-back');
+    const menuBtn2 = document.getElementById('appbar-menu');
+    assert.equal(backArrow.hidden, true, 'Home shows NO back arrow');
+    assert.equal(backArrow.disabled, true, 'back arrow is not activatable on Home');
+    assert.equal(menuBtn2.hidden, false, 'Home shows the drawer menu');
+    assert.ok(await waitFor(() => view().querySelector('[data-paper-id]')), 'recent rail rendered');
+    view().querySelector('[data-paper-id]').click();
+    assert.ok(await waitFor(() => view().querySelector('.paper-hero')), 'paper pushed');
+    assert.equal(backArrow.hidden, false, 'pushed paper screen shows the back arrow');
+    assert.equal(menuBtn2.hidden, true, 'menu hidden while pushed');
+    backArrow.click();
+    assert.ok(await waitFor(() => view().querySelector('.hero')), 'back arrow pops to Home');
+    assert.equal(backArrow.hidden, true, 'back arrow removed after returning Home');
+    document.querySelector('.tab[data-tab="search"]').click();
+    await waitFor(() => view().querySelector('#sq'));
+    assert.equal(backArrow.hidden, true, 'tab switch never leaves stale back state');
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    document.getElementById('appbar-menu').click();
+    await waitFor(() => !document.getElementById('drawer-root').hidden);
+    document.querySelector('#drawer-root [data-view="upload"]').click();
+    await waitFor(() => view().querySelector('#up-form'));
+    assert.equal(backArrow.hidden, false, 'drawer-navigated screen shows the back arrow');
+    document.getElementById('appbar-menu').hidden = true; // guard: must be hidden while pushed
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    assert.equal(backArrow.hidden, true, 'Home via bottom nav clears the back arrow again');
+
+    // ── Create account: real Firebase error feedback, then success ──────
+    document.querySelector('.tab[data-tab="profile"]').click();
+    await waitFor(() => view().querySelector('[data-act="signout"]'));
+    view().querySelector('[data-act="signout"]').click();
+    await waitFor(() => document.querySelector('.sheet-root [data-confirm]'));
+    document.querySelector('.sheet-root [data-confirm]').click();
+    await waitFor(() => view().querySelector('[data-act="signup"]'));
+    view().querySelector('[data-act="signup"]').click();
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root form[data-form="signup"]')), 'signup form opens in-app');
+    // error path: existing email → Firebase EMAIL_EXISTS → readable message
+    document.querySelector('.sheet-root #auth-name').value = 'Aarav Sharma';
+    document.querySelector('.sheet-root #auth-s-email').value = 'taken@dsmnru.in';
+    document.querySelector('.sheet-root #auth-s-pass').value = 'secret123';
+    document.querySelector('.sheet-root form[data-form="signup"] button[type="submit"]').click();
+    assert.ok(await waitFor(() => {
+      const err = document.querySelector('.sheet-root form[data-form="signup"] [data-err]');
+      return err && !err.hidden && /already exists/i.test(err.textContent);
+    }), 'EMAIL_EXISTS surfaces as a readable in-form error');
+    assert.equal(document.querySelector('.sheet-root form[data-form="signup"] button[type="submit"]').disabled, false,
+      'submit re-enabled after failure');
+    // success path
+    document.querySelector('.sheet-root #auth-s-email').value = 'new@dsmnru.in';
+    document.querySelector('.sheet-root form[data-form="signup"] button[type="submit"]').click();
+    assert.ok(await waitFor(() => !document.querySelector('.sheet-root')), 'sheet closes on successful signup');
+    assert.ok(calls.some((c) => c.url.includes('accounts:signUp')), 'Identity Toolkit signUp called (same Firebase project)');
+    assert.ok(await waitFor(() => {
+      const card = view().querySelector('.profile-card');
+      return card && /Aarav Sharma/.test(text(card)) && /new@dsmnru\.in/.test(text(card));
+    }), 'authenticated profile shows the new account with its chosen name');
 
     // ── Google button without a native layer → in-app explainer, no website ──
     document.querySelector('.tab[data-tab="profile"]').click();

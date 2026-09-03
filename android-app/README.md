@@ -236,9 +236,23 @@ signed release APK/AAB can be added later via repository secrets
 already auto-applies the Google Services plugin when `android/app/google-services.json`
 is present at build time).
 
+## Debug builds & updates in place
+
+Every debug APK — local and CI — is signed with the **shared, committed
+`android/app/debug.keystore`** (the standard PUBLIC Android debug
+credentials: store `android`, alias `androiddebugkey` — the same ones in
+every developer's `~/.android/debug.keystore`). One stable debug signature
+means a newly downloaded debug APK can **update** an installed debug build
+in place instead of failing with "App not installed as package conflicts
+with an existing package". The applicationId stays `com.dsmnru.pyq` across
+debug and release (one app identity, no second package). Release signing
+remains out-of-repo and unconfigured — no production keystore credentials
+exist in this repository. `versionCode` is bumped with every released
+iteration (currently **5 / 1.3.1**).
+
 ## Deferred by design
 
-* **Release signing** — debug builds only, see above.
+* **Release signing** — out-of-repo by design, see above.
 * **Google sign-in console registration** — the code is complete, but each
   build environment must register its keystore SHA-1 + set the Web client ID
   once (see `docs/GOOGLE_SIGNIN_SETUP.md`). Unconfigured builds degrade to

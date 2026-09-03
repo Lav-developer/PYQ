@@ -313,7 +313,13 @@ export default async function renderUpload(root, ctx) {
       root.querySelector('#up-done').addEventListener('click', () => ctx.router.back());
       ui.toast('Submission received — pending review');
     } catch (err) {
-      setError(String((err && err.message) || err));
+      const raw = String((err && err.message) || err);
+      const scrubbed = raw.replace(/https?:\/\/\S+/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (/failed to fetch|networkerror|load failed/i.test(raw)) {
+        setError('Please check your internet connection and try again.');
+      } else {
+        setError(scrubbed || 'Something went wrong. Please try again.');
+      }
     }
   });
 

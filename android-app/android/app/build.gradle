@@ -7,8 +7,8 @@ android {
         applicationId "com.dsmnru.pyq"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 4
-        versionName "1.3.0"
+        versionCode 5
+        versionName "1.3.1"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,10 +16,31 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        debug {
+            storeFile file('debug.keystore')
+            storePassword 'android'       // public Android debug convention
+            keyAlias 'androiddebugkey'
+            keyPassword 'android'
+        }
+    }
     buildTypes {
+        debug {
+            // All debug APKs — local AND CI — are signed with the shared,
+            // COMMITTED debug.keystore (standard PUBLIC Android debug
+            // credentials). One stable debug signature means a newly
+            // downloaded debug APK can UPDATE an installed debug build in
+            // place instead of failing with "App not installed as package
+            // conflicts with an existing package". The applicationId
+            // (com.dsmnru.pyq) stays identical across debug/release — one
+            // app identity.
+            signingConfig signingConfigs.debug
+        }
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            // Release signing is deliberately NOT configured in-repo (no
+            // production keystore credentials are committed or invented).
         }
     }
 }

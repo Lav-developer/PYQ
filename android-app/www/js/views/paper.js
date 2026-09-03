@@ -21,6 +21,7 @@
  */
 
 import { SITE_ORIGIN } from '../api.js';
+import { submitBrokenLinkReport } from '../feedback.js';
 
 function normalizeLink(v) {
   const t = String(v || '').trim();
@@ -63,7 +64,7 @@ export default async function renderPaper(root, ctx, params = {}) {
     root.appendChild(ui.stateBlock({
       iconName: 'alert', tone: 'error',
       title: 'Paper unavailable',
-      text: ctx.state.online ? String(err.message || err) : 'Offline and this paper was never opened on this device.',
+      text: ctx.state.online ? 'Something went wrong. Please try again.' : 'Offline and this paper was never opened on this device.',
       actionLabel: 'Retry',
       onAction: () => ctx.router.replace('paper', params),
     }));
@@ -276,32 +277,11 @@ export default async function renderPaper(root, ctx, params = {}) {
         btn.disabled = true;
         btn.textContent = 'Sending…';
         try {
-          const user = auth.current();
-          const fields = {
-            type: { stringValue: 'broken_link' },
-            title: { stringValue: title },
-            course: { stringValue: course || '' },
-            details: { stringValue: details },
-            email: { stringValue: user && user.email || '' },
-            userId: { stringValue: user ? user.uid : '' },
-            userEmail: { stringValue: user && user.email || '' },
-            createdAt: { timestampValue: new Date().toISOString() },
-            status: { stringValue: 'new' },
-          };
-          const headers = { 'Content-Type': 'application/json' };
-          if (user && user.idToken) headers.Authorization = 'Bearer ' + user.idToken;
-          const res = await fetch(
-            `https://firestore.googleapis.com/v1/projects/dsmnru-data/databases/(default)/documents/feedback`,
-            { method: 'POST', headers, body: JSON.stringify({ fields }) },
-          );
-          if (!res.ok) {
-            const body = await res.json().catch(() => null);
-            throw new Error((body && body.error && body.error.message) || 'Could not send the report.');
-          }
+          await submitBrokenLinkReport({ title, course, details }, auth.current());
           ui.closeSheet();
           ui.toast('Report sent — thank you!');
         } catch (err) {
-          errEl.textContent = String(err.message || err);
+          errEl.textContent = String(err && err.message || 'Could not send the report. Please try again.');
           errEl.hidden = false;
           btn.disabled = false;
           btn.textContent = 'Send report';

@@ -212,7 +212,7 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     view().querySelector('[data-act="google"]').click();
     assert.ok(await waitFor(() => {
       const sheet = document.querySelector('.sheet-root');
-      return sheet && /Google sign-in/.test(text(sheet)) && /configured/.test(text(sheet));
+      return sheet && /Google sign-in/.test(text(sheet)) && /isn't set up/.test(text(sheet));
     }), 'not-configured explainer shown');
     assert.ok(!/Open website/.test(text(document.querySelector('.sheet-root'))), 'never sends the user to the website');
     document.querySelector('.sheet-root [data-act="email"]').click();
@@ -237,7 +237,9 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     }), 'profile shows the same Firebase identity flagged as a Google account');
     assert.ok(calls.some((c) => c.url.includes('/documents/users/g-uid-1')), 'Google sign-in synced users/g-uid-1');
     assert.ok(calls.some((c) => c.url.includes('/documents/users/pw-uid-1')), 'password sign-in synced users/pw-uid-1');
-    const firestoreCalls = calls.filter((c) => c.url.includes('firestore.googleapis.com')).length;
-    assert.ok(firestoreCalls <= 2, 'exactly one owner-scoped profile sync per manual sign-in, nothing else');
+    // One owner-scoped profile sync per manual sign-in (the lazy reward reads
+    // on the Profile screen are separate, user-initiated reads).
+    const profileSyncs = calls.filter((c) => c.url.includes('/documents/users/')).length;
+    assert.ok(profileSyncs <= 2, 'exactly one owner-scoped profile sync per manual sign-in, nothing else');
   });
 }

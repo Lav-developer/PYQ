@@ -62,8 +62,12 @@ test('Gradle wires firebase-messaging and keeps google-services conditional', ()
   assert.match(gradle, /apply plugin: 'com\.google\.gms\.google-services'/,
     'google-services plugin applied when google-services.json exists');
   assert.match(gradle, /google-services\.json/, 'apply is guarded by the presence of google-services.json');
-  assert.match(gradle, /versionCode 4/, 'versionCode bumped for the FCM release');
-  assert.match(gradle, /versionName "1\.3\.0"/, 'versionName bumped for the FCM release');
+  assert.match(gradle, /versionCode 5/, 'versionCode increased for the 1.3.1 release');
+  assert.match(gradle, /versionName "1\.3\.1"/, 'versionName 1.3.1');
+  // Consistent package identity + stable debug signature (update-in-place).
+  assert.match(gradle, /applicationId "com\.dsmnru\.pyq"/, 'single applicationId preserved');
+  assert.match(gradle, /signingConfig signingConfigs\.debug/, 'debug buildType uses the shared debug signing config');
+  assert.match(gradle, /storeFile file\('debug\.keystore'\)/, 'shared committed debug keystore (public debug credentials)');
 
   const rootGradle = readFileSync(join(here, '../android/build.gradle'), 'utf8');
   assert.match(rootGradle, /com\.google\.gms:google-services:[\d.]+/, 'plugin classpath on the root buildscript');

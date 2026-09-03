@@ -104,3 +104,12 @@ app/src/main/res/xml/config.xml
 google-services.json
 *.jks
 *.keystore
+# EXCEPTION: the shared DEBUG keystore (android/app/debug.keystore) is
+# deliberately committed — its credentials are the standard PUBLIC Android
+# debug credentials (store 'android', alias 'androiddebugkey'), the same ones
+# in every developer's ~/.android/debug.keystore. Committing it gives every
+# CI/debug APK the same signature, so a newly downloaded debug APK can
+# UPDATE the previously installed debug build instead of failing with
+# "package conflicts with an existing package". Release signing stays
+# out-of-repo and unrelated.
+!app/debug.keystore

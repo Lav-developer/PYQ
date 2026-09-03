@@ -66,20 +66,31 @@ function field(id, label, type, placeholder, autocomplete) {
     </div>`;
 }
 
-function wireSubmit(formEl, onSubmit) {
+function wireSubmit(formEl, onSubmit, { busyLabel = 'Please wait…' } = {}) {
   formEl.addEventListener('submit', async (e) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy) return; // no duplicate submissions
     busy = true;
     const btn = formEl.querySelector('button[type=submit]');
-    const errEl = formEl.querySelector('[data-err]');
-    if (errEl) { errEl.hidden = true; }
+    // Every form owns its error target — a failure must ALWAYS be visible
+    // on the page (this div used to live outside the signup/reset forms,
+    // which made those failures silent).
+    let errEl = formEl.querySelector('[data-err]');
+    if (!errEl) {
+      errEl = document.createElement('div');
+      errEl.className = 'form-error';
+      errEl.setAttribute('data-err', '');
+      formEl.prepend(errEl);
+    }
+    errEl.hidden = true;
     const original = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = 'Please wait…'; }
+    if (btn) { btn.disabled = true; btn.textContent = busyLabel; }
     try {
       await onSubmit(formEl);
     } catch (err) {
-      if (errEl) { errEl.textContent = String(err && err.message || err); errEl.hidden = false; }
+      errEl.textContent = String(err && err.message || err);
+      errEl.hidden = false;
+      try { errEl.scrollIntoView({ block: 'nearest' }); } catch { /* jsdom */ }
     } finally {
       busy = false;
       if (btn) { btn.disabled = false; btn.textContent = original; }
@@ -98,9 +109,8 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
       <button class="chip ${mode === 'login' ? 'is-active' : ''}" data-chip="login" type="button">Sign in</button>
       <button class="chip ${mode === 'signup' ? 'is-active' : ''}" data-chip="signup" type="button">Create account</button>
     </div>
-    <div data-err class="form-error" hidden></div>
-
     <form data-form="login" ${mode === 'signup' ? 'class="hidden"' : ''}>
+      <div data-err class="form-error" hidden role="alert"></div>
       ${field('auth-email', 'Email', 'email', 'you@student.edu', 'email')}
       ${field('auth-pass', 'Password', 'password', '••••••••', 'current-password')}
       <button class="btn btn--primary btn--block" type="submit">Sign in</button>
@@ -114,6 +124,7 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
     </form>
 
     <form data-form="signup" ${mode === 'signup' ? '' : 'class="hidden"'}>
+      <div data-err class="form-error" hidden role="alert"></div>
       ${field('auth-name', 'Full name', 'text', 'e.g. Ananya Sharma', 'name')}
       ${field('auth-s-email', 'Email', 'email', 'you@student.edu', 'email')}
       ${field('auth-s-pass', 'Password (6+ characters)', 'password', 'Choose a strong password', 'new-password')}
@@ -121,6 +132,7 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
     </form>
 
     <form data-form="reset" class="hidden">
+      <div data-err class="form-error" hidden role="alert"></div>
       ${field('auth-r-email', 'Account email', 'email', 'you@student.edu', 'email')}
       <button class="btn btn--gold btn--block" type="submit">Send reset link</button>
       <p class="form-note">Firebase emails a reset link (opens on the website — you can finish there or come back here).</p>
@@ -154,7 +166,7 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
     ui.closeSheet();
     ui.toast('Signed in — full archive unlocked');
     if (onAuthenticated) onAuthenticated();
-  });
+  }, { busyLabel: 'Signing in…' });
 
   wireSubmit(forms.signup, async (f) => {
     await auth.signUp({
@@ -163,15 +175,15 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
       password: f.querySelector('#auth-s-pass').value,
     });
     ui.closeSheet();
-    ui.toast('Account created! Verify your email to unlock everything.');
+    ui.toast('Account created successfully — welcome!');
     if (onAuthenticated) onAuthenticated();
-  });
+  }, { busyLabel: 'Creating account…' });
 
   wireSubmit(forms.reset, async (f) => {
     await auth.requestPasswordReset(f.querySelector('#auth-r-email').value);
     ui.closeSheet();
     ui.toast('Reset link sent — check your inbox');
-  });
+  }, { busyLabel: 'Sending…' });
 
   sheetRef = ui.sheet({
     title: 'DSMNRU account',
@@ -195,9 +207,8 @@ export function googleInfoSheet({ code = '', onAuthenticated } = {}) {
       ? `<p class="sheet-text">Google sign-in runs with the device's own account chooser — no browser needed.
          It looks like Google sign-in isn't available on this device right now (no Google account on the
          phone, or Play services is out of date).</p>`
-      : `<p class="sheet-text">This app build doesn't have Google sign-in configured yet (the Google client-ID
-         setup from <span class="mono">docs/GOOGLE_SIGNIN_SETUP.md</span> hasn't been applied). Your account is
-         still exactly the same Firebase account everywhere:</p>`}
+      : `<p class="sheet-text">Google sign-in isn't set up in this build of the app yet. You can still use
+         your usual DSMNRU account right now:</p>`}
     <div class="sheet-list" style="margin-top:14px">
       <button class="sheet-item" data-act="email" type="button">${ui.icon('mail')}<span>Sign in with email &amp; password<small>Works fully in-app for any account created on the website or here</small></span></button>
       ${configured ? `<button class="sheet-item" data-act="retry" type="button">${ui.icon('google')}<span>Try Google again<small>Opens the device Google account chooser</small></span></button>` : ''}

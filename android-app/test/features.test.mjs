@@ -431,6 +431,64 @@ test('links dataset: https-only university/government portals, zero PYQ-website 
   assert.equal(total, 14, 'same 14 destinations as links.html');
 });
 
+// ── v1.3.1: no technical endpoints in the UI; hidden semantics; signup ──
+
+test('audit: no API/worker/Firebase endpoints are rendered anywhere in the UI', () => {
+  const jsDir = join(here, '../www/js');
+  // Views + shared UI are the ONLY layers that render user-facing text.
+  // Endpoint strings live exclusively in logic modules (api.js, auth.js,
+  // uploadcore.js) and are never placed into the DOM.
+  const uiFiles = [
+    join(jsDir, 'ui.js'),
+    join(jsDir, 'drawer.js'),
+    ...readdirSync(join(jsDir, 'views')).map((f) => join(jsDir, 'views', f)),
+  ];
+  const banned = [
+    'dsmnru-pyq-api', '.workers.dev', 'firestore.googleapis',
+    'identitytoolkit', 'securetoken', 'gofile.io', '/api/',
+  ];
+  const stripComments = (s) => s
+    .replace(/\/\*[\s\S]*?\*\//g, '')   // block comments
+    .split('\n')
+    .filter((line) => !/^\s*(\*|\/\/)/.test(line)) // comment-only lines
+    .join('\n');
+  for (const file of uiFiles) {
+    const src = stripComments(readFileSync(file, 'utf8'));
+    for (const markerString of banned) {
+      assert.ok(!src.includes(markerString),
+        `${file} renders or embeds the technical endpoint "${markerString}" — the UI must stay human-only`);
+    }
+  }
+  // Firebase error text must never leak raw backend messages (URL scrubbing).
+  const auth = readFileSync(join(jsDir, 'auth.js'), 'utf8');
+  assert.match(auth, /replace\(\/https\?:\\\/\\\/\\S\+\/g/, 'friendly() scrubs URLs from error text');
+  assert.match(auth, /fetchRewardSummary/, 'lazy reward summary exists (same email-keyed reward data)');
+});
+
+test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-form; version is 1.3.1', () => {
+  const css = readFileSync(join(here, '../www/css/app.css'), 'utf8');
+  assert.match(css, /\[hidden\]\s*{\s*display:\s*none\s*!important;/,
+    'global [hidden] rule — the app-bar back arrow and every toggled element obey hidden');
+
+  const authui = readFileSync(join(here, '../www/js/authui.js'), 'utf8');
+  const signupForm = authui.match(/<form data-form="signup"[\s\S]*?<\/form>/);
+  assert.ok(signupForm, 'signup form present');
+  assert.match(signupForm[0], /data-err/, 'signup form owns its error target (no silent failures)');
+  assert.match(authui, /Creating account…/, 'signup busy state present');
+  assert.ok(!authui.includes('Create account on website'), 'no website account-creation hand-off');
+  assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
+
+  const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
+  assert.match(profile, /1\.3\.1/, 'app version visible on Profile');
+  assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
+  assert.match(profile, /updateDisplayName/, 'name editing wired to the SAME user profile');
+  assert.match(profile, /reward points/, 'upload/reward points visible in Profile');
+  assert.ok(!profile.includes('Delete account'), 'no fake delete button without an existing secure flow');
+
+  const home = readFileSync(join(here, '../www/js/views/home.js'), 'utf8');
+  assert.match(home, /host\.classList\.add\('hidden'\)/, 'empty home rails hide instead of showing filler text');
+});
+
 // ── WEBSITE-REDIRECT AUDIT (self-containment guarantee) ────────────────
 
 test('audit: no website navigation for normal app features (strict allowlist)', () => {
@@ -497,5 +555,7 @@ test('audit: no website navigation for normal app features (strict allowlist)', 
   }
   const paper = readFileSync(join(jsDir, 'views', 'paper.js'), 'utf8');
   assert.match(paper, /ctx\.openPdf\(/, 'Open PDF goes through the in-app viewer first');
-  assert.match(paper, /documents\/feedback/, 'report broken link submits in-app');
+  assert.match(paper, /submitBrokenLinkReport/, 'report broken link submits in-app (endpoint lives in the feedback module)');
+  const feedback = readFileSync(join(jsDir, 'feedback.js'), 'utf8');
+  assert.match(feedback, /documents\/feedback/, 'reports land in the SAME Firestore queue the website uses');
 });

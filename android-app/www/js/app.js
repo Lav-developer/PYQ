@@ -104,13 +104,29 @@ async function renderView() {
 
 function updateHeader(entry) {
   const meta = entry.header || { title: 'DSMNRU PYQ' };
+  // A pushed screen (stack depth > 1) is the ONLY state where "back" is
+  // meaningful; tab roots — including Home — show the drawer hamburger.
+  // tab() collapses the stack to depth 1 and back() pops it, so this flag
+  // is a pure function of navigation state (never stale across bottom-nav
+  // switches; the drawer only overlays and never mutates the stack).
   const isRoot = TAB_VIEWS.has(entry.view) && stack.length === 1;
-  els.back.hidden = isRoot && !meta.back;
+  const showBack = !isRoot || !!meta.back;
+  els.back.hidden = !showBack;
+  els.back.disabled = !showBack; // never focusable/activatable while hidden
+  if (showBack) {
+    els.back.removeAttribute('aria-hidden');
+  } else {
+    els.back.setAttribute('aria-hidden', 'true');
+  }
   els.back.innerHTML = ui.icon('back');
   // Hamburger lives at top-level screens (standard Android idiom); pushed
   // screens show the back arrow instead. The drawer remains one tap away at
   // every tab root, including Home.
-  if (els.menu) els.menu.hidden = !isRoot || !!meta.back;
+  if (els.menu) {
+    const showMenu = isRoot && !meta.back;
+    els.menu.hidden = !showMenu;
+    els.menu.disabled = !showMenu;
+  }
   els.title.innerHTML = (isRoot || meta.brand)
     ? `<span class="brand-logo" aria-hidden="true"></span><span>DSMNRU PYQ<small>PYQ archive · Android</small></span>`
     : `<span>${ui.esc(meta.title || '')}${meta.sub ? `<small>${ui.esc(meta.sub)}</small>` : ''}</span>`;
