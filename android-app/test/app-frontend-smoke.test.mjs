@@ -92,6 +92,13 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
   }
 
   const calls = [];
+  // Stateful comments backend: the ORDERED (index-requiring) query always
+  // fails with FAILED_PRECONDITION — exactly the production failure mode;
+  // the unordered fallback serves this store plus one malformed legacy
+  // document; POSTs append with unique ids. failComments fails every
+  // comments read (query outage simulation).
+  const mockComments = [];
+  let failComments = false;
   const nowSec = Math.floor(Date.now() / 1000);
   const fetchImpl = async (url, opts = {}) => {
     calls.push({ url: String(url), opts });
@@ -128,12 +135,27 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     }
     if (u.includes('/documents/comments')) {
       const body = JSON.parse(opts.body || '{}');
-      return ok({ name: 'projects/dsmnru-data/databases/(default)/documents/comments/c1', fields: body.fields });
+      mockComments.push(body.fields);
+      return ok({ name: `projects/dsmnru-data/databases/(default)/documents/comments/c${mockComments.length}`, fields: body.fields });
     }
     if (u.includes(':runQuery')) {
       const parsed = JSON.parse(opts.body || '{}');
       if (((parsed.structuredQuery || {}).from || [{}])[0].collectionId === 'comments') {
-        return ok([]); // website-shaped comments collection starts empty
+        if (failComments) {
+          return { ok: false, status: 400, json: async () => ({ error: { message: 'The query requires an INDEX.', status: 'FAILED_PRECONDITION' } }) };
+        }
+        if (u.includes('/pyqs/')) return ok([]); // legacy subcollection: parent-scoped, empty
+        // The ordered (paperId + createdAt) query is rejected — missing
+        // composite index, same as the production report.
+        if ((parsed.structuredQuery.orderBy || []).length > 0) {
+          return { ok: false, status: 400, json: async () => ({ error: { message: 'The query requires an INDEX.', status: 'FAILED_PRECONDITION' } }) };
+        }
+        const rows = mockComments.map((fields, i) => ({
+          document: { name: `projects/dsmnru-data/databases/(default)/documents/comments/c${i + 1}`, fields },
+        }));
+        // One malformed legacy document (no text field) — must be skipped.
+        rows.push({ document: { name: 'projects/dsmnru-data/databases/(default)/documents/comments/broken1', fields: { paperId: { stringValue: 'p1' } } } });
+        return ok(rows);
       }
       const row = (n) => ({ document: { fields: {
         amount: { integerValue: '10' }, type: { stringValue: 'PYQ_UPLOAD' },
@@ -154,7 +176,7 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     return { ok: false, status: 404, json: async () => ({ error: 'mock: not mocked ' + u }) };
   };
   globalThis.fetch = fetchImpl;
-  return { dom, window, calls, opened };
+  return { dom, window, calls, opened, setFailComments: (v) => { failComments = v; } };
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -170,7 +192,7 @@ const text = (el) => (el ? el.textContent : '');
 
 if (JSDOM) {
   test('dedicated app UI boots, gates, authenticates, searches and opens papers', async (t) => {
-    const { window, calls, opened } = setupDom();
+    const { window, calls, opened, setFailComments } = setupDom();
     t.after(() => { try { window.close(); } catch { /* already gone */ } });
 
     // Fresh device state
@@ -262,24 +284,53 @@ if (JSDOM) {
     const detailCalls = calls.filter((c) => /\/api\/pyqs\/p1(\?|$)/.test(c.url)).length;
     assert.equal(detailCalls, 1, 'one detail fetch');
 
-    // ── v1.3.3: discussion is IN-APP and lazy (same Firestore comments as the site) ──
+    // ── v1.3.6: discussion read path — index failure → fallbacks, classified errors, dedupe ──
     const discTrafficBefore = calls.filter((c) => c.url.includes(':runQuery')).length;
     const discOpen = view().querySelector('[data-act="disc-open"]');
     assert.ok(discOpen, 'paper offers an in-app discussion');
     assert.ok(!view().querySelector('#disc-text'), 'comments are NOT loaded before the section is opened');
+
+    // Production failure mode: the ordered query is rejected (missing index)
+    // AND the fallback paths are unreachable → a READ problem must be shown
+    // as such, never as "check your connection".
+    setFailComments(true);
     discOpen.click();
-    assert.ok(await waitFor(() => text(view()).includes('No comments yet')), 'empty discussion state rendered');
+    assert.match(text(view().querySelector('#disc-list')), /Loading discussion/, 'loading state shown first');
+    assert.ok(await waitFor(() => text(view()).includes('Unable to load this discussion. Please try again.')),
+      'query/index failure classified as a read problem');
+    assert.ok(!text(view()).includes('Check your connection'), 'no misleading network message for query failures');
+    assert.ok(view().querySelector('#disc-list [data-act="disc-open"]'), 'Retry offered');
+
+    // Retry re-runs the ACTUAL fetch operation once the backend recovers.
+    setFailComments(false);
+    view().querySelector('#disc-list [data-act="disc-open"]').click();
+    assert.ok(await waitFor(() => text(view()).includes('No comments yet. Start the discussion.')),
+      'retry reaches the fallback read; empty state exact');
     assert.ok(calls.filter((c) => c.url.includes(':runQuery')).length > discTrafficBefore,
-      'comments query fired only after opening (lazy)');
+      'comments queries fired only after opening (lazy)');
 
     view().querySelector('#disc-text').value = 'This paper helped a lot, thanks!';
     view().querySelector('[data-act="disc-post"]').click();
     assert.ok(await waitFor(() => text(view()).includes('This paper helped a lot')),
       'posted comment appears immediately (no reload)');
-    assert.ok(calls.some((c) => c.url.includes('/documents/comments') && (c.opts || {}).method === 'POST'),
-      'comment written to the SAME Firestore comments collection the website uses');
+    const postCalls = calls.filter((c) => c.url.includes('/documents/comments') && (c.opts || {}).method === 'POST');
+    assert.equal(postCalls.length, 1, 'comment written ONCE to the SAME Firestore comments collection');
+    assert.match(String(postCalls[0].opts.body), /"paperId"\s*:\s*\{\s*"stringValue"\s*:\s*"p1"/,
+      'write schema: paperId (website field)');
+    assert.match(String(postCalls[0].opts.body), /uid-9/, 'write schema: userId = signed-in user');
     assert.ok(!opened.some((u) => u.includes('dsmnru') || u.includes('netlify')),
       'discussion never opens the website');
+
+    // Leave the paper, come back: refetched list shows the comment exactly
+    // ONCE (doc-id dedupe) and the malformed legacy document never renders.
+    document.getElementById('appbar-back').click();
+    assert.ok(await waitFor(() => view().querySelector('[data-paper-id="p1"]')), 'back to results');
+    view().querySelector('[data-paper-id="p1"]').click();
+    assert.ok(await waitFor(() => view().querySelector('.paper-hero')), 'paper re-opened');
+    view().querySelector('[data-act="disc-open"]').click();
+    assert.ok(await waitFor(() => text(view()).includes('This paper helped a lot')), 'comment persists across reopen');
+    assert.equal(view().querySelectorAll('[data-comment-id]').length, 1,
+      'exactly ONE copy after post + refetch (doc-id dedupe; malformed row skipped)');
 
     // ── PDF open → handed to the system (no in-app viewer, no storage copy) ─
     const viewBtn = view().querySelector('[data-act="view"]');
@@ -459,7 +510,7 @@ if (JSDOM) {
     await waitFor(() => view().querySelector('.profile-card'));
     assert.match(text(view().querySelector('.profile-card')), /Test Student/, 'profile shows display name');
     assert.match(text(view().querySelector('.profile-card')), /stud@dsmnru\.in/, 'profile shows email');
-    assert.match(text(view()), /Version 1\.3\.5/, 'app version visible on Profile');
+    assert.match(text(view()), /Version 1\.3\.6/, 'app version visible on Profile');
     assert.ok(await waitFor(() => view().querySelector('#pf-rewards .hero-title')), 'rewards section loads lazily');
     assert.equal(view().querySelectorAll('#pf-rewards .hero-title')[0].textContent, '40',
       'points balance from the SAME reward account the website reads');

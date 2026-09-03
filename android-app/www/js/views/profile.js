@@ -11,7 +11,7 @@
  * rendered — everything user-facing is human text.
  */
 
-const APP_VERSION = '1.3.5';
+const APP_VERSION = '1.3.6';
 
 function esc(s) { return String(s == null ? '' : s); }
 

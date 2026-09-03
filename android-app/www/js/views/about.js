@@ -9,7 +9,7 @@
 import { SITE_ORIGIN } from '../api.js';
 import * as ui from '../ui.js';
 
-const APP_VERSION = '1.3.5';
+const APP_VERSION = '1.3.6';
 
 export default async function renderAbout(root, ctx) {
   ctx.setHeader({ title: 'About', brand: false });

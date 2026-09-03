@@ -23,7 +23,7 @@
 
 import { SITE_ORIGIN } from '../api.js';
 import { submitBrokenLinkReport } from '../feedback.js';
-import { loadComments, postComment } from '../discussion.js';
+import { loadComments, postComment, discussionErrorMessage } from '../discussion.js';
 
 function normalizeLink(v) {
   const t = String(v || '').trim();
@@ -279,7 +279,7 @@ export default async function renderPaper(root, ctx, params = {}) {
   function commentHtml(c) {
     const initials = String(c.name || 'A').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'A';
     return `
-      <div class="disc-item">
+      <div class="disc-item" data-comment-id="${ui.esc(c.id || '')}">
         <div class="disc-avatar">${ui.esc(initials)}</div>
         <div class="grow" style="min-width:0">
           <div class="disc-head"><b>${ui.esc(c.name || 'Anonymous')}</b>${c.date ? `<span class="disc-date">${ui.esc(ui.fmtDate(c.date))}</span>` : ''}</div>
@@ -292,19 +292,21 @@ export default async function renderPaper(root, ctx, params = {}) {
     const body = discussion.querySelector('#disc-body');
     body.innerHTML = `
       <div style="margin-bottom:14px">${composerHtml()}</div>
-      <div id="disc-list">${ui.skeletonRows(2)}</div>`;
+      <div id="disc-list"><p class="h-sub" style="margin:0 0 10px">Loading discussion…</p>${ui.skeletonRows(2)}</div>`;
     const list = body.querySelector('#disc-list');
     try {
       const items = await loadComments({ paperId: id });
       if (!list.isConnected) return; // navigated away meanwhile
       if (!items.length) {
-        list.innerHTML = `<p class="h-sub">No comments yet.<br>Be the first to start the discussion.</p>`;
+        list.innerHTML = `<p class="h-sub">No comments yet. Start the discussion.</p>`;
         return;
       }
       list.innerHTML = items.map(commentHtml).join('');
     } catch (err) {
       if (!list.isConnected) return;
-      list.innerHTML = `<p class="h-sub" style="color:var(--gold)">${ui.esc(String(err && err.message || "Couldn't load the discussion."))}</p>
+      // Classified human message (network vs permission vs data) — the
+      // technical cause stays in the console/Logcat, never in the UI.
+      list.innerHTML = `<p class="h-sub" style="color:var(--gold)">${ui.esc(discussionErrorMessage(err))}</p>
         <button class="btn btn--ghost btn--sm" data-act="disc-open" type="button">Retry</button>`;
     }
   }
@@ -324,9 +326,15 @@ export default async function renderPaper(root, ctx, params = {}) {
     try {
       const written = await postComment({ paperId: id, text: input.value }, auth.current());
       const list = body.querySelector('#disc-list');
-      const emptyNote = list.querySelector('p.h-sub');
-      if (emptyNote) emptyNote.remove();
-      list.insertAdjacentHTML('afterbegin', commentHtml(written));
+      // Dedupe by the actual Firestore document id: if a refetch already
+      // surfaced this comment, never render it a second time.
+      const alreadyShown = Array.from(list.querySelectorAll('[data-comment-id]'))
+        .some((n) => n.dataset.commentId === written.id);
+      if (!alreadyShown) {
+        const emptyNote = list.querySelector('p.h-sub');
+        if (emptyNote) emptyNote.remove();
+        list.insertAdjacentHTML('afterbegin', commentHtml(written));
+      }
       input.value = '';
       ui.toast('Comment posted');
     } catch (err) {

@@ -18,7 +18,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { createApi } from '../www/js/api.js';
@@ -501,11 +501,121 @@ test('discussion: paper comments are IN-APP (same Firestore schema), never a web
   assert.match(disc, /paperId/, 'same paperId field');
   assert.match(disc, /userEmail/, 'same field shape the website writes');
   assert.match(disc, /pyqs\/\$\{encodeURIComponent\(paperId\)\}/, 'same pyqs/{id}/comments fallback as the website');
+  // v1.3.6 read-path fix: fallbacks trigger on ERROR (not just empty), the
+  // subcollection read is parent-scoped, failures are classified, one bad
+  // document never breaks the list, and lists dedupe by Firestore doc id.
+  assert.match(disc, /unorderedQueryBody/, 'website-style unordered fallback query exists');
+  assert.match(disc, /if \(!list.length && !sawSuccess && failures.length\)/,
+    'errors fall through to fallbacks; only a total failure throws');
+  assert.match(disc, /function subcollectionQueryBody\(\)/, 'legacy subcollection query builder present');
+  assert.ok(disc.includes('executeQuery(`/pyqs/${encodeURIComponent(paperId)}`, subcollectionQueryBody(), doFetch)'),
+    'legacy subcollection read is parent-scoped (no paperId filter mismatch)');
+  assert.match(disc, /discussionErrorMessage/, 'classified human error messages');
+  for (const kind of ["'network'", "'permission'", "'query'", "'data'"]) {
+    assert.ok(disc.includes(kind), `failure class ${kind} distinguished`);
+  }
+  assert.match(disc, /skipping a malformed comment document/, 'malformed rows are skipped, not fatal');
+  assert.match(disc, /dedupeById/, 'lists dedupe by Firestore document id');
+  assert.match(disc, /console\.info\('discussion: loading comments for paper', paperId\)/,
+    'resolved paper id logged (dev logs only)');
 
   // Endpoints stay out of the UI layer (audit continuity with the no-URL rule).
   const paperStripped = paper.replace(/\/\*[\s\S]*?\*\//g, '').split('\n')
     .filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n');
   assert.ok(!paperStripped.includes('firestore.googleapis'), 'discussion endpoints live in the logic module, not the view');
+});
+
+test('discussion contract: index-failure fallback, error classes, malformed rows, dedupe, write shape', async () => {
+  const mod = await import(pathToFileURL(join(here, '../www/js/discussion.js')).href);
+
+  // Scripted Firestore REST backend — records every call in order.
+  const made = [];
+  const scripted = (responses) => {
+    let i = 0;
+    return (url, opts = {}) => {
+      made.push({ url: String(url), body: String(opts.body || ''), method: opts.method || 'GET' });
+      const r = responses[Math.min(i++, responses.length - 1)];
+      return Promise.resolve(typeof r === 'function' ? r(url, opts) : r);
+    };
+  };
+  const okJson = (data) => ({ ok: true, status: 200, json: async () => data });
+  const errJson = (status, message, statusName) => ({ ok: false, status, json: async () => ({ error: { message, status: statusName } }) });
+  const row = (id, text, date) => ({
+    document: {
+      name: `projects/x/databases/(default)/documents/comments/${id}`,
+      fields: {
+        paperId: { stringValue: 'p1' }, text: { stringValue: text },
+        userId: { stringValue: 'u1' }, userName: { stringValue: 'Asha' },
+        createdAt: date ? { timestampValue: date } : { nullValue: null }, // pending server timestamp
+      },
+    },
+  });
+  const indexError = () => errJson(400, 'The query requires an INDEX.', 'FAILED_PRECONDITION');
+
+  // 1) Ordered query rejected (missing composite index) → the unordered
+  //    fallback supplies comments; malformed rows skipped; client-side sort.
+  made.length = 0;
+  const fetch1 = scripted([
+    indexError(),
+    okJson([
+      row('a', 'great paper', '2026-09-01T10:00:00Z'),
+      row('b', 'thanks so much', ''),
+      { document: { name: 'projects/x/databases/(default)/documents/comments/z', fields: { paperId: { stringValue: 'p1' } } } },
+      { document: {} },
+    ]),
+  ]);
+  const items = await mod.loadComments({ paperId: 'p1' }, fetch1);
+  assert.equal(items.length, 2, 'malformed documents skipped, valid ones kept');
+  assert.equal(items[0].id, 'a', 'newest first (client-side sort after unordered fetch)');
+  assert.ok(made[0].url.includes('/documents:runQuery') && !made[0].url.includes('/pyqs/'),
+    'read targets the SAME top-level comments collection');
+  const secondBody = JSON.parse(made[1].body);
+  assert.equal((secondBody.structuredQuery.orderBy || []).length, 0, 'fallback drops the composite-index orderBy');
+  assert.equal(secondBody.structuredQuery.where.fieldFilter.value.stringValue, 'p1', 'same paperId filter, same collection');
+  assert.ok(!made.some((m) => m.url.includes('netlify') || m.url.includes('paper.html')),
+    'no website anywhere in the read path');
+
+  // 2) Every path failing with the index precondition → QUERY class, and the
+  //    UI message must NOT claim a network problem.
+  made.length = 0;
+  await assert.rejects(() => mod.loadComments({ paperId: 'p2' }, scripted([indexError()])),
+    (e) => e.kind === 'query' && mod.discussionErrorMessage(e) === 'Unable to load this discussion. Please try again.');
+  assert.ok(!made.some(() => false), 'noop');
+  assert.equal(JSON.parse(made[0].body).structuredQuery.where.fieldFilter.value.stringValue, 'p2',
+    'the resolved paper id reaches the query');
+
+  // 3) Permission failure → its own class and message.
+  await assert.rejects(() => mod.loadComments({ paperId: 'p3' }, scripted([errJson(403, 'Permission denied', 'PERMISSION_DENIED')])),
+    (e) => e.kind === 'permission' && mod.discussionErrorMessage(e) === 'Unable to load this discussion right now.');
+
+  // 4) Offline (fetch throws) → network class and message.
+  await assert.rejects(() => mod.loadComments({ paperId: 'p4' }, scripted([() => { throw new TypeError('fetch failed'); }])),
+    (e) => e.kind === 'network' && mod.discussionErrorMessage(e) === 'Unable to load discussion. Check your connection and try again.');
+
+  // 5) Duplicate documents (same Firestore doc id) collapse to one.
+  const items5 = await mod.loadComments({ paperId: 'p5' }, scripted([
+    indexError(),
+    okJson([row('dup', 'once upon a time', '2026-09-02T10:00:00Z'), row('dup', 'once upon a time', '2026-09-02T10:00:00Z')]),
+  ]));
+  assert.equal(items5.length, 1, 'doc-id dedupe');
+
+  // 6) Write: top-level collection, EXACT website field shape; resolves the
+  //    real document id (for UI dedupe).
+  made.length = 0;
+  const user = { uid: 'u1', email: 'asha@b.in', name: 'Asha', idToken: 'T' };
+  const fetch6 = scripted([(url, opts) => {
+    assert.ok(url.includes('/documents/comments?key='), 'write targets the top-level comments collection');
+    assert.deepEqual(Object.keys(JSON.parse(opts.body).fields).sort(),
+      ['createdAt', 'paperId', 'text', 'userEmail', 'userId', 'userName'], 'exact website field shape');
+    const fields = JSON.parse(opts.body).fields;
+    return okJson({ name: 'projects/x/databases/(default)/documents/comments/n1', fields });
+  }]);
+  const written = await mod.postComment({ paperId: 'p1', text: 'hello there' }, user, fetch6);
+  assert.equal(written.id, 'n1', 'write resolves the real Firestore doc id');
+
+  // 7) Permission-denied write keeps its distinct verify-email message.
+  await assert.rejects(() => mod.postComment({ paperId: 'p1', text: 'hello there' }, user, scripted([errJson(403, 'denied', 'PERMISSION_DENIED')])),
+    (e) => e.kind === 'permission' && /Verify your email/.test(e.message));
 });
 
 test('auth copy: google states + password reset success are human and explicit', () => {
@@ -610,7 +720,7 @@ test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-for
   assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
 
   const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
-  assert.match(profile, /1\.3\.5/, 'app version visible on Profile');
+  assert.match(profile, /1\.3\.6/, 'app version visible on Profile');
   assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
   assert.match(profile, /saveProfileEdits/, 'profile editing wired to the SAME user profile');
   assert.match(profile, /reward points/, 'upload/reward points visible in Profile');
