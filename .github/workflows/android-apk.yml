@@ -16,6 +16,13 @@ on:
       - 'android-app/**'
       - 'worker/**'
       - '.github/workflows/android-apk.yml'
+  pull_request:
+    branches:
+      - android-app
+    paths:
+      - 'android-app/**'
+      - 'worker/**'
+      - '.github/workflows/android-apk.yml'
 
 concurrency:
   group: android-apk-${{ github.ref }}
