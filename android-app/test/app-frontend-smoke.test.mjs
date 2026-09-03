@@ -116,11 +116,25 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     if (u.includes('accounts:lookup')) {
       return ok({ users: [{ email: 'stud@dsmnru.in', displayName: 'Test Student', emailVerified: true }] });
     }
-    if (u.includes('sendOobCode')) return ok({});
+    if (u.includes('sendOobCode')) {
+      const body = JSON.parse(opts.body || '{}');
+      if (body.email === 'unknown@nowhere.in') {
+        return { ok: false, status: 400, json: async () => ({ error: { message: 'EMAIL_NOT_FOUND' } }) };
+      }
+      return ok({});
+    }
     if (u.includes('/reward_accounts/')) {
       return ok({ fields: { points: { integerValue: '40' }, email: { stringValue: 'stud@dsmnru.in' } } });
     }
+    if (u.includes('/documents/comments')) {
+      const body = JSON.parse(opts.body || '{}');
+      return ok({ name: 'projects/dsmnru-data/databases/(default)/documents/comments/c1', fields: body.fields });
+    }
     if (u.includes(':runQuery')) {
+      const parsed = JSON.parse(opts.body || '{}');
+      if (((parsed.structuredQuery || {}).from || [{}])[0].collectionId === 'comments') {
+        return ok([]); // website-shaped comments collection starts empty
+      }
       const row = (n) => ({ document: { fields: {
         amount: { integerValue: '10' }, type: { stringValue: 'PYQ_UPLOAD' },
         email: { stringValue: 'stud@dsmnru.in' },
@@ -174,12 +188,44 @@ if (JSDOM) {
     const homeCalls = calls.filter((c) => c.url.includes('/api/homepage')).length;
     assert.equal(homeCalls, 1, 'exactly one /api/homepage request for home');
 
+    // v1.3.3 — ONE brand area (the app bar): Home adds no duplicate logo/text.
+    assert.ok(!view().querySelector('.hero-emblem'), 'no duplicate brand block on Home');
+    assert.ok(view().querySelector('.search-entry #home-search'), 'compact search entry present');
+
+    // Home search entry hands off to the dedicated Search screen (query kept).
+    const homeEntry = view().querySelector('#home-search');
+    homeEntry.value = ' ';
+    homeEntry.dispatchEvent(new window.Event('focus', { bubbles: true }));
+    assert.ok(await waitFor(() => view().querySelector('#sq') !== null), 'focusing the home entry opens Search');
+    assert.equal(view().querySelector('#sq').value, '', 'blank entry opens the idle Search screen (no fake query)');
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+
     // ── Bottom nav → Courses (anonymous course pick is gated like the site) ─
     document.querySelector('.tab[data-tab="browse"]').click();
     assert.ok(await waitFor(() => view().querySelector('[data-course]')), 'course grid rendered');
     view().querySelector('[data-course]').click();
     assert.ok(await waitFor(() => document.querySelector('.sheet-root')), 'auth gate sheet opens for anonymous course browse');
     assert.match(text(document.querySelector('.sheet-root')), /Sign in|Course browsing/, 'gate explains itself');
+
+    // ── v1.3.3: password reset runs in-app; success only after Firebase resolves ──
+    document.querySelector('.sheet-root [data-act="forgot"]').click();
+    assert.ok(await waitFor(() => !document.querySelector('.sheet-root form[data-form="reset"]').classList.contains('hidden')), 'reset form opens');
+    document.querySelector('#auth-r-email').value = 'unknown@nowhere.in';
+    document.querySelector('.sheet-root form[data-form="reset"] button[type="submit"]').click();
+    assert.ok(await waitFor(() => text(document.querySelector('.sheet-root')).includes('No account exists for this email yet.')),
+      'unknown email gets a readable message');
+    document.querySelector('#auth-r-email').value = 'stud@dsmnru.in';
+    document.querySelector('.sheet-root form[data-form="reset"] button[type="submit"]').click();
+    assert.ok(await waitFor(() => {
+      const el = document.querySelector('[data-reset-ok]');
+      return el && !el.hidden && el.textContent.includes('inbox and spam folder');
+    }), 'success note appears only after the Firebase call resolved');
+    assert.ok(calls.some((c) => c.url.includes('sendOobCode')), 'Firebase password-reset endpoint called');
+    const resetBtn = document.querySelector('form[data-form="reset"] button[type="submit"]');
+    assert.ok(resetBtn && !resetBtn.disabled, 'form stays usable for a resend');
+    document.querySelector('#auth-mode [data-chip="login"]').click();
+    assert.ok(await waitFor(() => !document.querySelector('.sheet-root form[data-form="login"]').classList.contains('hidden')), 'back to login');
 
     // ── Sign in through the sheet (email/password → same Firebase project) ──
     const sheet = document.querySelector('.sheet-root');
@@ -211,6 +257,25 @@ if (JSDOM) {
     assert.match(text(view().querySelector('.meta-grid')), /2023-24/, 'session in meta table');
     const detailCalls = calls.filter((c) => /\/api\/pyqs\/p1(\?|$)/.test(c.url)).length;
     assert.equal(detailCalls, 1, 'one detail fetch');
+
+    // ── v1.3.3: discussion is IN-APP and lazy (same Firestore comments as the site) ──
+    const discTrafficBefore = calls.filter((c) => c.url.includes(':runQuery')).length;
+    const discOpen = view().querySelector('[data-act="disc-open"]');
+    assert.ok(discOpen, 'paper offers an in-app discussion');
+    assert.ok(!view().querySelector('#disc-text'), 'comments are NOT loaded before the section is opened');
+    discOpen.click();
+    assert.ok(await waitFor(() => text(view()).includes('No comments yet')), 'empty discussion state rendered');
+    assert.ok(calls.filter((c) => c.url.includes(':runQuery')).length > discTrafficBefore,
+      'comments query fired only after opening (lazy)');
+
+    view().querySelector('#disc-text').value = 'This paper helped a lot, thanks!';
+    view().querySelector('[data-act="disc-post"]').click();
+    assert.ok(await waitFor(() => text(view()).includes('This paper helped a lot')),
+      'posted comment appears immediately (no reload)');
+    assert.ok(calls.some((c) => c.url.includes('/documents/comments') && (c.opts || {}).method === 'POST'),
+      'comment written to the SAME Firestore comments collection the website uses');
+    assert.ok(!opened.some((u) => u.includes('dsmnru') || u.includes('netlify')),
+      'discussion never opens the website');
 
     // ── PDF open → handed to the system (no in-app viewer, no storage copy) ─
     const viewBtn = view().querySelector('[data-act="view"]');
@@ -390,7 +455,7 @@ if (JSDOM) {
     await waitFor(() => view().querySelector('.profile-card'));
     assert.match(text(view().querySelector('.profile-card')), /Test Student/, 'profile shows display name');
     assert.match(text(view().querySelector('.profile-card')), /stud@dsmnru\.in/, 'profile shows email');
-    assert.match(text(view()), /Version 1\.3\.2/, 'app version visible on Profile');
+    assert.match(text(view()), /Version 1\.3\.3/, 'app version visible on Profile');
     assert.ok(await waitFor(() => view().querySelector('#pf-rewards .hero-title')), 'rewards section loads lazily');
     assert.equal(view().querySelectorAll('#pf-rewards .hero-title')[0].textContent, '40',
       'points balance from the SAME reward account the website reads');
@@ -488,3 +553,4 @@ if (JSDOM) {
     assert.ok(!/Open website to use Google/.test(text(document.querySelector('.sheet-root'))), 'NO website hand-off for Google');
   });
 }
+

@@ -18,10 +18,12 @@
  *     `feedback` collection the website uses (verified sign-in required —
  *     identical rule)
  *   • preview/download require the same verified sign-in the website enforces
+ *   • discussion (comments) is fully IN-APP — same Firestore comments data
  */
 
 import { SITE_ORIGIN } from '../api.js';
 import { submitBrokenLinkReport } from '../feedback.js';
+import { loadComments, postComment } from '../discussion.js';
 
 function normalizeLink(v) {
   const t = String(v || '').trim();
@@ -226,23 +228,115 @@ export default async function renderPaper(root, ctx, params = {}) {
   meta.innerHTML = cells.map(([k, v]) => `<div class="meta-cell"><span>${k}</span><b>${ui.esc(v)}</b></div>`).join('');
   stack.appendChild(meta);
 
-  // More actions row — report stays IN-APP (same Firestore `feedback`
-  // collection the website writes); only the discussion page (comments,
-  // which exist only on the website) remains an explicit external choice.
+  // More actions — report stays IN-APP (same Firestore `feedback` queue the
+  // website writes). The discussion below is fully in-app too.
   const more = document.createElement('section');
   more.className = 'card card-pad';
   more.innerHTML = `
     <div class="sheet-list" id="paper-more">
       <button class="sheet-item" data-act="report" type="button">${ui.icon('flag')}<span>Report a broken link<small>Reviewed by moderators — right from the app</small></span><span class="tail">${ui.icon('chevron')}</span></button>
-      <button class="sheet-item" data-act="web" type="button">${ui.icon('globe')}<span>Discussion & full page on website<small>Comments live only on the website — opens externally</small></span><span class="tail">${ui.icon('chevron')}</span></button>
     </div>`;
   more.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
     if (b.dataset.act === 'report') openReportSheet();
-    if (b.dataset.act === 'web') native.openExternal(siteUrl);
   });
   stack.appendChild(more);
+
+  // ── Discussion — IN-APP, lazy ─────────────────────────────────────────
+  // Same `comments` data the website's paper page uses. Nothing is fetched
+  // until the user opens the section, so paper browsing never pays for it.
+  const discussion = document.createElement('section');
+  discussion.className = 'card card-pad';
+  discussion.innerHTML = `
+    <div class="section-head">${ui.icon('users')}<h2>Discussion</h2></div>
+    <div id="disc-body" style="margin-top:12px">
+      <button class="btn btn--ghost btn--sm" data-act="disc-open" type="button">${ui.icon('chevron')} Show comments</button>
+    </div>`;
+  discussion.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    if (b.dataset.act === 'disc-open') openDiscussion();
+    if (b.dataset.act === 'disc-post') submitComment();
+  });
+  stack.appendChild(discussion);
+
+  function composerHtml() {
+    const signedIn = !!auth.current();
+    const verified = auth.canUnlockPrivileges();
+    const hint = !signedIn
+      ? 'Sign in to join the discussion'
+      : (!verified ? 'Verify your email to join the discussion (same rule as the website)' : '');
+    return `
+      <textarea class="input" id="disc-text" rows="2" maxlength="600" placeholder="Write a comment…" ${verified ? '' : 'disabled'}></textarea>
+      <div class="disc-compose-row">
+        <span class="field-hint">${hint ? ui.esc(hint) : 'Be respectful — discussions are moderated.'}</span>
+        <button class="btn btn--primary btn--sm" data-act="disc-post" type="button">Post</button>
+      </div>
+      <div data-disc-err class="form-error" hidden role="alert"></div>`;
+  }
+
+  function commentHtml(c) {
+    const initials = String(c.name || 'A').trim().split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase() || 'A';
+    return `
+      <div class="disc-item">
+        <div class="disc-avatar">${ui.esc(initials)}</div>
+        <div class="grow" style="min-width:0">
+          <div class="disc-head"><b>${ui.esc(c.name || 'Anonymous')}</b>${c.date ? `<span class="disc-date">${ui.esc(ui.fmtDate(c.date))}</span>` : ''}</div>
+          <p class="disc-text">${ui.esc(c.text || '')}</p>
+        </div>
+      </div>`;
+  }
+
+  async function openDiscussion() {
+    const body = discussion.querySelector('#disc-body');
+    body.innerHTML = `
+      <div style="margin-bottom:14px">${composerHtml()}</div>
+      <div id="disc-list">${ui.skeletonRows(2)}</div>`;
+    const list = body.querySelector('#disc-list');
+    try {
+      const items = await loadComments({ paperId: id });
+      if (!list.isConnected) return; // navigated away meanwhile
+      if (!items.length) {
+        list.innerHTML = `<p class="h-sub">No comments yet.<br>Be the first to start the discussion.</p>`;
+        return;
+      }
+      list.innerHTML = items.map(commentHtml).join('');
+    } catch (err) {
+      if (!list.isConnected) return;
+      list.innerHTML = `<p class="h-sub" style="color:var(--gold)">${ui.esc(String(err && err.message || "Couldn't load the discussion."))}</p>
+        <button class="btn btn--ghost btn--sm" data-act="disc-open" type="button">Retry</button>`;
+    }
+  }
+
+  async function submitComment() {
+    if (!auth.current()) {
+      ctx.requireAuth(() => openDiscussion());
+      return;
+    }
+    const body = discussion.querySelector('#disc-body');
+    const input = body.querySelector('#disc-text');
+    const errEl = body.querySelector('[data-disc-err]');
+    const btn = body.querySelector('[data-act="disc-post"]');
+    errEl.hidden = true;
+    btn.disabled = true;
+    btn.textContent = 'Posting…';
+    try {
+      const written = await postComment({ paperId: id, text: input.value }, auth.current());
+      const list = body.querySelector('#disc-list');
+      const emptyNote = list.querySelector('p.h-sub');
+      if (emptyNote) emptyNote.remove();
+      list.insertAdjacentHTML('afterbegin', commentHtml(written));
+      input.value = '';
+      ui.toast('Comment posted');
+    } catch (err) {
+      errEl.textContent = String(err && err.message || "Couldn't post your comment. Please try again.");
+      errEl.hidden = false;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Post';
+    }
+  }
 
   /**
    * In-app "Report a broken link" — writes to the SAME `feedback` collection

@@ -431,6 +431,72 @@ test('links dataset: https-only university/government portals, zero PYQ-website 
   assert.equal(total, 14, 'same 14 destinations as links.html');
 });
 
+// ── v1.3.3: single-source logo branding + in-app discussion + auth copy ──
+
+test('branding: the repository logo drives every brand surface; Home has ONE brand area', () => {
+  const logo = join(here, '../www/img/logo.png');
+  const png = readFileSync(logo);
+  assert.ok(png.length > 10000, 'www/img/logo.png exists and is a real image');
+  assert.equal(png.readUInt32BE(16), png.readUInt32BE(20), 'logo is square');
+  assert.equal(png[25], 6, 'logo keeps RGBA transparency');
+
+  const css = readFileSync(join(here, '../www/css/app.css'), 'utf8');
+  assert.ok(!css.includes('emblem.png'), 'old generated emblem is fully retired from CSS');
+  assert.ok(css.includes("url('../img/logo.png')"), 'app bar / hero / drawer brand surfaces use logo.png');
+
+  const home = readFileSync(join(here, '../www/js/views/home.js'), 'utf8');
+  assert.ok(!home.includes('hero-emblem'), 'Home renders NO duplicate brand block (app bar is the one brand area)');
+  assert.match(home, /search-entry/, 'Home keeps a compact search entry point');
+  assert.match(home, /ctx\.router\.tab\('search', q \? \{ q } : \{\}\)/,
+    'home search hands its query to the dedicated Search screen');
+
+  // Native launcher + adaptive + splash use the same logo (generated assets
+  // exist for every density).
+  for (const d of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {
+    for (const f of ['ic_launcher.png', 'ic_launcher_round.png', 'ic_launcher_foreground.png']) {
+      assert.ok(readdirSync(join(here, `../android/app/src/main/res/mipmap-${d}`)).includes(f), `${d}/${f} exists`);
+    }
+  }
+  assert.ok(readdirSync(join(here, '../android/app/src/main/res/drawable')).includes('splash_icon.png'),
+    'splash icon exists');
+});
+
+test('discussion: paper comments are IN-APP (same Firestore schema), never a website redirect', () => {
+  const paper = readFileSync(join(here, '../www/js/views/paper.js'), 'utf8');
+  assert.match(paper, /data-act="disc-open"/, 'paper has a lazy in-app discussion section');
+  assert.match(paper, /data-act="disc-post"/, 'composer can post in-app');
+  assert.match(paper, /loadComments/, 'paper view loads comments through the discussion module');
+  assert.ok(!paper.includes('data-act="web"'), 'no "Discussion on website" item anymore');
+
+  const disc = readFileSync(join(here, '../www/js/discussion.js'), 'utf8');
+  assert.match(disc, /collectionId: 'comments'/, 'uses the SAME top-level comments collection as the website');
+  assert.match(disc, /paperId/, 'same paperId field');
+  assert.match(disc, /userEmail/, 'same field shape the website writes');
+  assert.match(disc, /pyqs\/\$\{encodeURIComponent\(paperId\)\}/, 'same pyqs/{id}/comments fallback as the website');
+
+  // Endpoints stay out of the UI layer (audit continuity with the no-URL rule).
+  const paperStripped = paper.replace(/\/\*[\s\S]*?\*\//g, '').split('\n')
+    .filter((l) => !/^\s*(\*|\/\/)/.test(l)).join('\n');
+  assert.ok(!paperStripped.includes('firestore.googleapis'), 'discussion endpoints live in the logic module, not the view');
+});
+
+test('auth copy: google states + password reset success are human and explicit', () => {
+  const authui = readFileSync(join(here, '../www/js/authui.js'), 'utf8');
+  for (const required of [
+    'Signing in with Google…',
+    'Signed in successfully.',
+    'Google sign-in was cancelled.',
+    'Unable to sign in with Google. Please try again.',
+  ]) {
+    assert.ok(authui.includes(required), `google state copy present: ${required}`);
+  }
+  assert.match(authui, /data-reset-ok/, 'reset form has a success target shown only after Firebase resolves');
+  assert.match(authui, /inbox and spam folder/, 'reset confirmation mentions the spam folder');
+  const auth = readFileSync(join(here, '../www/js/auth.js'), 'utf8');
+  assert.match(auth, /PASSWORD_RESET/, 'Firebase sendPasswordResetEmail (sendOobCode PASSWORD_RESET) is called');
+  assert.match(auth, /EMAIL_NOT_FOUND/, 'unknown-email reset attempts get a readable message');
+});
+
 // ── Native Google sign-in wiring (Credential Manager → Firebase) ────────
 
 test('native Google sign-in: serverClientId is the WEB OAuth client, never the Android client', () => {
@@ -515,7 +581,7 @@ test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-for
   assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
 
   const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
-  assert.match(profile, /1\.3\.2/, 'app version visible on Profile');
+  assert.match(profile, /1\.3\.3/, 'app version visible on Profile');
   assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
   assert.match(profile, /updateDisplayName/, 'name editing wired to the SAME user profile');
   assert.match(profile, /reward points/, 'upload/reward points visible in Profile');

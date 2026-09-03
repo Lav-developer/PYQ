@@ -39,21 +39,27 @@ function generateNonce() {
  */
 export async function startGoogleSignIn({ onAuthenticated } = {}) {
   const nonce = generateNonce();
+  ui.toast('Signing in with Google…');
   const res = await native.googleSignIn(nonce);
   if (res && res.ok && res.idToken) {
     try {
       await auth.signInWithGoogleCredential({ idToken: res.idToken, nonce: res.nonce || nonce });
       ui.closeSheet();
-      ui.toast('Signed in with Google');
+      ui.toast('Signed in successfully.');
       if (onAuthenticated) onAuthenticated();
       return true;
     } catch (err) {
-      ui.toast(String(err.message || err), 'err');
+      // Firebase exchange failed — human message only, never raw errors.
+      console.warn('google exchange failed:', err);
+      ui.toast('Unable to sign in with Google. Please try again.', 'err');
       return false;
     }
   }
   const code = (res && res.code) || '';
-  if (code === 'GOOGLE_SIGNIN_CANCELLED') return false; // user backed out — silent
+  if (code === 'GOOGLE_SIGNIN_CANCELLED') {
+    ui.toast('Google sign-in was cancelled.');
+    return false;
+  }
   googleInfoSheet({ code, onAuthenticated });
   return false;
 }
@@ -133,9 +139,11 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
 
     <form data-form="reset" class="hidden">
       <div data-err class="form-error" hidden role="alert"></div>
+      <div data-reset-ok class="form-note" style="color:var(--teal)" hidden></div>
       ${field('auth-r-email', 'Account email', 'email', 'you@student.edu', 'email')}
       <button class="btn btn--gold btn--block" type="submit">Send reset link</button>
-      <p class="form-note">Firebase emails a reset link (opens on the website — you can finish there or come back here).</p>
+      <p class="form-note">The reset email comes from the same account system the website uses — open the
+      link on this device and set a new password.</p>
     </form>
 
     <p class="form-note">Same account system as the DSMNRU PYQ website — your saved papers
@@ -181,9 +189,15 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
 
   wireSubmit(forms.reset, async (f) => {
     await auth.requestPasswordReset(f.querySelector('#auth-r-email').value);
-    ui.closeSheet();
-    ui.toast('Reset link sent — check your inbox');
-  }, { busyLabel: 'Sending…' });
+    // The Firebase request resolved — the email is on its way. Show the
+    // confirmation in-form (not a toast) so it cannot be missed.
+    const ok = f.querySelector('[data-reset-ok]');
+    if (ok) {
+      ok.textContent = 'Password reset email sent. Please check your inbox and spam folder.';
+      ok.hidden = false;
+      f.querySelector('[data-err]').hidden = true;
+    }
+  }, { busyLabel: 'Sending reset link…' });
 
   sheetRef = ui.sheet({
     title: 'DSMNRU account',
@@ -203,12 +217,12 @@ export function googleInfoSheet({ code = '', onAuthenticated } = {}) {
   const configured = code !== 'GOOGLE_SIGNIN_NOT_CONFIGURED';
   const node = document.createElement('div');
   node.innerHTML = `
+    <p class="sheet-text"><b>Unable to sign in with Google. Please try again.</b></p>
     ${configured
       ? `<p class="sheet-text">Google sign-in runs with the device's own account chooser — no browser needed.
-         It looks like Google sign-in isn't available on this device right now (no Google account on the
-         phone, or Play services is out of date).</p>`
-      : `<p class="sheet-text">Google sign-in isn't set up in this build of the app yet. You can still use
-         your usual DSMNRU account right now:</p>`}
+         It isn't available right now (no Google account on the phone, or Play services needs updating).</p>`
+      : `<p class="sheet-text">Google sign-in isn't set up in this build of the app yet. Your DSMNRU email
+         &amp; password works right now:</p>`}
     <div class="sheet-list" style="margin-top:14px">
       <button class="sheet-item" data-act="email" type="button">${ui.icon('mail')}<span>Sign in with email &amp; password<small>Works fully in-app for any account created on the website or here</small></span></button>
       ${configured ? `<button class="sheet-item" data-act="retry" type="button">${ui.icon('google')}<span>Try Google again<small>Opens the device Google account chooser</small></span></button>` : ''}

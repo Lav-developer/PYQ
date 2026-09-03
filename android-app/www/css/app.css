@@ -110,8 +110,7 @@ input, textarea { user-select: text; }
   height: 30px;
   border-radius: 9px;
   display: inline-block;
-  background: #0f1b34 url('../img/emblem.png') center / contain no-repeat;
-  border: 1px solid rgba(110, 231, 216, 0.25);
+  background: #0f1b34 url('../img/logo.png') center / contain no-repeat;
   flex: 0 0 auto;
 }
 .appbar-title small {
@@ -216,9 +215,8 @@ input, textarea { user-select: text; }
 }
 .hero-top { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
 .hero-emblem {
-  width: 46px; height: 46px; border-radius: 14px; flex: 0 0 auto;
-  background: rgba(9, 14, 30, 0.55) url('../img/emblem.png') center / contain no-repeat;
-  border: 1px solid rgba(110, 231, 216, 0.28);
+  width: 56px; height: 56px; border-radius: 16px; flex: 0 0 auto;
+  background: rgba(9, 14, 30, 0.55) url('../img/logo.png') center / contain no-repeat;
 }
 .hero-kicker { font-size: 0.72rem; font-weight: 700; color: var(--muted); }
 .hero-title { font-size: 1.32rem; font-weight: 800; letter-spacing: -0.015em; }
@@ -696,9 +694,8 @@ input, textarea { user-select: text; }
 .drawer-root.is-open .drawer { transform: none; }
 .drawer-head { display: flex; align-items: center; gap: 11px; padding: 8px 16px 14px; border-bottom: 1px solid var(--line); }
 .drawer-logo {
-  width: 40px; height: 40px; border-radius: 12px; flex: 0 0 auto;
-  background: #0f1b34 url('../img/emblem.png') center / contain no-repeat;
-  border: 1px solid rgba(110, 231, 216, 0.25);
+  width: 42px; height: 42px; border-radius: 12px; flex: 0 0 auto;
+  background: #0f1b34 url('../img/logo.png') center / contain no-repeat;
 }
 .drawer-title { font-weight: 800; letter-spacing: -0.01em; }
 .drawer-sub { font-size: 0.7rem; color: var(--muted); font-weight: 600; }
@@ -968,3 +965,48 @@ form .field { margin-bottom: 16px; }
 .pf-txn:last-child { border-bottom: 0; }
 .pf-txn-amt { color: var(--teal); font-weight: 800; font-size: 0.86rem; }
 .pf-txn-date { color: var(--faint); font-size: 0.7rem; }
+
+
+/* ══════════════════════════════════════════════════════════════════════
+   v1.3.3 — home search entry, discussion, paper density
+   ══════════════════════════════════════════════════════════════════════ */
+
+/* Home: compact search entry (opens the dedicated Search tab). */
+.search-entry {
+  display: flex; align-items: center; gap: 9px;
+  margin-top: 14px; padding: 11px 14px;
+  border-radius: 14px;
+  background: rgba(8, 13, 26, 0.55);
+  border: 1px solid var(--line);
+  color: var(--faint);
+  cursor: text;
+}
+.search-entry .ic { width: 17px; height: 17px; flex: 0 0 auto; }
+.search-entry input {
+  flex: 1; min-width: 0;
+  background: none; border: 0; outline: none;
+  color: var(--text); font: inherit; font-size: 0.9rem;
+}
+.search-entry input::placeholder { color: var(--faint); }
+
+/* Discussion (in-app comments). */
+.disc-compose-row { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.disc-compose-row .field-hint { flex: 1 1 auto; }
+#disc-list { display: flex; flex-direction: column; gap: 14px; }
+.disc-item { display: flex; gap: 10px; }
+.disc-avatar {
+  width: 30px; height: 30px; border-radius: 10px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(20, 184, 166, 0.12); color: var(--teal);
+  font-size: 0.7rem; font-weight: 800;
+}
+.disc-head { display: flex; align-items: baseline; gap: 8px; font-size: 0.82rem; }
+.disc-date { color: var(--faint); font-size: 0.68rem; }
+.disc-text { margin: 2px 0 0; color: var(--muted); font-size: 0.82rem; line-height: 1.5; overflow-wrap: anywhere; }
+
+/* Paper detail: lighter chrome, clearer hierarchy. */
+.paper-hero { padding: 2px; }
+.paper-hero h1 { font-size: 1.18rem; }
+.meta-grid { gap: 8px; }
+.meta-cell { padding: 8px 10px; border-radius: 10px; }
+.action-grid { gap: 8px; }

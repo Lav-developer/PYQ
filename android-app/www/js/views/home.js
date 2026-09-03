@@ -13,19 +13,17 @@ export default async function renderHome(root, ctx) {
 
   ctx.setHeader({ title: 'DSMNRU PYQ', brand: true });
 
+  // ONE branding surface per screen: the app bar already carries the logo,
+  // so the hero is greeting → search → stats only (no duplicate logo/text).
   root.innerHTML = `
     <div class="stack">
       <section class="hero">
-        <div class="hero-top">
-          <div class="hero-emblem" aria-hidden="true"></div>
-          <div class="grow">
-            <div class="hero-kicker" id="home-greet">Bharatpur University archive</div>
-            <div class="hero-title">Find any <em>PYQ</em> in seconds</div>
-          </div>
-        </div>
-        <button class="search-launch" id="home-search" type="button">
-          ${ui.icon('search')}<span>Search papers, subjects, sessions…</span>
-        </button>
+        <div class="hero-kicker" id="home-greet">Bharatpur University archive</div>
+        <div class="hero-title">Find any <em>PYQ</em> in seconds</div>
+        <form id="home-search-form" class="search-entry" role="search">
+          ${ui.icon('search')}
+          <input id="home-search" type="search" placeholder="Search papers…" autocomplete="off" enterkeyhint="search" aria-label="Search papers">
+        </form>
         <div class="stat-pills" id="home-stats"></div>
       </section>
 
@@ -40,7 +38,18 @@ export default async function renderHome(root, ctx) {
       <section id="home-shortcuts"></section>
     </div>`;
 
-  root.querySelector('#home-search').addEventListener('click', () => ctx.router.tab('search'));
+  // Compact entry point, not a second search screen: focusing or submitting
+  // opens the dedicated Search tab, carrying over whatever was typed.
+  const searchInput = root.querySelector('#home-search');
+  const openSearch = () => {
+    const q = searchInput.value.trim();
+    ctx.router.tab('search', q ? { q } : {});
+  };
+  searchInput.addEventListener('focus', openSearch);
+  root.querySelector('#home-search-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    openSearch();
+  });
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
