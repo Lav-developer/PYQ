@@ -220,10 +220,29 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     document.querySelector('.sheet-root [data-dismiss]').click();
     await waitFor(() => !document.querySelector('.sheet-root'));
 
+    // ── Google SIGN-UP: Create Account offers the SAME native chooser ───────
+    const signupEntry = view().querySelector('[data-act="signup"]');
+    assert.ok(signupEntry, 'signed-out profile offers Create account');
+    signupEntry.click();
+    assert.ok(await waitFor(() => {
+      const f = document.querySelector('.sheet-root form[data-form="signup"]');
+      return f && !f.classList.contains('hidden');
+    }), 'Create account form shown');
+    const signupGoogle = document.querySelector('.sheet-root form[data-form="signup"] [data-act="google"]');
+    assert.ok(signupGoogle, 'Create Account page carries Continue with Google');
+    signupGoogle.click();
+    assert.ok(await waitFor(() => {
+      const sheet = document.querySelector('.sheet-root');
+      return sheet && /Google sign-in/.test(text(sheet));
+    }), 'signup Google uses the SAME native flow (explainer when unavailable)');
+    assert.ok(!/Open website/.test(text(document.querySelector('.sheet-root'))), 'Google sign-up never leaves the app');
+    document.querySelector('.sheet-root [data-dismiss]').click();
+    await waitFor(() => !document.querySelector('.sheet-root'));
+
     // ── Google sign-in: device chooser → Firebase → Google session ──────────
     googleResult = { idToken: 'GOOGLE_ID_TOKEN' };
     view().querySelector('[data-act="google"]').click();
-    assert.ok(await waitFor(() => idpBodies.length === 1), 'Identity Toolkit signInWithIdp called');
+    assert.ok(await waitFor(() => idpBodies.length === 1), 'Identity Toolkit signInWithIdp called (one shared flow)');
     const seenNonce = bridgeCalls.filter((c) => c.kind === 'googleSignIn').at(-1).nonce;
     assert.ok(seenNonce && seenNonce.length >= 16, 'JS generated a nonce for the chooser');
     assert.match(idpBodies[0].postBody, new RegExp(`nonce=${seenNonce}`), 'the same nonce is replayed to Firebase');
@@ -237,9 +256,11 @@ for (const key of ['window', 'document', 'navigator', 'location', 'localStorage'
     }), 'profile shows the same Firebase identity flagged as a Google account');
     assert.ok(calls.some((c) => c.url.includes('/documents/users/g-uid-1')), 'Google sign-in synced users/g-uid-1');
     assert.ok(calls.some((c) => c.url.includes('/documents/users/pw-uid-1')), 'password sign-in synced users/pw-uid-1');
-    // One owner-scoped profile sync per manual sign-in (the lazy reward reads
-    // on the Profile screen are separate, user-initiated reads).
+    // One owner-scoped profile sync per manual sign-in, plus the Profile
+    // screen's own user-initiated reads (lazy, session-cached: one
+    // users/{uid} profile GET per signed-in session — never at startup,
+    // never for signed-out users).
     const profileSyncs = calls.filter((c) => c.url.includes('/documents/users/')).length;
-    assert.ok(profileSyncs <= 2, 'exactly one owner-scoped profile sync per manual sign-in, nothing else');
+    assert.ok(profileSyncs <= 4, 'bounded owner-scoped calls: one sync per sign-in + one cached profile read per session');
   });
 }

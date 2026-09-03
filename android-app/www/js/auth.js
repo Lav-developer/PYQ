@@ -50,7 +50,7 @@ const FRIENDLY_ERRORS = {
   'WEAK_PASSWORD': 'Please choose a password with at least 6 characters.',
   'OPERATION_NOT_ALLOWED': 'Email sign-in is currently disabled for this project.',
   'TOO_MANY_ATTEMPTS_TRY_LATER': 'Too many attempts. Please wait a minute and try again.',
-  'NETWORK_REQUEST_FAILED': 'Firebase is unreachable right now. Check your connection.',
+  'NETWORK_REQUEST_FAILED': 'Please check your internet connection and try again.',
   'TOKEN_EXPIRED': 'Your session expired — please sign in again.',
   'USER_NOT_FOUND': 'Your Firebase session is no longer valid — please sign in again.',
   'INVALID_REFRESH_TOKEN': 'Your saved session is no longer valid — please sign in again.',
@@ -95,6 +95,9 @@ export function createAuth(options = {}) {
   // Session-scoped reward summary cache (see fetchRewardSummary): one pair
   // of reads per short window instead of one pair per Profile visit.
   let rewardCache = null;  // { uid, email, at, summary }
+  // Session-scoped profile cache (see fetchUserProfile): one users/{uid} read
+  // per short window; invalidated by saveProfileEdits and signOut.
+  let profileCache = null; // { uid, at, data }
 
   function emit() {
     for (const fn of listeners) {
@@ -355,6 +358,7 @@ export function createAuth(options = {}) {
 
     signOut() {
       rewardCache = null;
+      profileCache = null;
       setUser(null);
     },
 
@@ -388,6 +392,146 @@ export function createAuth(options = {}) {
       const refreshed = await auth.reloadProfile();
       setUser({ ...(refreshed || user), name: displayName });
       return user;
+    },
+
+    /**
+     * Read the SAME users/{uid} profile document the website edits
+     * (fields: name, signupName, email, signupEmail, course, signupCourse,
+     * phone, uid, createdAt). One owner-scoped read, cached per session —
+     * Profile revisits cost zero reads. NEVER called at startup or for
+     * signed-out users.
+     */
+    async fetchUserProfile() {
+      if (!user || !user.uid) return null;
+      const nowMs = now();
+      if (profileCache && profileCache.uid === user.uid && nowMs - profileCache.at < 5 * 60 * 1000) {
+        return profileCache.data; // short-window cache — like fetchRewardSummary
+      }
+      let data = null;
+      try {
+        const res = await fetchImpl(`${FS}/users/${encodeURIComponent(user.uid)}?key=${FIREBASE_WEB_API_KEY}`, {
+          headers: { Authorization: 'Bearer ' + user.idToken },
+        });
+        if (res.ok) {
+          const body = await res.json().catch(() => null);
+          const f = (body && body.fields) || {};
+          const s = (k) => (f[k] && f[k].stringValue) || '';
+          data = {
+            name: s('name') || s('signupName') || user.name || '',
+            email: s('email') || s('signupEmail') || user.email || '',
+            course: s('course') || s('signupCourse') || '',
+            phone: s('phone') || '',
+          }; // email is identity data — shown read-only, never edited here
+        } else if (res.status !== 404 && res.status !== 403) {
+          throw new Error('profile lookup failed');
+        }
+      } catch (err) {
+        if (String(err && err.message) === 'profile lookup failed') throw err;
+        throw new Error('profile unavailable'); // network — caller humanizes
+      }
+      profileCache = { uid: user.uid, at: nowMs, data };
+      return data;
+    },
+
+    /**
+     * Save profile edits to the SAME users/{uid} document the website uses —
+     * an owner-scoped PATCH limited to exactly the website's editable fields
+     * (name, course, phone) so no other field can be touched. The Firebase
+     * Auth display name is updated too, mirroring the website's
+     * updateProfile({ displayName }) behavior.
+     */
+    async saveProfileEdits({ name, course, phone } = {}) {
+      if (!user || !user.uid) throw new Error('Sign in first to update your profile.');
+      const nextName = String(name || '').trim();
+      const nextCourse = String(course || '').trim();
+      const nextPhone = String(phone || '').trim();
+      if (nextName.length < 2 || nextName.length > 80) {
+        throw new Error('Name must be between 2 and 80 characters.');
+      }
+      if (nextPhone && !/^[0-9+\-\s()]{6,15}$/.test(nextPhone)) {
+        throw new Error('That phone number does not look valid.');
+      }
+      if (nextCourse && nextCourse.length > 80) {
+        throw new Error('Course must be 80 characters or fewer.');
+      }
+      try {
+        if (nextName !== (user.name || '')) {
+          await identity('update', { idToken: user.idToken, displayName: nextName });
+        }
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+      try {
+        const mask = ['name', 'course', 'phone']
+          .map((f) => `updateMask.fieldPaths=${f}`).join('&');
+        await fetchImpl(`${FS}/users/${encodeURIComponent(user.uid)}?${mask}&key=${FIREBASE_WEB_API_KEY}`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: 'Bearer ' + user.idToken,
+          },
+          body: JSON.stringify({ fields: {
+            name: { stringValue: nextName },
+            course: { stringValue: nextCourse },
+            phone: { stringValue: nextPhone },
+          } }),
+        });
+      } catch (err) {
+        console.warn('profile save failed:', err); // dev log only
+        throw new Error('Unable to save your profile. Please try again.');
+      }
+      profileCache = null; // next Profile visit re-reads the saved document
+      const refreshed = await auth.reloadProfile();
+      setUser({ ...(refreshed || user), name: nextName });
+      return user;
+    },
+
+    /**
+     * Change password for email/password accounts — Firebase Auth only,
+     * passwords never stored or logged. Recent-authentication is handled the
+     * way Firebase requires: the current password is verified with a fresh
+     * signInWithPassword call (that IS the re-authentication), and its fresh
+     * token performs the accounts:update. Google-only accounts have no
+     * password credential — callers show an explainer instead of this method.
+     */
+    async changePassword({ currentPassword, newPassword } = {}) {
+      if (!user || !user.email) throw new Error('Sign in first to change your password.');
+      if (user.providerId === 'google.com') {
+        throw new Error('This account uses Google sign-in and has no separate password.');
+      }
+      const current = String(currentPassword || '');
+      const next = String(newPassword || '');
+      if (!current) throw new Error('Please enter your current password.');
+      if (!next) throw new Error('Please choose a new password.');
+      if (next.length < 6) throw new Error('Please choose a password with at least 6 characters.');
+      if (next === current) throw new Error('The new password must be different from the current one.');
+      let fresh;
+      try {
+        fresh = await identity('signInWithPassword', {
+          email: user.email,
+          password: current,
+          returnSecureToken: true,
+        });
+      } catch (err) {
+        throw new Error(friendly(err)); // wrong current password, network, …
+      }
+      try {
+        const data = await identity('update', {
+          idToken: fresh.idToken,
+          password: next,
+          returnSecureToken: true,
+        });
+        // Keep the session fresh with the rotated tokens — the user stays
+        // signed in (Firebase does not force a sign-out here).
+        if (data && data.idToken) {
+          const v = viewFromTokens(data.idToken, data.refreshToken || user.refreshToken, now());
+          setUser(v);
+          storeSession(v);
+        }
+        return true;
+      } catch (err) {
+        throw new Error(friendly(err) || 'Unable to change your password. Please try again.');
+      }
     },
 
     /**

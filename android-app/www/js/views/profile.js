@@ -11,7 +11,7 @@
  * rendered — everything user-facing is human text.
  */
 
-const APP_VERSION = '1.3.3';
+const APP_VERSION = '1.3.4';
 
 function esc(s) { return String(s == null ? '' : s); }
 
@@ -59,10 +59,7 @@ export default async function renderProfile(root, ctx) {
           ${user.degraded ? '<div class="profile-mail" style="color:var(--gold)">Session refresh pending — it renews when you are back online</div>' : ''}
         </div>
       </div>
-      <div class="sheet-list" style="margin-top:10px">
-        <button class="sheet-item" data-act="editname" type="button">${ui.icon('user')}<span>Edit name<small>Shown with your contributions</small></span><span class="tail">${ui.icon('chevron')}</span></button>
-      </div>
-      <p class="form-note" style="margin-top:12px">Version ${APP_VERSION}</p>`;
+      <p class="form-note" style="margin-top:10px">Account email • cannot be edited here</p>`;
   } else {
     idCard.innerHTML = `
       <div class="profile-card">
@@ -111,10 +108,21 @@ export default async function renderProfile(root, ctx) {
     const rewardsCard = document.createElement('section');
     rewardsCard.className = 'card card-pad';
     rewardsCard.innerHTML = `
-      <div class="section-head">${ui.icon('star')}<h2>Your contributions</h2></div>
+      <div class="section-head">${ui.icon('star')}<h2>Contribution</h2></div>
       <div id="pf-rewards">${ui.skeletonRows(2)}</div>`;
     stack.appendChild(rewardsCard);
     paintRewards(rewardsCard.querySelector('#pf-rewards'), ctx, { email: user.email });
+  }
+
+  // ── personal information (lazy users/{uid} read — same doc as website) ──
+  if (user) {
+    const infoCard = document.createElement('section');
+    infoCard.className = 'card card-pad';
+    infoCard.innerHTML = `
+      <div class="section-head">${ui.icon('user')}<h2>Personal information</h2></div>
+      <div id="pf-info">${ui.skeletonRows(2)}</div>`;
+    stack.appendChild(infoCard);
+    paintPersonalInfo(infoCard.querySelector('#pf-info'), ctx, () => renderProfile(root, ctx));
   }
 
   // ── device data ──────────────────────────────────────────────────────
@@ -157,6 +165,8 @@ export default async function renderProfile(root, ctx) {
   more.className = 'card card-pad';
   const items = [];
   if (user) {
+    items.push({ act: 'editprofile', icon: 'user', label: 'Edit Profile', sub: 'Name, course and phone — the same profile as the website' });
+    items.push({ act: 'changepw', icon: 'lock', label: 'Change Password', sub: 'Account security — requires your current password' });
     items.push({ act: 'signout', icon: 'logout', label: 'Sign out', sub: 'Keeps your saved papers on this device' });
   } else {
     items.push({ act: 'google', icon: 'google', label: 'Sign in with Google', sub: 'Your Google account, right on this device' });
@@ -183,6 +193,12 @@ export default async function renderProfile(root, ctx) {
         import('../authui.js').then(({ startGoogleSignIn }) => startGoogleSignIn({}));
         break;
       }
+      case 'editprofile':
+        openEditProfileSheet(ctx, () => renderProfile(root, ctx));
+        break;
+      case 'changepw':
+        openChangePasswordSheet(ctx);
+        break;
       case 'admin':
         native.openExternal('https://dsmnru-pyq.netlify.app/admin.html');
         break;
@@ -215,56 +231,169 @@ export default async function renderProfile(root, ctx) {
         reason: b.dataset.act === 'signup' ? 'Create your DSMNRU account — it works right here in the app.' : '',
       }));
     });
-  } else {
-    idCard.addEventListener('click', (e) => {
-      const b = e.target.closest('[data-act="editname"]');
-      if (!b) return;
-      openEditNameSheet(ctx, () => renderProfile(root, ctx));
-    });
   }
 
   ctx.setRefresh(() => renderProfile(root, ctx, {}));
 }
 
-// ── edit display name ──────────────────────────────────────────────────
+// ── edit profile (name / course / phone — the website's editable fields) ──
 
-function openEditNameSheet(ctx, onSaved) {
+async function openEditProfileSheet(ctx, onSaved) {
   const { ui, auth } = ctx;
   const user = auth.current();
   if (!user) return;
   const node = document.createElement('div');
   node.innerHTML = `
     <div data-err class="form-error" hidden role="alert"></div>
+    <p class="sheet-text" style="margin-bottom:12px">Loading your current profile…</p>`;
+  const s = ui.sheet({ title: 'Edit Profile', content: node });
+
+  // Load current Firestore values first (cached — one read per short window).
+  let profile = { name: user.name || '', course: '', phone: '' };
+  try {
+    profile = (await auth.fetchUserProfile()) || profile;
+  } catch { /* fall back to session identity values */ }
+  if (!s.el.isConnected || !node.isConnected) return; // sheet already dismissed
+
+  node.innerHTML = `
+    <div data-err class="form-error" hidden role="alert"></div>
     <div class="field">
-      <label for="pf-name">Display name</label>
-      <input class="input" id="pf-name" type="text" maxlength="80" value="${ui.esc(user.name || '')}" enterkeyhint="done">
-      <p class="field-hint">2–80 characters. The same profile is shown on the website.</p>
+      <label for="pf-name">Name</label>
+      <input class="input" id="pf-name" type="text" maxlength="80" value="${ui.esc(profile.name || '')}" enterkeyhint="next">
+      <p class="field-hint">2–80 characters. Shown with your contributions.</p>
+    </div>
+    <div class="field">
+      <label for="pf-course">Course</label>
+      <input class="input" id="pf-course" type="text" maxlength="80" value="${ui.esc(profile.course || '')}" placeholder="e.g. B.Tech" enterkeyhint="next">
+    </div>
+    <div class="field">
+      <label for="pf-phone">Phone</label>
+      <input class="input" id="pf-phone" type="tel" maxlength="15" value="${ui.esc(profile.phone || '')}" placeholder="10-digit mobile number" enterkeyhint="done">
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input class="input" type="text" value="${ui.esc(profile.email || user.email || '')}" readonly disabled>
+      <p class="field-hint">Account email • cannot be edited here</p>
     </div>
     <div class="sheet-actions">
       <button class="btn btn--ghost" data-dismiss="1" type="button">Cancel</button>
-      <button class="btn btn--primary" id="pf-save" type="button">Save</button>
+      <button class="btn btn--primary" id="pf-save" type="button">Save Changes</button>
     </div>`;
-  const s = ui.sheet({ title: 'Edit name', content: node });
   const saveBtn = node.querySelector('#pf-save');
   const errEl = node.querySelector('[data-err]');
-  const input = node.querySelector('#pf-name');
   saveBtn.addEventListener('click', async () => {
-    if (saveBtn.disabled) return;
+    if (saveBtn.disabled) return; // no duplicate submissions
     saveBtn.disabled = true;
-    saveBtn.textContent = 'Saving…';
+    saveBtn.textContent = 'Saving changes…';
     errEl.hidden = true;
     try {
-      await auth.updateDisplayName(input.value);
+      await auth.saveProfileEdits({
+        name: node.querySelector('#pf-name').value,
+        course: node.querySelector('#pf-course').value,
+        phone: node.querySelector('#pf-phone').value,
+      });
       s.close();
-      ui.toast('Profile updated');
-      if (onSaved) onSaved();
+      ui.toast('Profile updated successfully.');
+      if (onSaved) onSaved(); // local UI updates immediately — no restart
     } catch (err) {
-      errEl.textContent = String(err && err.message || err);
+      errEl.textContent = String(err && err.message || 'Unable to save your profile. Please try again.');
       errEl.hidden = false;
       saveBtn.disabled = false;
-      saveBtn.textContent = 'Save';
+      saveBtn.textContent = 'Save Changes';
     }
   });
+}
+
+// ── change password (email/password accounts only — Firebase Auth) ─────
+
+function openChangePasswordSheet(ctx) {
+  const { ui, auth } = ctx;
+  const user = auth.current();
+  if (!user) return;
+  const node = document.createElement('div');
+  if (user.providerId === 'google.com') {
+    // No fake "current password" for Google-only accounts: this identity has
+    // no password credential — point to the real account-security option.
+    node.innerHTML = `
+      <p class="sheet-text">You sign in with <b>Google</b>, so this account doesn't have a
+      separate DSMNRU password to change.</p>
+      <p class="sheet-text">To manage your account security, use your Google Account settings —
+      or set a password for your email on the website's account page if you also want
+      email &amp; password sign-in.</p>`;
+    ui.sheet({ title: 'Change Password', content: node });
+    return;
+  }
+  node.innerHTML = `
+    <div data-err class="form-error" hidden role="alert"></div>
+    <div class="field">
+      <label for="pf-pw-cur">Current password</label>
+      <input class="input" id="pf-pw-cur" type="password" autocomplete="current-password" enterkeyhint="next">
+    </div>
+    <div class="field">
+      <label for="pf-pw-new">New password</label>
+      <input class="input" id="pf-pw-new" type="password" autocomplete="new-password" placeholder="6+ characters" enterkeyhint="next">
+    </div>
+    <div class="field">
+      <label for="pf-pw-conf">Confirm new password</label>
+      <input class="input" id="pf-pw-conf" type="password" autocomplete="new-password" enterkeyhint="done">
+    </div>
+    <div class="sheet-actions">
+      <button class="btn btn--ghost" data-dismiss="1" type="button">Cancel</button>
+      <button class="btn btn--primary" id="pf-pw-save" type="button">Change Password</button>
+    </div>`;
+  const s = ui.sheet({ title: 'Change Password', content: node });
+  const saveBtn = node.querySelector('#pf-pw-save');
+  const errEl = node.querySelector('[data-err]');
+  saveBtn.addEventListener('click', async () => {
+    if (saveBtn.disabled) return; // no duplicate submissions
+    const cur = node.querySelector('#pf-pw-cur').value;
+    const next = node.querySelector('#pf-pw-new').value;
+    const conf = node.querySelector('#pf-pw-conf').value;
+    errEl.hidden = true;
+    if (!cur) { errEl.textContent = 'Please enter your current password.'; errEl.hidden = false; return; }
+    if (!next) { errEl.textContent = 'Please choose a new password.'; errEl.hidden = false; return; }
+    if (next !== conf) { errEl.textContent = 'The new passwords do not match.'; errEl.hidden = false; return; }
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Updating password…';
+    try {
+      await auth.changePassword({ currentPassword: cur, newPassword: next });
+      s.close();
+      ui.toast('Password changed successfully.');
+    } catch (err) {
+      errEl.textContent = String(err && err.message || 'Unable to change your password. Please try again.');
+      errEl.hidden = false;
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Change Password';
+    }
+  });
+}
+
+// ── personal information rows (same users/{uid} fields as the website) ──
+
+async function paintPersonalInfo(host, ctx, onEdited) {
+  const { ui, auth } = ctx;
+  const user = auth.current();
+  if (!user) return;
+  let profile = null;
+  try {
+    profile = await auth.fetchUserProfile();
+  } catch (err) {
+    if (!host.isConnected) return;
+    console.warn('profile load failed:', err); // dev log only — never rendered
+  }
+  if (!host.isConnected) return; // navigated away meanwhile
+  const row = (label, value) => `
+    <div class="pf-info-row"><span>${ui.esc(label)}</span><b>${value}</b></div>`;
+  const course = profile && profile.course ? ui.esc(profile.course) : '<span class="pf-unset">Not set</span>';
+  const phone = profile && profile.phone ? ui.esc(profile.phone) : '<span class="pf-unset">Not set</span>';
+  const email = (profile && profile.email) || user.email || '';
+  host.innerHTML = `
+    ${row('Email', `${ui.esc(email)}<span class="pf-unset"> • cannot be edited here</span>`)}
+    ${row('Course', course)}
+    ${row('Phone', phone)}
+    <div class="sheet-actions"><button class="btn btn--ghost btn--sm" id="pf-edit" type="button">Edit Profile</button></div>`;
+  const edit = host.querySelector('#pf-edit');
+  if (edit) edit.addEventListener('click', () => openEditProfileSheet(ctx, onEdited));
 }
 
 // ── rewards / contributions ────────────────────────────────────────────
@@ -282,7 +411,7 @@ async function paintRewards(host, ctx, { email }) {
     const head = `
       <div style="display:flex;gap:22px;align-items:baseline;margin:10px 0 2px">
         <div><div class="hero-title" style="font-size:1.5rem">${summary.points}</div><div class="h-sub">reward points</div></div>
-        <div><div class="hero-title" style="font-size:1.5rem">${contributions}</div><div class="h-sub">rewards credited</div></div>
+        <div><div class="hero-title" style="font-size:1.5rem">${contributions}</div><div class="h-sub">approved uploads</div></div>
       </div>`;
     if (!summary.points && !contributions) {
       host.innerHTML = `${head}<p class="h-sub">No contributions yet — every approved upload earns 10 points.</p>

@@ -455,24 +455,56 @@ if (JSDOM) {
     await waitFor(() => view().querySelector('.profile-card'));
     assert.match(text(view().querySelector('.profile-card')), /Test Student/, 'profile shows display name');
     assert.match(text(view().querySelector('.profile-card')), /stud@dsmnru\.in/, 'profile shows email');
-    assert.match(text(view()), /Version 1\.3\.3/, 'app version visible on Profile');
+    assert.match(text(view()), /Version 1\.3\.4/, 'app version visible on Profile');
     assert.ok(await waitFor(() => view().querySelector('#pf-rewards .hero-title')), 'rewards section loads lazily');
     assert.equal(view().querySelectorAll('#pf-rewards .hero-title')[0].textContent, '40',
       'points balance from the SAME reward account the website reads');
     assert.match(text(view()), /PYQ contribution/, 'rewarded contributions listed');
+    assert.match(text(view()), /approved uploads/, 'approved-upload count from the SAME reward ledger');
     assert.ok(calls.some((c) => c.url.includes('/reward_accounts/')), 'reward account read lazily (auth only)');
     assert.ok(calls.some((c) => c.url.includes(':runQuery')), 'reward history read once');
     const rewardReads = calls.filter((c) => c.url.includes('/reward_accounts/') || c.url.includes(':runQuery')).length;
-    view().querySelector('[data-act="editname"]').click();
-    await waitFor(() => document.querySelector('.sheet-root #pf-name'));
+
+    // Personal information — same users/{uid} fields the website edits;
+    // email is displayed READ-ONLY.
+    assert.ok(await waitFor(() => view().querySelector('#pf-info .pf-info-row')), 'personal info loaded lazily');
+    assert.match(text(view().querySelector('#pf-info')), /cannot be edited here/, 'email is read-only in Profile');
+    assert.ok(!view().querySelector('#pf-info input'), 'personal info renders as display rows, not an inline form');
+
+    // Edit Profile sheet — website-editable fields only (name/course/phone).
+    view().querySelector('[data-act="editprofile"]').click();
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root #pf-name')), 'edit sheet loads current Firestore values');
+    assert.ok(document.querySelector('.sheet-root #pf-course'), 'course field (existing schema field)');
+    assert.ok(document.querySelector('.sheet-root #pf-phone'), 'phone field (existing schema field)');
+    assert.ok(document.querySelector('.sheet-root input[disabled][readonly]'), 'email shown but NOT editable');
     document.querySelector('.sheet-root #pf-name').value = 'Aarav Test';
     document.querySelector('.sheet-root #pf-save').click();
-    assert.ok(await waitFor(() => text(view()).includes('Aarav Test')), 'name updated in UI after save');
-    assert.ok(await waitFor(() => text(document.body).includes('Profile updated')), 'success feedback shown');
-    assert.ok(calls.some((c) => c.url.includes('updateMask=name')), 'users/{uid}.name patched — SAME website profile row');
+    assert.ok(await waitFor(() => text(document.body).includes('Saving changes')), 'busy state shown while saving');
+    assert.ok(await waitFor(() => text(view()).includes('Aarav Test')), 'name updated in UI after save — no restart');
+    assert.ok(await waitFor(() => text(document.body).includes('Profile updated successfully')), 'exact success feedback');
+    assert.ok(calls.some((c) => c.url.includes('updateMask.fieldPaths=name')), 'users/{uid} patched — SAME website profile row');
+    assert.ok(calls.some((c) => c.url.includes('updateMask.fieldPaths=course')), 'course saved to the same document');
     assert.ok(calls.some((c) => c.url.includes('accounts:update')), 'Auth display name updated too');
     assert.ok(calls.filter((c) => c.url.includes('/reward_accounts/') || c.url.includes(':runQuery')).length === rewardReads,
       'rewards not re-fetched during unrelated actions');
+
+    // Change Password — mismatch blocked locally; success calls Firebase.
+    view().querySelector('[data-act="changepw"]').click();
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root #pf-pw-cur')), 'change-password sheet opens');
+    document.querySelector('.sheet-root #pf-pw-cur').value = 'hunter22';
+    document.querySelector('.sheet-root #pf-pw-new').value = 'hunter23';
+    document.querySelector('.sheet-root #pf-pw-conf').value = 'hunter24';
+    document.querySelector('.sheet-root #pf-pw-save').click();
+    assert.ok(await waitFor(() => !document.querySelector('.sheet-root [data-err]').hidden
+      && /do not match/.test(text(document.querySelector('.sheet-root [data-err]')))), 'mismatch blocked with a readable error');
+    document.querySelector('.sheet-root #pf-pw-conf').value = 'hunter23';
+    document.querySelector('.sheet-root #pf-pw-save').click();
+    assert.ok(await waitFor(() => text(document.body).includes('Password changed successfully')), 'exact success feedback');
+    assert.ok(calls.filter((c) => c.url.includes('signInWithPassword')).length >= 2,
+      'current password re-verified (fresh auth) before the update');
+    assert.ok(calls.some((c) => c.url.includes('accounts:update')), 'Firebase password update called');
+    const pwLogs = calls.filter((c) => c.url.includes('accounts:update')).length;
+    assert.ok(pwLogs >= 1, 'password update performed exactly through Firebase Auth');
 
     // ── Back-arrow state: Home NEVER shows one; pushed screens do ───────
     document.querySelector('.tab[data-tab="home"]').click();

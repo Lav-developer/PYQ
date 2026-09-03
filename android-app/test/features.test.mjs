@@ -443,6 +443,10 @@ test('branding: the repository logo drives every brand surface; Home has ONE bra
   const css = readFileSync(join(here, '../www/css/app.css'), 'utf8');
   assert.ok(!css.includes('emblem.png'), 'old generated emblem is fully retired from CSS');
   assert.ok(css.includes("url('../img/logo.png')"), 'app bar / hero / drawer brand surfaces use logo.png');
+  assert.ok(!readdirSync(join(here, '../www/img')).includes('emblem.png'),
+    'stale emblem asset removed from the bundle so old branding cannot resurface');
+  const indexHtml = readFileSync(join(here, '../www/index.html'), 'utf8');
+  assert.match(indexHtml, /rel="icon" href="img\/logo\.png"/, 'favicon is the repository logo');
 
   const home = readFileSync(join(here, '../www/js/views/home.js'), 'utf8');
   assert.ok(!home.includes('hero-emblem'), 'Home renders NO duplicate brand block (app bar is the one brand area)');
@@ -459,6 +463,22 @@ test('branding: the repository logo drives every brand surface; Home has ONE bra
   }
   assert.ok(readdirSync(join(here, '../android/app/src/main/res/drawable')).includes('splash_icon.png'),
     'splash icon exists');
+  // Splash = repository logo ONLY on the brand navy — no text layer, no old
+  // red/black surface anywhere in the launch chain.
+  const styles = readFileSync(join(here, '../android/app/src/main/res/values/styles.xml'), 'utf8');
+  assert.match(styles, /windowSplashScreenAnimatedIcon">@drawable\/splash_icon</, 'Android 12+ splash uses the logo icon');
+  assert.match(styles, /android:background">@drawable\/splash</, 'legacy splash layer uses the brand layer-list');
+  assert.ok(!readdirSync(join(here, '../android/app/src/main/res/drawable')).some((f) => /splash.*\.(png|jpg|webp)$/i.test(f) && f !== 'splash_icon.png'),
+    'no stale splash bitmaps');
+  const splashLayer = readFileSync(join(here, '../android/app/src/main/res/drawable/splash.xml'), 'utf8');
+  assert.match(splashLayer, /@color\/splash_background/, 'splash background is the brand color');
+  assert.match(splashLayer, /@drawable\/splash_icon/, 'legacy splash centres the logo icon');
+  const colors = readFileSync(join(here, '../android/app/src/main/res/values/colors.xml'), 'utf8');
+  assert.match(colors, /splash_background">#0B245B/, 'splash background = sampled logo navy (no red/black)');
+  const cap = JSON.parse(readFileSync(join(here, '../capacitor.config.json'), 'utf8'));
+  assert.equal(cap.plugins.SplashScreen.androidSplashResourceName, 'splash', 'plugin splash resource wiring');
+  assert.equal(String(cap.plugins.SplashScreen.backgroundColor).toUpperCase(), '#0F172A',
+    'plugin splash background is the brand slate, not the old red/black');
 });
 
 test('discussion: paper comments are IN-APP (same Firestore schema), never a website redirect', () => {
@@ -576,19 +596,73 @@ test('v1.3.1 polish: [hidden] wins over component CSS; signup errors are per-for
   const signupForm = authui.match(/<form data-form="signup"[\s\S]*?<\/form>/);
   assert.ok(signupForm, 'signup form present');
   assert.match(signupForm[0], /data-err/, 'signup form owns its error target (no silent failures)');
-  assert.match(authui, /Creating account…/, 'signup busy state present');
+  assert.match(authui, /Creating your account…/, 'signup busy state present');
+  assert.match(authui, /Account created successfully\./, 'signup success state present');
   assert.ok(!authui.includes('Create account on website'), 'no website account-creation hand-off');
   assert.ok(!authui.includes('GOOGLE_SIGNIN_SETUP.md'), 'no technical paths in user-facing Google fallback');
 
   const profile = readFileSync(join(here, '../www/js/views/profile.js'), 'utf8');
-  assert.match(profile, /1\.3\.3/, 'app version visible on Profile');
+  assert.match(profile, /1\.3\.4/, 'app version visible on Profile');
   assert.match(profile, /avatar-img/, 'profile photo rendered where Firebase/Google provides one');
-  assert.match(profile, /updateDisplayName/, 'name editing wired to the SAME user profile');
+  assert.match(profile, /saveProfileEdits/, 'profile editing wired to the SAME user profile');
   assert.match(profile, /reward points/, 'upload/reward points visible in Profile');
   assert.ok(!profile.includes('Delete account'), 'no fake delete button without an existing secure flow');
+  // Profile edits stay inside the website's EXACT schema — no invented fields.
+  assert.match(profile, /#pf-course/, 'course field (existing website schema field)');
+  assert.match(profile, /#pf-phone/, 'phone field (existing website schema field)');
+  for (const invented of ['branch', 'semester', 'college']) {
+    assert.ok(!new RegExp(`pf-${invented}`).test(profile), `no invented profile field: ${invented}`);
+  }
+  assert.match(profile, /cannot be edited here/, 'email displayed read-only, no fake editable email');
+  assert.match(profile, /'changepw'/, 'Change Password entry present');
+  assert.match(profile, /Change Password/, 'Change Password label present');
+  assert.match(profile, /Password changed successfully\./, 'password-change success state');
+  assert.match(profile, /google\.com/, 'Google-only accounts get the no-password explainer, not a fake form');
 
   const home = readFileSync(join(here, '../www/js/views/home.js'), 'utf8');
   assert.match(home, /host\.classList\.add\('hidden'\)/, 'empty home rails hide instead of showing filler text');
+});
+
+// ── v1.3.4: account management (Google on signup, password change, reset) ──
+
+test('account management: Google on BOTH auth forms (one native impl); password change re-authenticates; reset copy exact', () => {
+  const authui = readFileSync(join(here, '../www/js/authui.js'), 'utf8');
+  const auth = readFileSync(join(here, '../www/js/auth.js'), 'utf8');
+
+  // Create Account page carries the SAME native Google button (same handler
+  // as Sign in — one Credential Manager implementation, never a second one).
+  const signupForm = authui.match(/<form data-form="signup">[\s\S]*?<\/form>/)
+    || authui.match(/<form data-form="signup"[\s\S]*?<\/form>/);
+  assert.ok(signupForm, 'signup form present');
+  assert.match(signupForm[0], /data-act="google"/, 'Create account page offers Continue with Google');
+  assert.match(signupForm[0], /auth-or/, 'OR divider separates Google from the email form');
+  assert.match(signupForm[0], /Continue with Google/, 'signup Google label');
+  const googleWiring = authui.includes('querySelectorAll(' + String.fromCharCode(39) + '[data-act=' + String.fromCharCode(34) + 'google' + String.fromCharCode(34) + ']' + String.fromCharCode(39) + ')');
+  assert.ok(googleWiring, 'both Google buttons share ONE startGoogleSignIn handler');
+  assert.equal((authui.match(/startGoogleSignIn\(\{ onAuthenticated \}\);/g) || []).length >= 1, true,
+    'the handler is the shared startGoogleSignIn flow');
+  assert.ok(!authui.includes('Create account on website'), 'no website hand-off for Google sign-up');
+
+  // Password change: current password is re-verified (fresh sign-in) BEFORE
+  // accounts:update — Firebase recent-auth done right; passwords never logged.
+  const reauth = auth.match(/async changePassword\([\s\S]*?\n    },/);
+  assert.ok(reauth, 'changePassword implemented in the auth module');
+  const body = reauth[0];
+  assert.ok(body.indexOf('signInWithPassword') < body.indexOf("identity('update'"),
+    're-authentication (fresh signInWithPassword) precedes the password update');
+  assert.match(body, /password: next/, 'Firebase receives the new password');
+  assert.match(body, /google\.com/, 'Google-only accounts are refused gracefully');
+  for (const line of auth.split('\n')) {
+    if (/console\./.test(line)) {
+      assert.ok(!/password/i.test(line), 'passwords never reach the console log');
+    }
+  }
+
+  // Reset copy: exact loading/success states, validated email, in-app only.
+  assert.match(authui, /Sending reset email…/, 'exact reset busy label');
+  assert.match(authui, /Password reset email sent\. Check your inbox and spam folder\./,
+    'exact reset success copy');
+  assert.match(authui, /Please enter a valid email address\./, 'reset validates email format first');
 });
 
 // ── WEBSITE-REDIRECT AUDIT (self-containment guarantee) ────────────────

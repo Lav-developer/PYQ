@@ -131,6 +131,10 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
 
     <form data-form="signup" ${mode === 'signup' ? '' : 'class="hidden"'}>
       <div data-err class="form-error" hidden role="alert"></div>
+      <button class="btn btn--google btn--block" type="button" data-act="google">
+        <span class="g-mark" aria-hidden="true">G</span> Continue with Google
+      </button>
+      <div class="auth-or"><span>or</span></div>
       ${field('auth-name', 'Full name', 'text', 'e.g. Ananya Sharma', 'name')}
       ${field('auth-s-email', 'Email', 'email', 'you@student.edu', 'email')}
       ${field('auth-s-pass', 'Password (6+ characters)', 'password', 'Choose a strong password', 'new-password')}
@@ -165,8 +169,8 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
     if (b) showForm(b.dataset.chip === 'signup' ? 'signup' : 'login');
   });
   node.querySelector('[data-act="forgot"]').addEventListener('click', () => showForm('reset'));
-  node.querySelector('[data-act="google"]').addEventListener('click', () => {
-    startGoogleSignIn({ onAuthenticated });
+  node.querySelectorAll('[data-act="google"]').forEach((b) => {
+    b.addEventListener('click', () => startGoogleSignIn({ onAuthenticated }));
   });
 
   wireSubmit(forms.login, async (f) => {
@@ -183,21 +187,25 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
       password: f.querySelector('#auth-s-pass').value,
     });
     ui.closeSheet();
-    ui.toast('Account created successfully — welcome!');
+    ui.toast('Account created successfully.');
     if (onAuthenticated) onAuthenticated();
-  }, { busyLabel: 'Creating account…' });
+  }, { busyLabel: 'Creating your account…' });
 
   wireSubmit(forms.reset, async (f) => {
-    await auth.requestPasswordReset(f.querySelector('#auth-r-email').value);
+    const email = String(f.querySelector('#auth-r-email').value || '').trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]{2,}$/.test(email)) {
+      throw new Error('Please enter a valid email address.');
+    }
+    await auth.requestPasswordReset(email);
     // The Firebase request resolved — the email is on its way. Show the
     // confirmation in-form (not a toast) so it cannot be missed.
     const ok = f.querySelector('[data-reset-ok]');
     if (ok) {
-      ok.textContent = 'Password reset email sent. Please check your inbox and spam folder.';
+      ok.textContent = 'Password reset email sent. Check your inbox and spam folder.';
       ok.hidden = false;
       f.querySelector('[data-err]').hidden = true;
     }
-  }, { busyLabel: 'Sending reset link…' });
+  }, { busyLabel: 'Sending reset email…' });
 
   sheetRef = ui.sheet({
     title: 'DSMNRU account',
