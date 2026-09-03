@@ -49,17 +49,58 @@
 
         </activity>
 
+        <!--
+          In-app PDF viewer screen (opened by the DsmnruApp.pdfView plugin
+          method). Sits on top of MainActivity, so system Back returns to the
+          paper detail screen. Never exported — it is launched by the app only.
+        -->
+        <activity
+            android:name=".PdfViewerActivity"
+            android:exported="false"
+            android:label="PDF viewer"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density" />
+
+    <!--
+      FCM receiver (the ONLY push component). Foreground messages are
+      rendered by FcmService itself on the app channel; background
+      notification payloads are auto-displayed by the system tray using the
+      default channel/icon/color meta-data below, and the tray tap opens the
+      MainActivity deep-link intent. No polling, no listeners, no token
+      database: the global audience is the single FCM topic `all_users`
+      (version-gated subscribe — one FCM call per install/update).
+    -->
+    <service
+        android:name=".FcmService"
+        android:exported="false">
+        <intent-filter>
+            <action android:name="com.google.firebase.MESSAGING_EVENT" />
+        </intent-filter>
+    </service>
+
+    <!-- Brand the system tray for background notification payloads. -->
+    <meta-data
+        android:name="com.google.firebase.messaging.default_notification_channel_id"
+        android:value="dsmnru_general" />
+    <meta-data
+        android:name="com.google.firebase.messaging.default_notification_icon"
+        android:resource="@drawable/ic_stat_dsmnru" />
+    <meta-data
+        android:name="com.google.firebase.messaging.default_notification_color"
+        android:resource="@color/dsmnru_teal" />
+
     </application>
 
     <!-- Permissions -->
     <!-- The dedicated app UI is bundled in the APK; its only data path is the
-         existing Cloudflare Worker API (HTTPS), so INTERNET is the single
-         required permission. DownloadManager needs no permission, and no
-         storage permission is requested or needed.
-         POST_NOTIFICATIONS / FCM are intentionally NOT added yet — the project
-         stays ready for the planned notification feature (Google Services
-         plugin auto-applies when a non-committed google-services.json exists,
-         and MainActivity already forwards notification deep links through the
-         same siteDeepLink channel used by share links). -->
+         existing Cloudflare Worker API (HTTPS), so INTERNET is the only data
+         permission. DownloadManager needs no permission, and no storage
+         permission is requested or needed.
+         POST_NOTIFICATIONS (Android 13+): the REAL system runtime dialog —
+         requested once per install, a few seconds into the first session,
+         only when a Firebase-enabled build is running. Denying changes
+         nothing except that push stays silent; the decision is never
+         re-asked on later launches. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

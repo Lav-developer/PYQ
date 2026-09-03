@@ -8,8 +8,6 @@
  * history), recent/trending rails and shortcuts are app-native sections.
  */
 
-import { SITE_ORIGIN } from '../api.js';
-
 export default async function renderHome(root, ctx) {
   const { ui, api, store } = ctx;
 
@@ -184,11 +182,13 @@ export default async function renderHome(root, ctx) {
     const row = document.createElement('div');
     row.className = 'shortcut-row';
     row.style.marginTop = '10px';
+    // All shortcuts open IN-APP screens (same features the drawer offers) —
+    // the website is never involved.
     const items = [
-      { icon: 'upload', label: 'Upload a paper', url: `${SITE_ORIGIN}/#upload-section` },
-      { icon: 'tools', label: 'Study tools', url: `${SITE_ORIGIN}/tools.html` },
-      { icon: 'users', label: 'Contributors', url: `${SITE_ORIGIN}/contributors.html` },
-      { icon: 'globe', label: 'Full website', url: SITE_ORIGIN + '/' },
+      { icon: 'upload', label: 'Upload a paper', view: 'upload' },
+      { icon: 'tools', label: 'Study tools', view: 'tools' },
+      { icon: 'users', label: 'Contributors', view: 'contributors' },
+      { icon: 'link', label: 'Links', view: 'links' },
     ];
     row.innerHTML = items.map((s, i) => `
       <button class="shortcut" type="button" data-i="${i}">
@@ -198,7 +198,7 @@ export default async function renderHome(root, ctx) {
     row.addEventListener('click', (e) => {
       const b = e.target.closest('[data-i]');
       if (!b) return;
-      ctx.native.openExternal(items[Number(b.dataset.i)].url);
+      ctx.router.go(items[Number(b.dataset.i)].view);
     });
     host.appendChild(row);
   }

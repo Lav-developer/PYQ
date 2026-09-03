@@ -8,7 +8,7 @@
  * after a manual sign-in (see auth.js).
  */
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.3.0';
 
 export default async function renderProfile(root, ctx) {
   const { ui, auth, store, api, native } = ctx;
@@ -125,12 +125,11 @@ export default async function renderProfile(root, ctx) {
   if (user) {
     items.push({ act: 'signout', icon: 'logout', label: 'Sign out', sub: 'Keeps your saved papers on this device' });
   } else {
-    items.push({ act: 'google', icon: 'google', label: 'Google sign-in info', sub: 'Why Google uses a browser-only flow, and how to still use your account' });
+    items.push({ act: 'google', icon: 'google', label: 'Sign in with Google', sub: 'Native account chooser — same Firebase account as the website' });
   }
   if (user && user.admin) {
     items.push({ act: 'admin', icon: 'tools', label: 'Open admin panel', sub: 'Administration stays on the website — there is no second panel' });
   }
-  items.push({ act: 'web', icon: 'globe', label: 'Open DSMNRU website', sub: 'Full site: uploads, comments, tools, contributor profile' });
   items.push({ act: 'about', icon: 'info', label: `About this app · v${APP_VERSION}`, sub: 'Same backend as the website — dedicated Android interface' });
   more.innerHTML = `<div class="sheet-list">${items.map((it) => `
     <button class="sheet-item" data-act="${it.act}" type="button">${ui.icon(it.icon)}<span>${ui.esc(it.label)}<small>${ui.esc(it.sub)}</small></span><span class="tail">${ui.icon('chevron')}</span></button>`).join('')}</div>`;
@@ -147,14 +146,11 @@ export default async function renderProfile(root, ctx) {
         });
         break;
       case 'google': {
-        import('../authui.js').then(({ googleInfoSheet }) => googleInfoSheet());
+        import('../authui.js').then(({ startGoogleSignIn }) => startGoogleSignIn({}));
         break;
       }
       case 'admin':
-      case 'web':
-        native.openExternal(b.dataset.act === 'admin'
-          ? 'https://dsmnru-pyq.netlify.app/admin.html'
-          : 'https://dsmnru-pyq.netlify.app/');
+        native.openExternal('https://dsmnru-pyq.netlify.app/admin.html');
         break;
       case 'about':
         ui.sheet({

@@ -5,23 +5,24 @@
  * second auth system.
  *
  * Why REST instead of the firebase-auth JS SDK?
- *  - Google sign-in via popup is blocked inside embedded WebViews (Google
- *    rejects disallowed_useragent), so the website already shows a "use email
- *    & password in the app" hint for the Capacitor user agent.
- *  - The Identity Toolkit REST endpoints are exactly what the JS SDK calls
- *    under the hood for password auth: sign-in/sign-up/refresh/verification
- *    work flawlessly from the app without pulling ~270 KB of SDK or opening
- *    any popup, and without any Firestore reads at startup.
+ *  - Email/password, verification and token refresh map 1:1 to Identity
+ *    Toolkit endpoints — the same calls the JS SDK makes under the hood —
+ *    without pulling ~270 KB of SDK into the APK, and without any Firestore
+ *    reads at startup.
+ *  - Google sign-in runs NATIVELY in the app: the DsmnruApp plugin collects a
+ *    Google ID token through Android's Credential Manager (device account
+ *    chooser — no popup, no browser), and this module exchanges it with
+ *    `accounts:signInWithIdp` against the same `dsmnru-data` project, so the
+ *    user identity is identical to the website's.
  *  - The web API key below is the same public client config already embedded
  *    in the production website (script.js); it is not a secret, and no
  *    service-account or private credential is ever shipped here.
  *
- * Google accounts: users who originally signed up with Google keep working on
- * the website; inside the app, opening Google sign-in would require a native
- * OAuth flow + console changes, so the app clearly explains the limitation
- * and offers (a) email/password sign-in (same account if a password was ever
- * set) or (b) one-tap hand-off to the site in the system browser. No silent
- * breakage, no fallback backend.
+ * Google accounts get the same privileges as on the website (google.com
+ * provider claims skip the email-verification gate). If a particular APK
+ * build lacks the Google client-ID configuration (see
+ * docs/GOOGLE_SIGNIN_SETUP.md), the UI explains it and offers in-app
+ * email/password — it never sends the user to the website to sign in.
  *
  * Session storage: idToken + refresh token + parsed expiry, refreshed lazily
  * (on app resume / when within 5 minutes of expiry). No polling.
@@ -29,7 +30,6 @@
 
 export const FIREBASE_PROJECT_ID = 'dsmnru-data';
 export const FIREBASE_WEB_API_KEY = 'AIzaSyBRlsk-knQs-AMlaTFxlneBMTwlSfwyFaQ';
-export const GOOGLE_SIGNIN_UNSUPPORTED = 'GOOGLE_SIGNIN_UNSUPPORTED_IN_APP';
 
 const IDT = 'https://identitytoolkit.googleapis.com/v1';
 const SECURE_TOKEN = 'https://securetoken.googleapis.com/v1/token';
@@ -274,6 +274,41 @@ export function createAuth(options = {}) {
         const data = await identity('signInWithPassword', {
           email: String(email || '').trim(),
           password: String(password || ''),
+          returnSecureToken: true,
+        });
+        return await adoptTokenSession(data);
+      } catch (err) {
+        throw new Error(friendly(err));
+      }
+    },
+
+    /**
+     * Android-native Google sign-in, second (final) step.
+     *
+     * The DsmnruApp plugin first obtains a Google ID token from the device's
+     * Google account chooser (Credential Manager — see DsmnruAppPlugin.java).
+     * That token is exchanged here against the SAME Firebase project the
+     * website uses, via the Identity Toolkit `accounts:signInWithIdp`
+     * endpoint — the exact call the Firebase JS SDK makes for
+     * signInWithPopup(GoogleAuthProvider). The result is the same user
+     * identity, session shape and users/{uid} sync as every other sign-in —
+     * no second auth system, no browser, no website redirect.
+     *
+     * `nonce` (raw, generated in JS) is bound into the Google token by the
+     * plugin (SHA-256 form) and replayed here so Identity Toolkit can verify
+     * it — standard anti-replay pairing.
+     */
+    async signInWithGoogleCredential({ idToken, nonce = '' } = {}) {
+      const token = String(idToken || '').trim();
+      if (!token) throw new Error('Google did not return a credential.');
+      const postBody = 'id_token=' + encodeURIComponent(token)
+        + '&providerId=google.com'
+        + (nonce ? '&nonce=' + encodeURIComponent(String(nonce)) : '');
+      try {
+        const data = await identity('signInWithIdp', {
+          postBody,
+          requestUri: 'http://localhost',
+          returnIdpCredential: true,
           returnSecureToken: true,
         });
         return await adoptTokenSession(data);

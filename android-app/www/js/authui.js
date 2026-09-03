@@ -3,6 +3,11 @@
  * email verification), built on the same Firebase project the website uses
  * (see ./auth.js). These sheets are also what the archive "gates" open,
  * mirroring the website's login-modal policy for search, pagination and PDFs.
+ *
+ * Google sign-in is NATIVE: the device's Google account chooser (Android
+ * Credential Manager via DsmnruAppPlugin) returns a Google ID token which is
+ * exchanged with the same Firebase project — no browser, no Chrome, no
+ * website hand-off, ever.
  */
 
 import * as ui from './ui.js';
@@ -14,6 +19,43 @@ let auth = null;
 /** app.js injects the shared auth singleton (same session across all screens). */
 export function initAuthUI(authInstance) {
   auth = authInstance;
+}
+
+/** Fresh nonce binding the Google credential to this sign-in attempt. */
+function generateNonce() {
+  try {
+    const bytes = new Uint8Array(16);
+    (globalThis.crypto || window.crypto).getRandomValues(bytes);
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return 'n-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12);
+  }
+}
+
+/**
+ * Run the Android-native Google sign-in end-to-end:
+ * account chooser → Google ID token → Firebase (same project) → session.
+ * Resolves true when the user ended up signed in.
+ */
+export async function startGoogleSignIn({ onAuthenticated } = {}) {
+  const nonce = generateNonce();
+  const res = await native.googleSignIn(nonce);
+  if (res && res.ok && res.idToken) {
+    try {
+      await auth.signInWithGoogleCredential({ idToken: res.idToken, nonce: res.nonce || nonce });
+      ui.closeSheet();
+      ui.toast('Signed in with Google');
+      if (onAuthenticated) onAuthenticated();
+      return true;
+    } catch (err) {
+      ui.toast(String(err.message || err), 'err');
+      return false;
+    }
+  }
+  const code = (res && res.code) || '';
+  if (code === 'GOOGLE_SIGNIN_CANCELLED') return false; // user backed out — silent
+  googleInfoSheet({ code, onAuthenticated });
+  return false;
 }
 
 function field(id, label, type, placeholder, autocomplete) {
@@ -62,9 +104,12 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
       ${field('auth-email', 'Email', 'email', 'you@student.edu', 'email')}
       ${field('auth-pass', 'Password', 'password', '••••••••', 'current-password')}
       <button class="btn btn--primary btn--block" type="submit">Sign in</button>
-      <div style="display:flex;justify-content:space-between;gap:8px;margin-top:10px">
+      <div class="auth-or"><span>or</span></div>
+      <button class="btn btn--google btn--block" type="button" data-act="google">
+        <span class="g-mark" aria-hidden="true">G</span> Sign in with Google
+      </button>
+      <div style="display:flex;justify-content:center;margin-top:10px">
         <button class="link-btn" type="button" data-act="forgot">Forgot password?</button>
-        <button class="link-btn" type="button" data-act="google">Use Google ↗</button>
       </div>
     </form>
 
@@ -81,8 +126,8 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
       <p class="form-note">Firebase emails a reset link (opens on the website — you can finish there or come back here).</p>
     </form>
 
-    <p class="form-note">Same account system as dsmnru-pyq.netlify.app — your saved papers
-    and comments on the website are already here. Nothing new is created.</p>`;
+    <p class="form-note">Same account system as the DSMNRU PYQ website — your saved papers
+    and comments there are already here. Nothing new is created.</p>`;
 
   const forms = {
     login: node.querySelector('[data-form="login"]'),
@@ -101,8 +146,7 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
   });
   node.querySelector('[data-act="forgot"]').addEventListener('click', () => showForm('reset'));
   node.querySelector('[data-act="google"]').addEventListener('click', () => {
-    ui.closeSheet();
-    openGoogleInfo();
+    startGoogleSignIn({ onAuthenticated });
   });
 
   wireSubmit(forms.login, async (f) => {
@@ -137,30 +181,41 @@ export function openAuthSheet({ reason = '', onAuthenticated, mode = 'login' } =
   return sheetRef;
 }
 
-/** Same limitation messaging the website shows for embedded WebViews — never silent. */
-export function googleInfoSheet() {
+/**
+ * Google sign-in explainer — shown only when the native flow could not run
+ * (cancelled attempts never surface this). There is NO "open the website"
+ * hand-off: the user either signs in natively when the build supports it, or
+ * uses email & password against the same Firebase account.
+ */
+export function googleInfoSheet({ code = '', onAuthenticated } = {}) {
+  const configured = code !== 'GOOGLE_SIGNIN_NOT_CONFIGURED';
   const node = document.createElement('div');
   node.innerHTML = `
-    <p class="sheet-text">Google sign-in uses a browser popup that Google blocks inside embedded
-    app WebViews, so it can't run natively in this app yet. Your account is still the same
-    Firebase account everywhere:</p>
+    ${configured
+      ? `<p class="sheet-text">Google sign-in runs with the device's own account chooser — no browser needed.
+         It looks like Google sign-in isn't available on this device right now (no Google account on the
+         phone, or Play services is out of date).</p>`
+      : `<p class="sheet-text">This app build doesn't have Google sign-in configured yet (the Google client-ID
+         setup from <span class="mono">docs/GOOGLE_SIGNIN_SETUP.md</span> hasn't been applied). Your account is
+         still exactly the same Firebase account everywhere:</p>`}
     <div class="sheet-list" style="margin-top:14px">
       <button class="sheet-item" data-act="email" type="button">${ui.icon('mail')}<span>Sign in with email &amp; password<small>Works fully in-app for any account created on the website or here</small></span></button>
-      <button class="sheet-item" data-act="web" type="button">${ui.icon('globe')}<span>Open website to use Google<small>Finish on dsmnru-pyq.netlify.app in your browser, then come back — the app shares the same data</small></span></button>
+      ${configured ? `<button class="sheet-item" data-act="retry" type="button">${ui.icon('google')}<span>Try Google again<small>Opens the device Google account chooser</small></span></button>` : ''}
     </div>`;
   const s = ui.sheet({ title: 'Google sign-in', content: node });
   node.querySelector('[data-act="email"]').addEventListener('click', () => {
     s.close();
     openAuthSheet({ mode: 'login' });
   });
-  node.querySelector('[data-act="web"]').addEventListener('click', () => {
-    s.close();
-    native.openExternal('https://dsmnru-pyq.netlify.app/');
-  });
+  const retry = node.querySelector('[data-act="retry"]');
+  if (retry) {
+    retry.addEventListener('click', () => {
+      s.close();
+      startGoogleSignIn({ onAuthenticated });
+    });
+  }
   return s;
 }
-
-function openGoogleInfo() { googleInfoSheet(); }
 
 export function verificationPromptSheet({ afterVerified } = {}) {
   const node = document.createElement('div');

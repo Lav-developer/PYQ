@@ -3,13 +3,21 @@
  *
  * Metadata comes from the existing public endpoint (GET /api/pyqs/:id — the
  * full document with file URLs, KV-cached, never from Firestore on the client).
- * PDF handling mirrors the website's business rules:
- *   • links stored as `file`/`server1` (primary) and `file2`/`server2`
- *   • direct .pdf links can be previewed/started in a native viewer or
- *     downloaded via Android's DownloadManager; drive/mediafire/landing
- *     links open in the browser/app that can handle them
+ * PDF handling:
+ *   • links stored as `file`/`server1` (primary) and `file2`/`server2` —
+ *     the same URLs the website shows, never mirrored
+ *   • "Open PDF" FIRST opens the in-app viewer screen (native PdfRenderer,
+ *     zoom/scroll, progress/error states, back navigation); the viewer reads
+ *     the original host directly — no Worker bandwidth, no permanent copies.
+ *     Only when the native layer is absent (plain browser preview) does the
+ *     direct URL go to the system viewer — never to the DSMNRU website.
+ *   • landing-page links (Drive/mediafire "Server 2") open externally — that
+ *     host genuinely cannot render in-app
+ *   • download uses Android's DownloadManager (explicit user tap only)
+ *   • "Report a broken link" is an in-app form writing to the SAME Firestore
+ *     `feedback` collection the website uses (verified sign-in required —
+ *     identical rule)
  *   • preview/download require the same verified sign-in the website enforces
- * The app never stores PDFs itself and never re-downloads the archive.
  */
 
 import { SITE_ORIGIN } from '../api.js';
@@ -142,10 +150,34 @@ export default async function renderPaper(root, ctx, params = {}) {
 
   const locked = () => auth.canUnlockPrivileges();
 
+  /**
+   * PDF open policy: the in-app viewer screen first. It fetches the SAME
+   * direct host URL itself (never through the Cloudflare Worker) and keeps
+   * the file only in the system cache until closed. Fallback when the native
+   * viewer is unavailable = the direct URL to the system viewer — the DSMNRU
+   * website is never part of the chain.
+   */
+  async function openInAppViewer(url, label) {
+    ui.toast(`Opening ${label || 'PDF'} in the app…`);
+    await ctx.openPdf(url, title);
+  }
+
   async function performPdfAction(act) {
-    if (act === 'view' && primary) { native.openExternal(primary); return; }
-    if (act === 'server1' && primary) { native.openExternal(primary); return; }
-    if (act === 'server2' && secondary) { native.openExternal(secondary); return; }
+    if (act === 'view' && primary) {
+      if (isDirectPdfUrl(primary)) await openInAppViewer(primary, 'PDF');
+      else native.openExternal(primary); // landing page → genuinely external
+      return;
+    }
+    if (act === 'server1' && primary) {
+      if (isDirectPdfUrl(primary)) await openInAppViewer(primary, 'PDF (server 1)');
+      else native.openExternal(primary);
+      return;
+    }
+    if (act === 'server2' && secondary) {
+      if (isDirectPdfUrl(secondary)) await openInAppViewer(secondary, 'PDF (server 2)');
+      else native.openExternal(secondary); // Drive/mediafire landing → external
+      return;
+    }
     if (act === 'download' && primary) {
       const fileBase = (title || 'dsmnru-paper').replace(/[^\w\d .-]+/g, '_').slice(0, 70);
       const ok = await native.download(primary, `${fileBase}.pdf`);
@@ -193,21 +225,92 @@ export default async function renderPaper(root, ctx, params = {}) {
   meta.innerHTML = cells.map(([k, v]) => `<div class="meta-cell"><span>${k}</span><b>${ui.esc(v)}</b></div>`).join('');
   stack.appendChild(meta);
 
-  // More actions row
+  // More actions row — report stays IN-APP (same Firestore `feedback`
+  // collection the website writes); only the discussion page (comments,
+  // which exist only on the website) remains an explicit external choice.
   const more = document.createElement('section');
   more.className = 'card card-pad';
   more.innerHTML = `
     <div class="sheet-list" id="paper-more">
-      <button class="sheet-item" data-act="web" type="button">${ui.icon('globe')}<span>Open on website<small>Full page with discussion & report tools</small></span><span class="tail">${ui.icon('chevron')}</span></button>
-      <button class="sheet-item" data-act="report" type="button">${ui.icon('flag')}<span>Report a broken link<small>Goes to moderators on the website</small></span><span class="tail">${ui.icon('chevron')}</span></button>
+      <button class="sheet-item" data-act="report" type="button">${ui.icon('flag')}<span>Report a broken link<small>Reviewed by moderators — right from the app</small></span><span class="tail">${ui.icon('chevron')}</span></button>
+      <button class="sheet-item" data-act="web" type="button">${ui.icon('globe')}<span>Discussion & full page on website<small>Comments live only on the website — opens externally</small></span><span class="tail">${ui.icon('chevron')}</span></button>
     </div>`;
   more.addEventListener('click', (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
+    if (b.dataset.act === 'report') openReportSheet();
     if (b.dataset.act === 'web') native.openExternal(siteUrl);
-    if (b.dataset.act === 'report') native.openExternal(siteUrl);
   });
   stack.appendChild(more);
+
+  /**
+   * In-app "Report a broken link" — writes to the SAME `feedback` collection
+   * with the SAME fields the website's report modal uses
+   * (type='broken_link', status='new'), via one Firestore REST insert with
+   * the user's own ID token. Gate = verified sign-in (the Firestore rule).
+   */
+  function openReportSheet() {
+    const start = () => {
+      const node = document.createElement('div');
+      node.innerHTML = `
+        <p class="sheet-text">Reporting: <b>${ui.esc(title)}</b>${course ? ` · ${ui.esc(course)}` : ''}</p>
+        <div class="field" style="margin-top:12px">
+          <label for="rep-details">What's wrong?</label>
+          <textarea class="input" id="rep-details" rows="3" maxlength="600" placeholder="e.g., Primary link opens an error page…"></textarea>
+        </div>
+        <div data-err class="form-error" hidden></div>
+        <div class="sheet-actions">
+          <button class="btn btn--ghost" data-dismiss="1" type="button">Cancel</button>
+          <button class="btn btn--primary" id="rep-send" type="button">Send report</button>
+        </div>`;
+      const s = ui.sheet({ title: 'Report a broken link', content: node });
+      node.querySelector('#rep-send').addEventListener('click', async (e2) => {
+        const btn = e2.currentTarget;
+        const details = node.querySelector('#rep-details').value.trim();
+        const errEl = node.querySelector('[data-err]');
+        if (details.length < 3) {
+          errEl.textContent = 'Please describe the problem (a few words is enough).';
+          errEl.hidden = false;
+          return;
+        }
+        btn.disabled = true;
+        btn.textContent = 'Sending…';
+        try {
+          const user = auth.current();
+          const fields = {
+            type: { stringValue: 'broken_link' },
+            title: { stringValue: title },
+            course: { stringValue: course || '' },
+            details: { stringValue: details },
+            email: { stringValue: user && user.email || '' },
+            userId: { stringValue: user ? user.uid : '' },
+            userEmail: { stringValue: user && user.email || '' },
+            createdAt: { timestampValue: new Date().toISOString() },
+            status: { stringValue: 'new' },
+          };
+          const headers = { 'Content-Type': 'application/json' };
+          if (user && user.idToken) headers.Authorization = 'Bearer ' + user.idToken;
+          const res = await fetch(
+            `https://firestore.googleapis.com/v1/projects/dsmnru-data/databases/(default)/documents/feedback`,
+            { method: 'POST', headers, body: JSON.stringify({ fields }) },
+          );
+          if (!res.ok) {
+            const body = await res.json().catch(() => null);
+            throw new Error((body && body.error && body.error.message) || 'Could not send the report.');
+          }
+          ui.closeSheet();
+          ui.toast('Report sent — thank you!');
+        } catch (err) {
+          errEl.textContent = String(err.message || err);
+          errEl.hidden = false;
+          btn.disabled = false;
+          btn.textContent = 'Send report';
+        }
+      });
+    };
+    // The Firestore rule only allows verified users to create feedback docs.
+    ctx.requireAuth(start, 'Reporting needs a verified account (same rule as the website).');
+  }
 
   // Related papers — one filtered request like the website's related rail.
   const relHost = document.createElement('section');

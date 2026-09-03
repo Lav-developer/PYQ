@@ -2,53 +2,71 @@
 
 A **real, app-specific Android interface** for the DSMNRU PYQ / Syllabus
 Archive — *not* a WebView wrapper around the website. The app bundles its own
-mobile-first front-end in `www/` (bottom navigation, app-designed screens,
-touch-sized cards and sheets) while sharing the website's existing backends
-verbatim:
+mobile-first front-end in `www/` (side drawer, bottom navigation,
+app-designed screens, touch-sized cards and sheets) while sharing the
+website's existing backends verbatim:
 
 ```
 Android app (bundled UI)
    ├── Cloudflare Worker API  https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev/api/*
    │        └── same KV search index / pagination / cache the website uses
-   └── Firebase Auth (project `dsmnru-data`, same accounts as the site)
-            └── Identity Toolkit REST for in-app email/password sign-in
+   ├── Firebase Auth (project `dsmnru-data`, same accounts as the site)
+   │        └── Identity Toolkit REST for email/password + native Google sign-in
+   └── gofile.io + Firestore pendingUploads (the SAME public upload pipeline
+            the website uses — driven from the in-app Upload screen)
 ```
 
 There is **no second backend, no second database, no duplicate PYQ storage**
 and no app-specific business data. Public archive data never reads Firestore;
-the only Firestore touch-point in the entire app is the one-time
-`users/{uid}` profile-row sync immediately after a manual sign-in (the same
-record the website's `ensureUserDocumentSynced` creates).
+the only Firestore touch-points are the one-time `users/{uid}` profile-row
+sync after a manual sign-in and the same `pendingUploads` / `feedback`
+writes the website's own forms perform — all owner-scoped and rule-validated.
+Every product feature (upload, tools, contributors, links, PDF viewing,
+sign-in) is handled **inside the app**; the browser is never a fallback for
+normal functionality.
 
 ## Contents
 
 | Path | Purpose |
 | --- | --- |
-| `www/index.html` | App shell: app bar, routed view, bottom nav, sheets/toasts |
+| `www/index.html` | App shell: app bar (+ drawer menu button), routed view, bottom nav, sheets/toasts |
 | `www/css/app.css` | The app's own dark "DSMNRU academic" design system (safe-area aware, 44px+ targets, no blur/animation bloat) |
-| `www/js/app.js` | Shell: view stack router, Android back button, network banner, deep-link handoff, auth gates |
+| `www/js/app.js` | Shell: view stack router, side drawer wiring, Android back button, network banner, deep-link handoff, auth gates, in-app PDF open policy |
+| `www/js/drawer.js` | Android side drawer: tabs + Upload / Tools / Contributors / Links / About (never opens the website) |
 | `www/js/api.js` | Worker API client: TTL cache + persisted layer + in-flight dedupe + SWR + abort/timeout |
-| `www/js/auth.js` | Firebase Authentication via Identity Toolkit REST (same project as the website) |
-| `www/js/authui.js` | Sign-in / sign-up / reset / email-verification sheets |
+| `www/js/auth.js` | Firebase Authentication via Identity Toolkit REST (same project) + Google credential exchange (`signInWithIdp`) |
+| `www/js/authui.js` | Sign-in / sign-up / reset / email-verification sheets + native Google flow |
 | `www/js/store.js` | On-device persistence: saved papers, recent views, recent searches |
 | `www/js/slug.js` | Canonical-slug mirror of the Worker's allocator + deep-link URL parser |
-| `www/js/views/` | home · search · browse(courses) · course drill-down · paper · saved · profile |
-| `www/js/native.js` | Wrapper for the app's own Java plugin (share sheet, downloads, external intents, launch link) |
-| `android/app/src/main/java/com/dsmnru/pyq/DsmnruAppPlugin.java` | The custom plugin: ACTION_VIEW / ACTION_SEND / DownloadManager / launch deep-link |
-| `android/app/src/main/java/com/dsmnru/pyq/MainActivity.java` | BridgeActivity: registers the plugin, forwards warm-start deep links to the JS router |
+| `www/js/uploadcore.js` | Pure upload logic: website-parity validation, throttle, gofile URL, `pendingUploads` doc shape, image→PDF assembly |
+| `www/js/toolscore.js` | Pure tool logic: CGPA math, attendance stats, planner (website parity, on-device) |
+| `www/js/linkdata.js` | The curated university/government portal list (same data as the site's Links page, shipped statically) |
+| `www/js/views/` | home · search · browse(courses) · course · paper · saved · profile · **upload · tools · contributors · links · about** |
+| `www/js/native.js` | Wrapper for the app's own Java plugin (in-app PDF viewer, Google credential chooser, share sheet, downloads, external intents, launch link) |
+| `android/app/src/main/java/com/dsmnru/pyq/DsmnruAppPlugin.java` | The custom plugin: in-app PDF viewer launch, Credential-Manager Google sign-in, ACTION_VIEW / ACTION_SEND / DownloadManager / launch deep-link |
+| `android/app/src/main/java/com/dsmnru/pyq/PdfViewerActivity.java` | Native in-app PDF viewer screen (PdfRenderer, pinch zoom + pan, lazy page rendering, progress/error states, temporary cache only) |
+| `android/app/src/main/java/com/dsmnru/pyq/MainActivity.java` | BridgeActivity: registers the plugin, forwards warm-start deep links to the JS router, FCM bootstrap + the one-time POST_NOTIFICATIONS ask |
+| `android/app/src/main/java/com/dsmnru/pyq/FcmService.java` | FCM receiver: `all_users` topic subscription (version-gated), foreground notification rendering, deep-link tap intents |
 | `android/` | Generated + customized Capacitor Android project (Gradle wrapper included) |
-| `test/` | Node unit tests + jsdom integration smoke test of the app UI (`npm test`) |
+| `docs/GOOGLE_SIGNIN_SETUP.md` | Exact console configuration for native Google sign-in |
+| `docs/PUSH_NOTIFICATIONS.md` | FCM implementation notes, message contract, sender-side (Worker/admin) requirements |
+| `test/` | Node unit tests + jsdom integration smoke tests of the app UI (`npm test`) |
 
 ## Screens & navigation
 
-Bottom tabs: **Home · Search · Courses · Saved · Profile**. Paper detail and
-course drill-downs are pushed onto an in-app view stack (Android back pops it;
-at a tab root, back goes to Home; at Home, back exits — standard behavior).
+**Side drawer** (hamburger in the app bar at every tab root): Home · Search ·
+Courses · Saved · Profile & settings — Upload Paper · Study Tools ·
+Contributors · Links — About. Drawer items push the matching in-app screen;
+the drawer never opens the website. Bottom tabs: **Home · Search · Courses ·
+Saved · Profile** (unchanged). Paper detail, course drill-downs and all
+drawer screens live on an in-app view stack (Android back pops it; at a tab
+root, back goes to Home; at Home, back exits — with drawer/sheet-first
+precedence).
 
 * **Home** — brand hero + search launcher, archive stats, quick-access course
   grid, "pick up where you left off" (device history), recently added and
-  trending rails, and shortcuts (upload/tools/contributors open the live site
-  externally). Fed by **one** cached `GET /api/homepage` call.
+  trending rails, and in-app shortcuts (upload/tools/contributors/links
+  screens). Fed by **one** cached `GET /api/homepage` call.
 * **Search** — server-side `GET /api/pyqs/search` (title/subject/course/
   semester/session), 350 ms debounce, previous in-flight query aborted via
   `AbortController`, filter + sort chips, paged results (20/page), full
@@ -56,12 +74,30 @@ at a tab root, back goes to Home; at Home, back exits — standard behavior).
 * **Courses** — app-native course grid (catalog + live paper counts) →
   semester/session chips + in-course subject search → paged papers.
 * **Paper** — app-designed detail: title, course, semester, session, branch,
-  subject, views, date, document id; **Open PDF / Server 2 / Download / Save /
-  Share** actions; metadata table; related papers (one filtered request);
-  "Open on website" for comments/report flows.
+  subject, views, date, document id; **Open PDF (in-app viewer first) /
+  Server 2 / Download / Save / Share** actions; metadata table; in-app
+  "Report a broken link" (same Firestore `feedback` queue as the website);
+  related papers (one filtered request).
+* **Upload Paper** — the website's public upload workflow, fully in-app:
+  same metadata + validation rules, Android file picker for one PDF (≤10 MB)
+  or photos (converted to a PDF on-device), the same gofile.io storage, the
+  same `pendingUploads` review queue, the same 10-point reward promise, the
+  same client throttle (5 / 6 h), and real progress / success / error states.
+* **Study Tools** — CGPA calculator, attendance tracker (75 % warning line)
+  and study planner as native cards + sheets. 100 % on-device (localStorage,
+  same keys as the website): zero API requests. "Request a tool" → the
+  maintainers' Telegram bot (genuinely external).
+* **Contributors** — ONE cached `GET /api/contributors` request (24 h
+  persisted, SWR) renders the whole list; the "Join them" card routes to the
+  in-app Upload screen. Never a request per contributor.
+* **Links** — the curated university/scholarship portal list rendered
+  statically in-app (zero network); only the tapped portal itself opens
+  externally.
+* **About** — in-app app identity, data sources, and the audited list of
+  genuinely-external destinations.
 * **Saved** — on-device bookmarks with local filter, works fully offline.
-* **Profile** — session state, email-verification flow, device data controls
-  (cache refresh/clear), sign-out, about.
+* **Profile** — session state, native Google sign-in entry, email-verification
+  flow, device data controls (cache refresh/clear), sign-out, about.
 
 ## API-request discipline (Cloudflare free tier)
 
@@ -85,25 +121,80 @@ at a tab root, back goes to Home; at Home, back exits — standard behavior).
 ## PDFs
 
 PDF URLs come from the paper documents themselves (`file`/`server1`,
-`file2`/`server2`) — the same links the website shows. "Open" hands the URL to
-the system (Chrome/Drive/PDF viewer); "Download" (direct `.pdf` hosts only)
-uses Android's DownloadManager into the public *Downloads* folder. Nothing is
-mirrored, cached in app storage, or re-hosted.
+`file2`/`server2`) — the same links the website shows. **"Open PDF" first
+opens the app's own native viewer screen** (`PdfViewerActivity`): the direct
+host URL is streamed by Android itself (never through the Cloudflare Worker,
+so no Worker bandwidth is consumed), rendered with the platform `PdfRenderer`
+(lazy per-page rendering into a heap-bounded LruCache), with pinch-zoom +
+pan, vertical page scrolling, a page indicator, real download progress, and
+error states with Retry / "Open in another app" (the same direct URL to a
+system PDF app — never the DSMNRU website). The viewer keeps the file only
+in the app's **temporary cache directory** — deleted on close and stale
+files purged on open, so nothing is permanently downloaded into app storage
+and nothing is mirrored or re-hosted. Landing-page links (Drive/mediafire
+"Server 2") genuinely cannot render in-app and open through an external
+intent. "Download" (direct `.pdf` hosts only) still uses Android's
+DownloadManager into the public *Downloads* folder on an explicit tap.
 
 ## Authentication
 
 The existing Firebase project (`dsmnru-data`) with its email/password sign-in,
 sign-up, reset and email-verification flows — driven through the public
 Identity Toolkit REST endpoints (the same calls the website's SDK makes), so
-no popup windows are needed and no new auth system exists. Sessions persist
-`idToken/refreshToken` locally and refresh lazily (app resume / expiry), never
-on a timer. The website's gate policy is mirrored in-app: verified sign-in is
-required for search, filters, page 2+ and PDF actions; metadata browsing stays
-public. **Google sign-in cannot run inside embedded WebViews (Google's own
-policy — identical to the notice on the website):** the app explains this
-explicitly and offers email/password or a one-tap hand-off to the site.
+no popup windows are needed and no new auth system exists. **Google sign-in
+is native**: the device's own Google account chooser (Android Credential
+Manager, `DsmnruAppPlugin.googleSignIn`) returns a Google ID token which
+`auth.signInWithGoogleCredential()` exchanges with the same project via
+`accounts:signInWithIdp` — the identical call the Firebase JS SDK makes — so
+the user identity, privileges and `users/{uid}` sync match the website
+exactly. No browser, no Chrome, no website hand-off. Builds without the
+Google client-ID configuration report `GOOGLE_SIGNIN_NOT_CONFIGURED` and
+explain it in-app while offering email/password (see
+`docs/GOOGLE_SIGNIN_SETUP.md` for the one-time console setup). Sessions
+persist `idToken/refreshToken` locally and refresh lazily (app resume /
+expiry), never on a timer. The website's gate policy is mirrored in-app:
+verified sign-in is required for search, filters, page 2+ and PDF actions;
+metadata browsing stays public.
+
+## Notifications (FCM — implemented)
+
+Push notifications run on the **same Firebase project (`dsmnru-data`)** with
+a deliberately tiny footprint:
+
+* **Audience = one FCM topic.** Every opted-in install subscribes to the
+  global topic `all_users` — the FCM SDK owns registration and topic state,
+  so there is **no token database, no Firestore writes, no per-launch sync**
+  (the subscribe is version-gated: one call per install/update, plus once on
+  token rotation).
+* **Real Android 13+ permission.** `POST_NOTIFICATIONS` is requested through
+  the actual system dialog once per install, ~9 s into the first session,
+  and never re-asked — grant or deny — and the app works identically
+  either way (denied pushes are silently suppressed before every post).
+  There is no in-app fake toggle.
+* **Channels + branding.** The `dsmnru_general` channel ("Paper alerts") is
+  created at app start; foreground messages are rendered by `FcmService`
+  (`onMessageReceived`), background notification payloads are branded by the
+  manifest meta-data (icon/color/channel) and auto-displayed by the tray.
+* **Taps open the app, not the website.** The tap intent is an ACTION_VIEW
+  data URL on `MainActivity`, riding the same deep-link pipeline as shared
+  links — `data.path` like `/pyq/<slug>` lands on the in-app paper screen,
+  cold or warm.
+* **Sender side (admin → Worker → FCM):** the exact remaining backend steps
+  (service account, `POST /api/notify` guarded by the existing admin-token
+  check, the web admin panel form) are specified in
+  `docs/PUSH_NOTIFICATIONS.md` §5 — documented, not invented, since the
+  Worker has no push endpoint yet. Build-time config: drop the project's
+  `google-services.json` into `android/app/` (the Gradle file already
+  applies the Google Services plugin automatically when present; without it
+  the app runs normally with push disabled).
 
 ## Deep links
+
+Shared `https://dsmnru-pyq.netlify.app/pyq/<slug>` and `paper.html?id=…`
+links (and FCM notification taps) open the app's paper screen natively:
+cold start via `DsmnruAppPlugin.getLaunchUrl()`, warm start via the
+`siteDeepLink` event. Unresolvable slugs stay in-app with a pre-filled
+search — never a browser hand-off. The website keeps working unchanged.
 
 `https://dsmnru-pyq.netlify.app/pyq/<slug>` (and `paper.html?id=…`) shared
 links can open the app via the existing unverified intent filters
@@ -144,13 +235,13 @@ is present at build time).
 
 ## Deferred by design
 
-* **FCM notifications** — not implemented yet. Prepared: single-activity
-  `MainActivity` already routes link-shaped intents (notification taps can
-  reuse `siteDeepLink`), and the Google Services plugin auto-applies when a
-  build-time `google-services.json` exists. Admin sends keep using the
-  existing web admin panel (no second panel).
 * **Release signing** — debug builds only, see above.
-* **In-app Google sign-in** — needs a native Google credential flow; until
-  then the app shows the documented fallback (see Authentication).
+* **Google sign-in console registration** — the code is complete, but each
+  build environment must register its keystore SHA-1 + set the Web client ID
+  once (see `docs/GOOGLE_SIGNIN_SETUP.md`). Unconfigured builds degrade to
+  the in-app email/password path — never a website redirect.
+* **In-app paper comments** — discussion lives on the website by design; the
+  paper screen links there explicitly (the one deliberate external
+  destination for a product feature) and broken-link reports are in-app.
 * **View-count increments** — the app intentionally does not write
   `pyqs.views` increments (the website keeps counting); saves stay on-device.

@@ -51,6 +51,10 @@ const SEARCH = {
   ],
   total: 2, page: 1, limit: 20, totalPages: 1,
 };
+const CONTRIBUTORS = [
+  { id: 'c1', name: 'Aarav Sharma', avatar: '', role: '12 papers' },
+  { id: 'c2', name: 'Meera N.', avatar: '', role: '5 papers' },
+];
 
 function jwt(exp) {
   const b64u = (s) => Buffer.from(s).toString('base64url');
@@ -88,8 +92,15 @@ function setupDom() {
     if (u.includes('/api/pyqs/search')) return ok(SEARCH);
     if (u.includes('/api/pyqs/p1')) return ok(PAPER);
     if (u.includes('/api/pyqs?')) return ok(SEARCH);
+    if (u.includes('/api/contributors')) return ok(CONTRIBUTORS);
+    if (u.includes('api.gofile.io/servers')) return ok({ status: 'ok', data: { servers: [{ name: 'store1' }] } });
+    if (u.includes('/pendingUploads')) return ok({});
     if (u.includes('signInWithPassword')) return ok({
       idToken: jwt(nowSec + 3600), refreshToken: 'RT', expiresIn: '3600', email: 'stud@dsmnru.in',
+    });
+    if (u.includes('accounts:signInWithIdp')) return ok({
+      idToken: jwt(nowSec + 3600), refreshToken: 'RT-G', expiresIn: '3600',
+      federatedId: '1089', providerId: 'google.com',
     });
     if (u.includes('accounts:update')) return ok({ displayName: 'Test Student' });
     if (u.includes('/documents')) return { ok: true, status: 200, json: async () => ({ fields: {} }) };
@@ -196,5 +207,157 @@ if (JSDOM) {
     const after = calls.filter((c) => c.url.includes('/api/homepage')).length;
     assert.equal(after, homeCalls, 'homepage cache prevented a refetch on revisit');
     assert.ok(calls.length - before <= 1, 'no request storm on navigation');
+
+    // ════════════════════════════════════════════════════════════════════
+    // v1.2 — self-contained-app features (drawer + new screens)
+    // ════════════════════════════════════════════════════════════════════
+
+    // Drawer opens from the app-bar menu (visible at every tab root).
+    const openDrawer = async () => {
+      assert.ok(await waitFor(() => !document.getElementById('appbar-menu').hidden), 'menu button visible at tab root');
+      document.getElementById('appbar-menu').click();
+      assert.ok(await waitFor(() => !document.getElementById('drawer-root').hidden), 'drawer opens');
+    };
+
+    // ── Drawer: opens from the app bar, contains the in-app destinations ─
+    const menuBtn = document.getElementById('appbar-menu');
+    assert.ok(menuBtn, 'app bar has a menu (drawer) button');
+    await openDrawer();
+    const drawerText = text(document.getElementById('drawer-root'));
+    for (const item of ['Upload paper', 'Study tools', 'Contributors', 'Links', 'About this app']) {
+      assert.ok(drawerText.includes(item), `drawer contains “${item}”`);
+    }
+    const openedBeforeDrawer = opened.length;
+
+    // ── Drawer → Upload Paper: an IN-APP screen, not the website ─────────
+    document.querySelector('#drawer-root [data-view="upload"]').click();
+    assert.ok(await waitFor(() => view().querySelector('#up-form')), 'upload screen rendered from drawer');
+    assert.equal(document.getElementById('drawer-root').classList.contains('is-open'), false, 'drawer closed after navigation');
+    assert.equal(opened.length, openedBeforeDrawer, 'opening Upload never opens a browser');
+    assert.match(text(view()), /10\s*points/, 'reward explanation rendered');
+
+    // Validation errors render inside the app (no navigation, no fetches).
+    const uploadCallsBefore = calls.length;
+    view().querySelector('#up-submit').click();
+    assert.ok(await waitFor(() => !view().querySelector('[data-err]').hidden), 'validation error shown');
+    assert.match(text(view().querySelector('[data-err]')), /enter your name/i);
+    assert.equal(calls.length, uploadCallsBefore, 'validation costs zero network');
+
+    // Happy path: one PDF → gofile (mocked fetch + XHR) → one metadata insert.
+    globalThis.XMLHttpRequest = class {
+      constructor() {
+        this.upload = { addEventListener() {} };
+        this.listeners = {};
+        this.status = 200;
+        this.response = { status: 'ok', data: { downloadPage: 'https://store1.gofile.io/download/web/x/paper.pdf' } };
+      }
+      open() {}
+      addEventListener(type, fn) { (this.listeners[type] ||= []).push(fn); }
+      send() { setTimeout(() => { (this.listeners.load || []).forEach((fn) => fn()); }, 0); }
+    };
+    view().querySelector('#up-title').value = 'B.Tech DSA {2023}';
+    view().querySelector('#up-name').value = 'Aarav Sharma';
+    view().querySelector('#up-email').value = 'Aarav@Test.dev';
+    const fileInput = view().querySelector('#up-file');
+    Object.defineProperty(fileInput, 'files', {
+      value: [new window.File(['%PDF-1.4 fake'], 'paper.pdf', { type: 'application/pdf' })],
+      configurable: true,
+    });
+    fileInput.dispatchEvent(new window.Event('change', { bubbles: true }));
+    assert.match(text(view().querySelector('#up-drop-text')), /paper\.pdf/, 'selected file shown in the picker card');
+    view().querySelector('#up-submit').click();
+    assert.ok(await waitFor(() => text(view()).includes('Submission received')), 'in-app success state');
+    assert.match(text(view()), /pending review/i, 'moderation queue explained in-app');
+    assert.ok(calls.some((c) => c.url.includes('/pendingUploads')), 'metadata written to the SAME Firestore queue');
+    const uploads = calls.filter((c) => c.url.includes('/pendingUploads'));
+    assert.equal(uploads.length, 1, 'exactly one metadata insert');
+    assert.ok(window.localStorage.getItem('dsmnruUploadThrottle'), 'website-parity throttle recorded');
+
+    // ── Drawer → Study Tools: fully on-device (no API traffic at all) ────
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    await openDrawer();
+    document.querySelector('#drawer-root [data-view="tools"]').click();
+    assert.ok(await waitFor(() => view().querySelector('.tool-card')), 'tools screen rendered');
+    const toolsCallsBefore = calls.length;
+    const toolText = text(view());
+    for (const t of ['CGPA calculator', 'Attendance tracker', 'Study planner']) {
+      assert.ok(toolText.includes(t), `tools screen contains “${t}”`);
+    }
+    view().querySelectorAll('.tool-card button')[0].click(); // Open calculator
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root #cg-calc')), 'CGPA sheet opens in-app');
+    document.querySelector('.sheet-root #cg-calc').click();
+    assert.ok(await waitFor(() => document.querySelector('.sheet-root .tool-result-gpa')), 'SGPA computed on-device');
+    assert.match(text(document.querySelector('.sheet-root .tool-result-gpa')), /10\.00/, 'O grade × 4 credits = 10.00');
+    document.querySelector('.sheet-root [data-dismiss]').click();
+    assert.equal(calls.length, toolsCallsBefore, 'study tools make ZERO network requests');
+
+    // ── Drawer → Contributors: ONE cached Worker request ────────────────
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    await openDrawer();
+    document.querySelector('#drawer-root [data-view="contributors"]').click();
+    assert.ok(await waitFor(() => view().querySelector('.contrib-card')), 'contributors rendered');
+    assert.match(text(view()), /Aarav Sharma/, 'contributor name from /api/contributors');
+    assert.match(text(view()), /Join them!/, 'join card routes to in-app upload');
+    const contribCalls = calls.filter((c) => c.url.includes('/api/contributors')).length;
+    assert.equal(contribCalls, 1, 'exactly one /api/contributors request');
+    view().querySelector('.contrib-join').click();
+    assert.ok(await waitFor(() => view().querySelector('#up-form')), 'join card opens the IN-APP upload screen');
+
+    // Re-open contributors → still exactly one request (cache/SWR).
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    await openDrawer();
+    document.querySelector('#drawer-root [data-view="contributors"]').click();
+    await waitFor(() => view().querySelector('.contrib-card'));
+    assert.equal(calls.filter((c) => c.url.includes('/api/contributors')).length, 1, 'revisit costs zero traffic');
+
+    // ── Drawer → Links: static in-app list; only the tapped portal is external ──
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    await openDrawer();
+    document.querySelector('#drawer-root [data-view="links"]').click();
+    assert.ok(await waitFor(() => view().querySelector('.link-item')), 'links rendered in-app');
+    assert.equal(view().querySelectorAll('.link-cat-head').length, 4, 'same four categories as the website');
+    const openedBeforeLinks = opened.length;
+    view().querySelector('.link-item[data-link-url]').click();
+    assert.equal(opened.length, openedBeforeLinks + 1, 'tapping a portal opens exactly one external intent');
+    assert.match(opened.at(-1), /^https:\/\/(dsmru|dsmnru|scholarship)/, 'external destination is the university portal itself');
+    assert.ok(!opened.some((u) => u.includes('dsmnru-pyq.netlify.app')), 'links screen never opens the PYQ website');
+
+    // ── Drawer → About: in-app screen with the external-destination audit ──
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    await openDrawer();
+    document.querySelector('#drawer-root [data-view="about"]').click();
+    assert.ok(await waitFor(() => view().querySelector('.about-hero')), 'about screen rendered in-app');
+    assert.match(text(view()), /Fully inside this app/, 'about lists what stays in-app');
+
+    // ── Home shortcuts are in-app navigations now (no browser hand-off) ──
+    document.querySelector('.tab[data-tab="home"]').click();
+    await waitFor(() => view().querySelector('.hero'));
+    const openedBeforeShortcuts = opened.length;
+    assert.ok(await waitFor(() => view().querySelector('.shortcut[data-i="0"]')), 'in-app shortcuts rendered');
+    view().querySelector('.shortcut[data-i="0"]').click(); // Upload a paper
+    assert.ok(await waitFor(() => view().querySelector('#up-form')), 'home shortcut opens the in-app upload screen');
+    assert.equal(opened.length, openedBeforeShortcuts, 'shortcuts never open the browser');
+
+    // ── Google button without a native layer → in-app explainer, no website ──
+    document.querySelector('.tab[data-tab="profile"]').click();
+    await waitFor(() => view().querySelector('.profile-card'));
+    const signOut = view().querySelector('[data-act="signout"]');
+    if (signOut) {
+      signOut.click();
+      await waitFor(() => document.querySelector('.sheet-root [data-confirm]'));
+      document.querySelector('.sheet-root [data-confirm]').click();
+      await waitFor(() => view().querySelector('[data-act="google"]'));
+    }
+    view().querySelector('[data-act="google"]').click();
+    assert.ok(await waitFor(() => {
+      const sheet = document.querySelector('.sheet-root');
+      return sheet && /Google sign-in/.test(text(sheet)) && /email/.test(text(sheet));
+    }), 'google fallback sheet opens in-app');
+    assert.ok(!/Open website to use Google/.test(text(document.querySelector('.sheet-root'))), 'NO website hand-off for Google');
   });
 }

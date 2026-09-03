@@ -18,6 +18,7 @@
   -->
   <div id="app">
     <header id="appbar" class="appbar">
+      <button id="appbar-menu" class="icon-btn" type="button" aria-label="Menu" aria-haspopup="dialog" hidden></button>
       <button id="appbar-back" class="icon-btn" type="button" aria-label="Back" hidden></button>
       <div id="appbar-title" class="appbar-title" aria-live="polite"></div>
       <div id="appbar-actions" class="appbar-actions"></div>
@@ -35,6 +36,9 @@
       <button class="tab" data-tab="profile" type="button"><span class="tab-ic"></span><span class="tab-lb">Profile</span></button>
     </nav>
   </div>
+
+  <!-- Side drawer mount (managed by js/drawer.js — app's navigation menu) -->
+  <div id="drawer-root" hidden></div>
 
   <div id="toasts" class="toast-root" role="status" aria-live="polite"></div>
   <div id="sheet-root"></div>

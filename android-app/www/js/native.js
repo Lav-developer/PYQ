@@ -3,9 +3,14 @@
  * (`DsmnruApp`, implemented in Java under android/app/src/main/java).
  *
  * It keeps the app genuinely "Android":
- *  - openExternal(): hand PDF/host links to the system (browser, Drive, PDF
- *    readers) — same destination as the website's window.open, no duplicate
- *    PDF storage, no app-private download of everything.
+ *  - pdfViewer(): the in-app PDF screen (native PdfRenderer + zoom/scroll,
+ *    progress and error states) — the FIRST thing "Open PDF" tries.
+ *  - googleSignIn(): the device's Google account chooser (Credential
+ *    Manager) → Google ID token for Firebase sign-in — no browser, no popup,
+ *    no website hand-off.
+ *  - openExternal(): hand genuinely-external links (university portals,
+ *    Drive landing pages, the explicitly-chosen website) to the system —
+ *    same destination as the website's window.open, no duplicate storage.
  *  - download(): direct .pdf links via Android's system DownloadManager into
  *    the public Downloads folder (system notification, resumable, permission
  *    free) — only when the user explicitly taps Download.
@@ -64,9 +69,58 @@ export const native = {
     }
   },
 
-  /** Open a direct PDF URL — Android resolves a PDF-capable app or browser. */
-  async openPdf(url) {
-    return this.openExternal(url);
+  /**
+   * Open a PDF INSIDE the app, in the native viewer screen
+   * (PdfViewerActivity: progress, zoom/scroll, back navigation, retry and
+   * open-external fallbacks). The direct `file`/`server1`/`file2`/`server2`
+   * URL is fetched by Android itself — no Cloudflare Worker traffic, no
+   * permanent download (the file lives in the system cache dir and is
+   * deleted when the viewer closes).
+   *
+   * Returns { ok: true } when the native viewer took over, or
+   * { ok: false, reason } when the environment has no native layer (plain
+   * browser preview / unit harness) so the caller can fall back to
+   * openExternal — never to the DSMNRU website.
+   */
+  async pdfViewer(url, title) {
+    const safe = httpUrl(url);
+    if (!safe) return { ok: false, reason: 'invalid-url' };
+    if (isNative() && typeof bridge.pdfView === 'function') {
+      try {
+        await bridge.pdfView({ url: safe, title: String(title || 'Paper') });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, reason: String((err && err.message) || err || 'viewer-error') };
+      }
+    }
+    return { ok: false, reason: 'unavailable' };
+  },
+
+  /**
+   * Android-native Google sign-in, first step: the device's own Google
+   * account chooser (Credential Manager) returns a Google ID token which the
+   * caller exchanges with Firebase (auth.signInWithGoogleCredential).
+   * Resolves { ok: true, idToken, nonce } on success, or
+   * { ok: false, code, message } with one of the machine codes below —
+   * notably GOOGLE_SIGNIN_NOT_CONFIGURED when this APK build lacks the
+   * Google client-ID configuration (never a website redirect).
+   */
+  async googleSignIn(nonce) {
+    if (isNative() && typeof bridge.googleSignIn === 'function') {
+      try {
+        const res = await bridge.googleSignIn({ nonce: String(nonce || '') });
+        if (res && res.idToken) return { ok: true, idToken: res.idToken, nonce: res.nonce || nonce || '' };
+        return { ok: false, code: 'GOOGLE_SIGNIN_UNAVAILABLE', message: 'Empty Google credential' };
+      } catch (err) {
+        const msg = String((err && err.message) || err || 'Google sign-in failed');
+        let code = 'GOOGLE_SIGNIN_UNAVAILABLE';
+        if (/GOOGLE_SIGNIN_NOT_CONFIGURED/.test(msg)) code = 'GOOGLE_SIGNIN_NOT_CONFIGURED';
+        else if (/GOOGLE_SIGNIN_CANCELLED/.test(msg)) code = 'GOOGLE_SIGNIN_CANCELLED';
+        else if (/GOOGLE_SIGNIN_NO_ACCOUNT/.test(msg)) code = 'GOOGLE_SIGNIN_NO_ACCOUNT';
+        return { ok: false, code, message: msg };
+      }
+    }
+    return { ok: false, code: 'GOOGLE_SIGNIN_UNAVAILABLE', message: 'Native Google sign-in not available here' };
   },
 
   /** Save a direct .pdf to the device Downloads via DownloadManager. */
