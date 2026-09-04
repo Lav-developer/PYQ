@@ -254,6 +254,21 @@ async function mockFetch(input, init) {
     );
   }
 
+  // FCM HTTP v1 send — captured so tests can assert the exact payload the
+  // Android app expects. fcmFailNext simulates a downstream rejection.
+  if (url.startsWith('https://fcm.googleapis.com/v1/projects/') && url.endsWith('/messages:send') && method === 'POST') {
+    fcmMessages.push(JSON.parse(init.body));
+    if (fcmFailNext) {
+      fcmFailNext = false;
+      return new Response(JSON.stringify({ error: { status: 'PERMISSION_DENIED', message: 'internal credential detail' } }), {
+        status: 403, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ name: 'projects/dsmnru-data/messages/0:mock' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   if (url.includes(':runQuery') && method === 'POST') {
     const body = JSON.parse(init.body);
     const collectionId = body.structuredQuery.from[0].collectionId;
@@ -364,6 +379,18 @@ const firebaseAdminToken = await new SignJWT({ admin: true })
   .setExpirationTime('1h')
   .sign(testKeyPair.privateKey);
 
+const firebaseNonAdminToken = await new SignJWT({})
+  .setProtectedHeader({ alg: 'RS256', kid: firebaseTestJwk.kid })
+  .setIssuer('https://securetoken.google.com/dsmnru-data')
+  .setAudience('dsmnru-data')
+  .setSubject('test-user')
+  .setIssuedAt()
+  .setExpirationTime('1h')
+  .sign(testKeyPair.privateKey);
+
+const fcmMessages = [];
+let fcmFailNext = false;
+
 const env = {
   PYQ_CACHE: mockKV,
   FIREBASE_PROJECT_ID: 'dsmnru-data',
@@ -388,6 +415,7 @@ let failCount = 0;
 async function request(path, opts = {}) {
   const url = 'https://test.example.com' + path;
   const init = { method: opts.method || 'GET', headers: opts.headers || {} };
+  if (opts.body !== undefined) init.body = opts.body;
   if (opts.origin) init.headers['Origin'] = opts.origin;
   return worker.fetch(new Request(url, init), env, opts.ctx || {});
 }
@@ -772,8 +800,98 @@ console.log('15. Admin invalidation (stale-while-revalidate)');
     `reads now ${firestoreStats.pyqs}`);
 }
 
-// 16. Public server-rendered SEO pages and sitemap
-console.log('16. Public SEO pages + sitemap (KV-first)');
+// 16. Admin push notifications (FCM topic send)
+console.log('16. Admin push notifications (FCM topic send)');
+{
+  const authHeaders = (token) => ({ 'Content-Type': 'application/json', Authorization: `Bearer ${token}` });
+  const payload = (over) => JSON.stringify({ title: 'New paper added', body: 'DBMS paper is live.', path: '/pyq/dbms-2023', ...over });
+
+  {
+    // Auth + validation first (rate limiter allows this group within one window).
+    freshState();
+    fcmMessages.length = 0;
+    const noAuth = await request('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload({}) });
+    await expectJson(noAuth, 401, 'POST /api/notify (no token)');
+
+    const nonAdmin = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseNonAdminToken), body: payload({}) });
+    await expectJson(nonAdmin, 401, 'POST /api/notify (non-admin token)');
+
+    const badJson = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: 'not-json' });
+    await expectJson(badJson, 400, 'POST /api/notify (malformed JSON body)');
+
+    const empty = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: '{}' });
+    await expectJson(empty, 400, 'POST /api/notify (empty payload)');
+
+    const tooLong = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: payload({ title: 'x'.repeat(200) }) });
+    await expectJson(tooLong, 400, 'POST /api/notify (title too long)');
+
+    const badPath = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: payload({ path: 'https://evil.example' }) });
+    await expectJson(badPath, 400, 'POST /api/notify (path must be site-relative)');
+  }
+
+  {
+    // Valid send → exact Android contract.
+    freshState();
+    fcmMessages.length = 0;
+    const okRes = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: payload({}) });
+    const okData = await expectJson(okRes, 200, 'POST /api/notify (valid send)');
+    check('response reports a sent topic message', okData && okData.sent === true && okData.topic === 'all_users');
+    check('exactly one FCM request was made', fcmMessages.length === 1, `sent=${fcmMessages.length}`);
+    const msg = fcmMessages[0] && fcmMessages[0].message;
+    check('FCM message targets the all_users topic', msg && msg.topic === 'all_users');
+    check('payload uses notification.title / notification.body',
+      msg && msg.notification && msg.notification.title === 'New paper added' && msg.notification.body === 'DBMS paper is live.');
+    check('deep link rides in data.path', msg && msg.data && msg.data.path === '/pyq/dbms-2023');
+    check('android message sets HIGH priority + the app channel',
+      msg && msg.android && msg.android.priority === 'HIGH'
+      && msg.android.notification && msg.android.notification.channel_id === 'dsmnru_general');
+
+    // Duplicate send within cooldown is rejected (double-click guard).
+    const dupRes = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: payload({}) });
+    await expectJson(dupRes, 429, 'POST /api/notify (immediate duplicate)');
+    check('duplicate did not hit FCM again', fcmMessages.length === 1);
+  }
+
+  {
+    // Path omitted → message must NOT include a data.path key.
+    freshState();
+    fcmMessages.length = 0;
+    const noPathRes = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: JSON.stringify({ title: 'Hi', body: 'There' }) });
+    await expectJson(noPathRes, 200, 'POST /api/notify (no deep link)');
+    const msg = fcmMessages[0] && fcmMessages[0].message;
+    check('no data.path key when omitted', msg && !('data' in msg));
+  }
+
+  {
+    // Downstream FCM failure → safe 502, no internals leaked.
+    freshState();
+    fcmMessages.length = 0;
+    fcmFailNext = true;
+    const failRes = await request('/api/notify', { method: 'POST', headers: authHeaders(firebaseAdminToken), body: payload({}) });
+    const failData = await expectJson(failRes, 502, 'POST /api/notify (FCM rejects)');
+    const serialized = JSON.stringify(failData || {});
+    check('safe error, no upstream/credential detail leaked',
+      failData && !serialized.includes('PERMISSION_DENIED') && !serialized.includes('internal credential detail'));
+  }
+
+  {
+    // Sanitizer regression: angle brackets in title/body are stripped.
+    freshState();
+    fcmMessages.length = 0;
+    const badTagRes = await request('/api/notify', {
+      method: 'POST',
+      headers: authHeaders(firebaseAdminToken),
+      body: JSON.stringify({ title: '<b>Hi</b> & x', body: 'body <script>alert(1)</script>' }),
+    });
+    await expectJson(badTagRes, 200, 'POST /api/notify (sanitize markup)');
+    const msg = fcmMessages[0] && fcmMessages[0].message;
+    check('title/body are stripped of angle brackets',
+      msg && msg.notification.title === 'bHi/b & x' && msg.notification.body === 'body scriptalert(1)/script');
+  }
+}
+
+// 17. Public server-rendered SEO pages and sitemap
+console.log('17. Public SEO pages + sitemap (KV-first)');
 {
   const originalPyqs = PYQS;
   const title = 'B.Tech 4th Sem Algorithms {2023-24}';

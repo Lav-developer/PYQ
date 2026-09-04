@@ -2354,6 +2354,7 @@ const ADMIN_VIEWS = {
     'contributors':  { title: 'Contributors', load: function () { window.loadContributorsOnDemand(); } },
     'users':         { title: 'Users',        load: function () { window.loadUsersOnDemand(); } },
     'feedback':      { title: 'Feedback',     load: function () { window.loadFeedbackOnDemand(); } },
+    'notifications': { title: 'Notifications', load: function () { renderNotificationsView(); } },
     'rewards':       { title: 'Rewards',      load: function () { loadRewards(); } },
     'settings':      { title: 'Settings',     load: function () { renderSettings(); } }
 };
@@ -2604,6 +2605,141 @@ async function runCacheInvalidation() {
     }
 }
 
+// ── Notifications: send an FCM topic push from the Worker ───────────
+// The Android app subscribes to the single `all_users` topic; the Worker
+// verifies the admin Firebase ID token server-side before dispatching.
+// This form only drives that one server endpoint — no token storage, no
+// campaign system, no extra collections.
+
+function escapeNotificationText(value) {
+    return escapeHtml(String(value || ''));
+}
+
+function renderNotificationsPreview() {
+    const titleEl = document.getElementById('notificationPreviewTitle');
+    const bodyEl = document.getElementById('notificationPreviewBody');
+    const pathEl = document.getElementById('notificationPreviewPath');
+    if (!titleEl || !bodyEl || !pathEl) return;
+
+    const title = (document.getElementById('notificationTitle') || {}).value || '';
+    const body = (document.getElementById('notificationBody') || {}).value || '';
+    const path = (document.getElementById('notificationPath') || {}).value || '';
+
+    titleEl.textContent = title.trim() || 'Notification Title';
+    titleEl.classList.toggle('is-placeholder', !title.trim());
+    bodyEl.textContent = body.trim() || 'Message preview appears here as you type…';
+    bodyEl.classList.toggle('is-placeholder', !body.trim());
+    pathEl.textContent = path.trim() ? 'Tap → ' + path.trim() : 'No deep link';
+    pathEl.classList.toggle('is-placeholder', !path.trim());
+}
+
+function renderNotificationsView() {
+    renderNotificationsPreview();
+    // Keep the result state visible if the admin navigates away and back.
+}
+
+function showNotificationError(message) {
+    const errorEl = document.getElementById('notificationError');
+    const successEl = document.getElementById('notificationSuccess');
+    if (!errorEl) return;
+    errorEl.textContent = message;
+    errorEl.style.display = message ? 'block' : 'none';
+    if (successEl) successEl.style.display = 'none';
+}
+
+function showNotificationSuccess(message) {
+    const successEl = document.getElementById('notificationSuccess');
+    const errorEl = document.getElementById('notificationError');
+    if (!successEl) return;
+    const textEl = document.getElementById('notificationSuccessText');
+    if (textEl) textEl.textContent = message;
+    successEl.style.display = 'block';
+    if (errorEl) errorEl.style.display = 'none';
+}
+
+function setNotificationSending(sending) {
+    const button = document.getElementById('notificationSendBtn');
+    if (!button) return;
+    button.disabled = sending;
+    const label = button.querySelector('.btn-label');
+    if (label) label.textContent = sending ? 'Sending…' : 'Send Notification';
+    button.classList.toggle('btn-loading', sending);
+    if (sending) button.setAttribute('aria-busy', 'true');
+    else button.removeAttribute('aria-busy');
+}
+
+async function sendNotification() {
+    if (!auth || !auth.currentUser) {
+        showNotificationError('You are not signed in. Sign in as an admin before sending notifications.');
+        return { ok: false };
+    }
+
+    const title = (document.getElementById('notificationTitle') || {}).value || '';
+    const body = (document.getElementById('notificationBody') || {}).value || '';
+    const path = (document.getElementById('notificationPath') || {}).value || '';
+
+    // Client-side validation mirrors the Worker (server re-validates too).
+    if (!title.trim() || !body.trim()) {
+        showNotificationError('Both a notification title and message are required.');
+        return { ok: false };
+    }
+    if (title.trim().length > 120 || body.trim().length > 300) {
+        showNotificationError('Title must be ≤120 characters and message ≤300 characters.');
+        return { ok: false };
+    }
+    if (path.trim() && !/^\/[A-Za-z0-9\-._~%/?=&+#:]*$/.test(path.trim())) {
+        showNotificationError('Optional URL must start with "/" and contain only URL-safe characters.');
+        return { ok: false };
+    }
+
+    setNotificationSending(true);
+    showNotificationError('');
+
+    try {
+        const idToken = await auth.currentUser.getIdToken(true);
+        const response = await fetch(API_BASE_URL + '/notify', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + idToken
+            },
+            body: JSON.stringify({
+                title: title.trim(),
+                body: body.trim(),
+                path: path.trim() || undefined
+            })
+        });
+
+        let data = null;
+        try { data = await response.json(); } catch (e) { /* non-JSON */ }
+
+        if (response.ok) {
+            showNotificationSuccess(
+                'Notification sent — FCM accepted it for all subscribed Android devices.'
+                + (data && data.messageId ? ' (' + data.messageId + ')' : '')
+            );
+            return { ok: true, data: data };
+        }
+        if (response.status === 429) {
+            showNotificationError(
+                (data && data.error) || 'Please wait a moment — a notification was just sent.'
+            );
+        } else if (response.status === 401) {
+            showNotificationError('Unauthorized: this account does not have the admin claim required to send notifications.');
+        } else if (response.status === 400) {
+            showNotificationError((data && data.error) || 'The notification was rejected: check title, message and URL.');
+        } else {
+            showNotificationError((data && data.error) || 'Notification service error (HTTP ' + response.status + '). Nothing was sent.');
+        }
+        return { ok: false, status: response.status, data: data };
+    } catch (error) {
+        showNotificationError('Could not reach the notification service: ' + escapeNotificationText(error.message));
+        return { ok: false };
+    } finally {
+        setNotificationSending(false);
+    }
+}
+
 window.showAdminView = showAdminView;
 window.toggleAdminSidebar = toggleAdminSidebar;
 window.closeAdminSidebar = closeAdminSidebar;
@@ -2612,10 +2748,39 @@ window.loadDashboardCount = loadDashboardCount;
 window.loadRewards = loadRewards;
 window.renderSettings = renderSettings;
 window.runCacheInvalidation = runCacheInvalidation;
+window.renderNotificationsView = renderNotificationsView;
+window.renderNotificationsPreview = renderNotificationsPreview;
+window.sendNotification = sendNotification;
+
+// Bind the Notifications workspace. Bound at parse time (admin.js is
+// deferred, so the DOM is ready) so it also works under the jsdom test
+// harness, where a DOMContentLoaded listener may have already fired.
+(function initNotificationsWorkspace() {
+    const form = document.getElementById('notificationForm');
+    if (form && !form.dataset.notificationsBound) {
+        form.dataset.notificationsBound = '1';
+        form.addEventListener('submit', function (event) {
+            event.preventDefault();
+            sendNotification();
+        });
+        ['notificationTitle', 'notificationBody', 'notificationPath'].forEach(function (id) {
+            const input = document.getElementById(id);
+            if (input) input.addEventListener('input', renderNotificationsPreview);
+        });
+    }
+    const settingsLogout = document.getElementById('settingsLogoutBtn');
+    if (settingsLogout && !settingsLogout.dataset.notificationsBound) {
+        settingsLogout.dataset.notificationsBound = '1';
+        settingsLogout.addEventListener('click', function () { auth.signOut(); });
+    }
+})();
 
 document.addEventListener('DOMContentLoaded', function () {
     const settingsLogout = document.getElementById('settingsLogoutBtn');
-    if (settingsLogout) settingsLogout.addEventListener('click', function () { auth.signOut(); });
+    if (settingsLogout && !settingsLogout.dataset.notificationsBound) {
+        settingsLogout.dataset.notificationsBound = '1';
+        settingsLogout.addEventListener('click', function () { auth.signOut(); });
+    }
 
     window.addEventListener('hashchange', function () {
         const name = window.location.hash.replace('#', '');

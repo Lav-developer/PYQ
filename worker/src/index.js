@@ -11,6 +11,8 @@
  *   GET /api/homepage        — Homepage summary (recent, trending, course counts)
  *   GET /api/stats           — Aggregated stats
  *   POST /api/invalidate     — Invalidate cache (Firebase admin-token only)
+ *   POST /api/notify         — Send FCM push to Android `all_users` topic
+ *                             (Firebase admin-token only, validated body)
  *   GET /pyq/:slug           — Server-rendered, crawlable public PYQ page
  *   GET /sitemap.xml         — Dynamic sitemap from the KV search index
  *
@@ -44,8 +46,11 @@ import {
 import { checkRateLimit, getClientIP, normalizeEndpoint } from './rateLimit.js';
 import {
   sanitizeSearchQuery, parsePagination, validateSort,
-  validateFilters, isValidDocId,
+  validateFilters, isValidDocId, parseJSONBody,
 } from './validation.js';
+import {
+  NOTIFICATION_TOPIC, validateNotificationPayload, sendTopicNotification,
+} from './fcm.js';
 import { handleOptions, withCors } from './cors.js';
 import { isSafePyqSlug } from './slug.js';
 import {
@@ -187,7 +192,9 @@ async function handleRequest(request, ctx) {
     }
   }
 
-  if (method !== 'GET' && path !== '/api/invalidate') {
+  // POST-only admin routes. Everything else on the API is GET.
+  const WRITABLE_ROUTES = new Set(['/api/invalidate', '/api/notify']);
+  if (method !== 'GET' && !WRITABLE_ROUTES.has(path)) {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
@@ -226,6 +233,8 @@ async function handleRequest(request, ctx) {
       response = await handleStats(ctx);
     } else if (path === '/api/invalidate' && method === 'POST') {
       response = await handleInvalidate(request);
+    } else if (path === '/api/notify' && method === 'POST') {
+      response = await handleNotify(request);
     } else {
       response = jsonResponse({ error: 'Not found' }, 404);
     }
@@ -612,6 +621,74 @@ async function handleInvalidate(request) {
     status: 'ok',
     message: 'Cache invalidated'
   }, 200);
+}
+
+// ─── Admin push notifications (FCM topic → Android app) ─────────────
+//
+// The Android app subscribes every install to the single `all_users`
+// topic; there is intentionally NO per-device token database on either
+// branch. The Worker sends one HTTP v1 message to that topic after
+// verifying a Firebase ID token with the admin claim.
+
+/** Accidental-repeat guard: one successful send per admin per window. */
+const NOTIFY_COOLDOWN_SECONDS = 30;
+
+async function handleNotify(request) {
+  const admin = await verifyFirebaseAdminToken(request);
+  if (!admin) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  const body = await parseJSONBody(request);
+  const validated = validateNotificationPayload(body);
+  if (!validated.ok) {
+    return jsonResponse({ error: validated.error }, 400);
+  }
+
+  // Secondary guard against double-clicks / duplicate sends, independent of
+  // the IP rate limiter (an admin token can be used from multiple admins).
+  const cooldownKey = `notify:cooldown:${admin.sub || 'unknown'}`;
+  if (typeof PYQ_CACHE !== 'undefined') {
+    const waiting = await PYQ_CACHE.get(cooldownKey, 'text');
+    if (waiting) {
+      return jsonResponse({
+        error: 'A notification was just sent from this admin account. Please wait a moment before sending another.',
+        retryAfter: NOTIFY_COOLDOWN_SECONDS,
+      }, 429, {
+        'Retry-After': String(NOTIFY_COOLDOWN_SECONDS),
+      });
+    }
+  }
+
+  try {
+    const result = await sendTopicNotification({
+      title: validated.title,
+      body: validated.body,
+      path: validated.path,
+    });
+
+    if (typeof PYQ_CACHE !== 'undefined') {
+      await PYQ_CACHE.put(cooldownKey, '1', { expirationTtl: NOTIFY_COOLDOWN_SECONDS });
+    }
+
+    return jsonResponse({
+      status: 'ok',
+      sent: true,
+      topic: NOTIFICATION_TOPIC,
+      messageId: result.messageId,
+      note: 'FCM accepted the notification for the all_users topic. FCM does not report subscriber counts, so if no Android install has the app yet, it will simply not reach any device.',
+    }, 200);
+  } catch (error) {
+    console.error('Notification send failed:', error.message);
+    if (error.status === 401 || error.status === 403) {
+      return jsonResponse({
+        error: 'Notification service credentials are not configured or are not authorized for this project.',
+      }, 502);
+    }
+    return jsonResponse({
+      error: 'Notification service is temporarily unavailable. No notification was sent.',
+    }, 502);
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

@@ -1,11 +1,17 @@
 /**
- * Firestore OAuth2 authentication for Cloudflare Workers.
+ * Service-account OAuth2 authentication for Cloudflare Workers.
  * Generates short-lived access tokens from a Google service account
  * using the JWT bearer flow and the Web Crypto API.
+ *
+ * The default scope covers Firestore (datastore) and cloud-platform, which
+ * also authorizes the FCM HTTP v1 API. Callers may pass an explicit scope
+ * (e.g. the firebase.messaging scope); the token cache is keyed per scope so
+ * concurrent Firestore + FCM calls never reuse the wrong credential.
  */
 
-let cachedToken = null;
-let tokenExpiry = 0;
+const DEFAULT_SCOPES = 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/cloud-platform';
+
+const tokenCache = new Map(); // scope → { token, expiry }
 
 function base64UrlEncode(str) {
   return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -34,11 +40,13 @@ function pemToArrayBuffer(pem) {
   return buffer;
 }
 
-export async function getAccessToken() {
+export async function getAccessToken(scope) {
   const now = Math.floor(Date.now() / 1000);
+  const scopes = typeof scope === 'string' && scope.trim() ? scope.trim() : DEFAULT_SCOPES;
 
-  if (cachedToken && tokenExpiry > now + 300) {
-    return cachedToken;
+  const cached = tokenCache.get(scopes);
+  if (cached && cached.expiry > now + 300) {
+    return cached.token;
   }
 
   const serviceAccountJson = FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -61,7 +69,7 @@ export async function getAccessToken() {
   const header = { alg: 'RS256', typ: 'JWT' };
   const claim = {
     iss: client_email,
-    scope: 'https://www.googleapis.com/auth/datastore https://www.googleapis.com/auth/cloud-platform',
+    scope: scopes,
     aud: 'https://oauth2.googleapis.com/token',
     exp: now + 3600,
     iat: now,
@@ -107,13 +115,15 @@ export async function getAccessToken() {
   }
 
   const tokenData = await tokenResponse.json();
-  cachedToken = tokenData.access_token;
-  tokenExpiry = now + (tokenData.expires_in || 3600) - 60;
+  const accessToken = tokenData.access_token;
+  tokenCache.set(scopes, {
+    token: accessToken,
+    expiry: now + (tokenData.expires_in || 3600) - 60,
+  });
 
-  return cachedToken;
+  return accessToken;
 }
 
 export function clearTokenCache() {
-  cachedToken = null;
-  tokenExpiry = 0;
+  tokenCache.clear();
 }

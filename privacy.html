@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy — DSMNRU PYQ Archive</title>
+    <meta name="description" content="How the DSMNRU PYQ archive handles your data: accounts, uploads, analytics, push notifications, third-party services, retention and your choices.">
+    <link rel="icon" href="/img/icon-192.png" type="image/png">
+    <link rel="shortcut icon" href="/img/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/fontawesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/solid.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+
+    <!-- Static legal content — no Firebase or analytics SDK is loaded on
+         this page to render it. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="stylesheet" href="styles.css">
+
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://dsmnru-pyq.netlify.app/privacy.html">
+    <link rel="alternate" hreflang="en" href="https://dsmnru-pyq.netlify.app/privacy.html">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/img/icon-192.png">
+    <meta name="theme-color" content="#0f172a">
+    <meta property="og:site_name" content="DSMNRU PYQ Archive">
+    <meta property="og:locale" content="en_IN">
+    <meta property="og:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png">
+    <meta property="og:title" content="Privacy Policy — DSMNRU PYQ Archive">
+    <meta property="og:description" content="How the DSMNRU PYQ archive uses and protects your data.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://dsmnru-pyq.netlify.app/privacy.html">
+    <meta name="twitter:title" content="Privacy Policy — DSMNRU PYQ Archive">
+    <meta name="twitter:description" content="How the DSMNRU PYQ archive uses and protects your data.">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Privacy Policy","description":"Privacy policy for the DSMNRU PYQ archive.","url":"https://dsmnru-pyq.netlify.app/privacy.html","isPartOf":{"@type":"WebSite","name":"DSMNRU PYQ Archive","url":"https://dsmnru-pyq.netlify.app/"}}</script>
+</head>
+<body>
+    <header class="header-container">
+        <div class="container">
+            <div class="header-content">
+                <div class="header-top">
+                    <h1><i class="fas fa-graduation-cap"></i> DSMNRU Archive</h1>
+                </div>
+                <p class="subtitle">How the DSMNRU PYQ archive uses and protects your data.</p>
+                <div class="page-nav" aria-label="Site sections">
+                    <a class="page-nav-link" href="/"><i class="fas fa-file-alt"></i> PYQs</a>
+                    <a class="page-nav-link" href="download.html"><i class="fas fa-download"></i> Download App</a>
+                    <a class="page-nav-link" href="terms.html"><i class="fas fa-file-contract"></i> Terms</a>
+                    <a class="page-nav-link active" href="privacy.html"><i class="fas fa-user-shield"></i> Privacy</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mt-4">
+        <section class="content-section py-5">
+            <div class="container legal-doc">
+                <div class="section-header">
+                    <h2><i class="fas fa-user-shield"></i> Privacy Policy</h2>
+                    <p class="section-description">This policy describes what data the DSMNRU PYQ archive collects, why, and the choices you have. It reflects the services currently implemented by the website and the Android app.</p>
+                </div>
+
+                <p class="legal-updated"><i class="fas fa-calendar-alt me-1"></i> Effective / Last updated: 4 September 2026</p>
+
+                <section class="legal-section" aria-labelledby="p-collected">
+                    <h2 class="legal-heading" id="p-collected">1. Information We Collect</h2>
+                    <ul class="legal-list">
+                        <li><strong>Account data</strong> — if you create an account: email address, and your profile fields (name, course, phone number if you add them). Sign-in is handled by Firebase Authentication (email/password, and Google Sign-In where enabled).</li>
+                        <li><strong>Contribution data</strong> — when you upload a paper or images: your name and email (as entered), the file content, and the submission's review state.</li>
+                        <li><strong>Feedback data</strong> — the content of Request PYQ / Report broken link submissions, plus the optional email you provide.</li>
+                        <li><strong>Points data</strong> — reward balances and transaction history tied to your email or account.</li>
+                        <li><strong>Device information (Android app)</strong> — an FCM registration token used only to deliver push notifications to your device; it is stored on your device, not in our database. The Android app also links to Firebase Analytics at the library level (see Section 4).</li>
+                        <li><strong>Technical logs</strong> — web hosting and API infrastructure (Netlify, Cloudflare, Google) keep standard server logs, and the Cloudflare Worker uses short-lived counters keyed by request IP for rate limiting. These expire automatically.</li>
+                    </ul>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-use">
+                    <h2 class="legal-heading" id="p-use">2. How We Use Information</h2>
+                    <ul class="legal-list">
+                        <li>To provide the archive: showing papers, search, previews, downloads and the Android app.</li>
+                        <li>To review and publish submissions you upload.</li>
+                        <li>To respond to feedback, requests and reports.</li>
+                        <li>To maintain your profile, saved papers, recent history and contribution points.</li>
+                        <li>To send push notifications if you install the Android app and allow them.</li>
+                        <li>To keep the service secure, prevent abuse and understand aggregate usage.</li>
+                    </ul>
+                    <p class="legal-body">We do not sell personal data. The project is not affiliated with DSMNRU University.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-auth">
+                    <h2 class="legal-heading" id="p-auth">3. Authentication &amp; Account Data</h2>
+                    <p class="legal-body">Accounts use Firebase Authentication (project <code>dsmnru-data</code>) with email/password and Google Sign-In available on the website and in the Android app. Your profile document is stored in Firestore under your account ID. You can view your profile in the app/website; administrators can see account records needed to operate the archive.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-uploads">
+                    <h2 class="legal-heading" id="p-uploads">4. Uploaded Content</h2>
+                    <p class="legal-body">When you submit a paper, the PDF/images are first uploaded to <strong>gofile.io</strong>, a third-party file-hosting service, and the resulting link plus your name/email is stored in the archive's review queue. After approval the item appears publicly in the archive. <strong>Do not upload files containing personal or confidential information you do not want shared</strong> — papers may be publicly visible.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-analytics">
+                    <h2 class="legal-heading" id="p-analytics">5. Analytics</h2>
+                    <p class="legal-body">The <strong>website does not currently load an analytics script</strong> — the site deliberately removed Firebase Analytics / GA tracking to reduce data collection and Firestore reads. The Firebase configuration file still contains a measurement ID string, but no analytics SDK is loaded on the site.</p>
+                    <p class="legal-body">The <strong>Android app</strong> includes the Firebase Analytics library as part of its Firebase setup. We have not implemented any custom analytics dashboards; analytics data, where collected, is processed by Google under Firebase's terms.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-push">
+                    <h2 class="legal-heading" id="p-push">6. Push Notifications</h2>
+                    <p class="legal-body">The Android app uses Firebase Cloud Messaging. The FCM registration token stays on your device; the app subscribes your install to a single shared notification topic. The backend does not store per-device tokens. Notifications are only shown if you grant Android's notification permission (asked once on Android 13+). You can turn notifications off at any time in your device's app settings.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-device">
+                    <h2 class="legal-heading" id="p-device">7. Device &amp; Technical Information</h2>
+                    <p class="legal-body">Standard technical data (browser/OS type [where visible to our hosts], IP address used for rate limiting and security, cache keys) is handled by the hosting providers (Netlify, Cloudflare, Google). The website stores small amounts of data in your browser for caching (service worker cache, session/local storage for search and session state) so the archive loads fast; this data stays in your browser until you clear it. No third-party advertising or tracking cookies are used.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-thirdparty">
+                    <h2 class="legal-heading" id="p-thirdparty">8. Third-Party Services</h2>
+                    <ul class="legal-list">
+                        <li><strong>Firebase</strong> (Google) — Authentication, Firestore, Cloud Messaging, Storage/Analytics — see Google's Privacy Policy.</li>
+                        <li><strong>Cloudflare Workers</strong> — API hosting, KV cache and rate limiting.</li>
+                        <li><strong>Netlify</strong> — static website hosting.</li>
+                        <li><strong>gofile.io</strong> — temporary file storage for uploaded papers.</li>
+                        <li><strong>WhatsApp channel</strong> — external link; WhatsApp is not operated by us.</li>
+                    </ul>
+                    <p class="legal-body">Each provider handles data under its own terms and privacy policy.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-retention">
+                    <h2 class="legal-heading" id="p-retention">9. Data Retention</h2>
+                    <ul class="legal-list">
+                        <li>Submitted content stays in the review queue until reviewed, then remains while the archive holds the paper (or until removed).</li>
+                        <li>Account, profile, points and feedback records stay until you ask us to remove them or until the Service is discontinued.</li>
+                        <li>Server logs and rate-limit counters are short-lived and expire automatically.</li>
+                        <li>We do not delete content merely because you close an account if it is part of the public archive (for example, a paper you contributed) — contact us if you want such material reviewed.</li>
+                    </ul>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-security">
+                    <h2 class="legal-heading" id="p-security">10. Security Practices</h2>
+                    <p class="legal-body">Access to the admin panel is protected by Firebase Authentication and Firestore security rules, and the API only accepts admin actions after verifying a signed Firebase ID token with an admin claim on the server. Firebase service-account credentials are kept only as server-side secrets (never in the site's code or public documents). No system is perfectly secure; please report suspected issues through the contact channels below.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-choices">
+                    <h2 class="legal-heading" id="p-choices">11. Your Choices &amp; Controls</h2>
+                    <ul class="legal-list">
+                        <li>Browse without an account — most public archive content is visible without signing in (some features require a verified account).</li>
+                        <li>Edit profile information from your profile page.</li>
+                        <li>Stop push notifications in the Android app settings or your device's app notifications settings.</li>
+                        <li>Clear browser cache/storage to remove locally cached data.</li>
+                        <li>Ask us to review or remove your submissions/feedback (subject to Section 9).</li>
+                    </ul>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-delete">
+                    <h2 class="legal-heading" id="p-delete">12. Account &amp; Data Deletion</h2>
+                    <p class="legal-body">The website and app do not currently offer a self-service "delete my account" button. To request deletion of your account or related personal data, contact us via the feedback forms or the GitHub repository (Section 15). We will verify the request and delete or anonymize what we can within a reasonable time. Purely technical measures to protect against abuse or legal requirements may still keep limited records.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-notifications-controls">
+                    <h2 class="legal-heading" id="p-notifications-controls">13. Notification Controls</h2>
+                    <p class="legal-body">On Android, the app asks for the system notification permission once (Android 13+). You can grant or deny it, and change it later in Settings → Apps → DSMNRU PYQ → Notifications. When denied, the app still works normally; notifications simply don't appear.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-children">
+                    <h2 class="legal-heading" id="p-children">14. Children's Privacy</h2>
+                    <p class="legal-body">The Service is an educational resource for students. It is not directed at children under 13, and we do not knowingly collect personal information from children under 13. If you believe a child has provided us personal data, contact us and we will take steps to delete it.</p>
+                </section>
+
+                <section class="legal-section" aria-labelledby="p-changes">
+                    <h2 class="legal-heading" id="p-changes">15. Changes to This Policy &amp; Contact</h2>
+                    <p class="legal-body">We may update this policy as the Service changes. The newest version is always on this page with its "Last updated" date. Questions, requests and data-deletion requests can be sent through:</p>
+                    <ul class="legal-list">
+                        <li>The in-site <strong>Request PYQ</strong> / <strong>Report broken link</strong> forms (Feedback inbox),</li>
+                        <li>The WhatsApp channel linked in the footer, or</li>
+                        <li>The project repository: <a href="https://github.com/Lav-developer/PYQ" target="_blank" rel="noopener">github.com/Lav-developer/PYQ</a>.</li>
+                    </ul>
+                </section>
+
+                <nav class="legal-links mt-4" aria-label="Legal pages">
+                    <a href="terms.html"><i class="fas fa-file-contract me-1"></i> Terms &amp; Conditions</a>
+                    <a href="download.html"><i class="fas fa-download me-1"></i> Download App</a>
+                </nav>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for students.</p>
+            <nav class="footer-links" aria-label="Footer">
+                <a href="/">Home</a>
+                <a href="download.html">Download App</a>
+                <a href="privacy.html">Privacy Policy</a>
+                <a href="terms.html">Terms &amp; Conditions</a>
+            </nav>
+            <div class="social-links">
+                <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp" aria-label="WhatsApp"><i class="fas fa-comments"></i></a>
+            </div>
+        </div>
+    </footer>
+</body>
+</html>

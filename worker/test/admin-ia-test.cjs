@@ -89,6 +89,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   db.FieldValue = { serverTimestamp: () => ts(), increment: (n) => n };
 
   const apiCalls = [];
+  const notifyCalls = [];
   const authMock = {
     _l: [], currentUser: null,
     onAuthStateChanged(cb) { this._l.push(cb); return () => {}; },
@@ -104,15 +105,25 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   window.alert = () => {}; window.confirm = () => true; window.prompt = () => '';
   window.Papa = { parse: () => ({ data: [] }), unparse: () => '' };
   window.DSMNRU_API_URL = 'https://worker.example/api';
-  window.fetch = async (url) => {
+  window.fetch = async (url, init = {}) => {
     const href = String(url);
     apiCalls.push(href);
     const u = new URL(href);
+    const method = String(init.method || 'GET').toUpperCase();
+    const headers = new Headers(init.headers || {});
     const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
     if (u.pathname === '/api/homepage') {
       return json({ recent: [{ id: 'pyq1', title: 'DBMS', course: 'B.Tech', semester: '4th', session: '2024-25' }], trending: [], courseCounts: [], stats: { totalPyqs: 311, totalCourses: 9 } });
     }
     if (u.pathname === '/api/pyqs') return json({ items: [{ id: 'pyq1', title: 'DBMS', course: 'B.Tech CSE', semester: '4th' }], total: 1, page: 1, limit: 100, totalPages: 1 });
+    if (u.pathname === '/api/notify' && method === 'POST') {
+      notifyCalls.push({
+        body: JSON.parse(init.body || '{}'),
+        authorization: headers.get('Authorization'),
+      });
+      await wait(40); // keep the button disabled long enough to assert loading state
+      return json({ status: 'ok', sent: true, topic: 'all_users', messageId: 'mock:1' }, 200);
+    }
     return json({ error: 'not found' }, 404);
   };
   window.firebase = { apps: [{}], initializeApp: () => window.firebase, firestore: () => db, storage: () => ({ ref: () => ({}) }), auth: () => authMock };
@@ -136,9 +147,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   console.log('1. Sidebar navigation');
   const navItems = qa('.admin-nav-item');
   check('persistent sidebar exists', !!q('#adminSidebar'));
-  check('all 9 destinations are present, in order',
+  check('all 11 destinations are present, in order',
     navItems.map((i) => i.getAttribute('data-view')).join(',') ===
-    'dashboard,pyqs,add-pyq,bulk-import,review,contributors,users,feedback,rewards,settings',
+    'dashboard,pyqs,add-pyq,bulk-import,review,contributors,users,feedback,notifications,rewards,settings',
     navItems.map((i) => i.getAttribute('data-view')).join(','));
   check('PYQ Management is a labelled group', /PYQ Management/.test(q('#adminNav').textContent));
   check('the group holds All PYQs / Add PYQ / Bulk Import as sub-items',
@@ -146,8 +157,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   check('Review Queue carries a pending badge', !!q('#navPendingBadge'));
 
   console.log('\n2. Views & routing');
-  check('one view per destination', qa('.admin-view').length === 10, String(qa('.admin-view').length));
-  await authMock.emit({ uid: 'admin', email: 'admin@dsmnru.test', emailVerified: true, reload: () => Promise.resolve() });
+  check('one view per destination', qa('.admin-view').length === 11, String(qa('.admin-view').length));
+  await authMock.emit({ uid: 'admin', email: 'admin@dsmnru.test', emailVerified: true, reload: () => Promise.resolve(), getIdToken: () => Promise.resolve('mock-admin-token') });
   await wait(120);
   check('signing in opens the Dashboard', activeViews().join() === 'dashboard', activeViews().join());
   check('the Dashboard itself performs no pyqs read (duplicate matching is Review-Queue only)',
@@ -224,7 +235,59 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     qa('#view-review .submission-filter-btn').length === 4);
   check('the contributor form survived the move', !!q('#view-contributors #addContributorForm'));
 
-  console.log('\n6. Review Queue workspace');
+  console.log('\n6. Notifications workspace');
+  window.showAdminView('notifications');
+  await wait(60);
+  check('the Notifications workspace opens as its own view',
+    activeViews().join() === 'notifications' && !!q('#view-notifications'));
+  check('the compose form, preview and send button exist',
+    !!q('#notificationForm') && !!q('#notificationPreviewTitle') && !!q('#notificationSendBtn'));
+  check('the preview mirrors typed content (live update)',
+    (() => {
+      q('#notificationTitle').value = 'New papers!';
+      q('#notificationBody').value = 'DBMS added.';
+      q('#notificationPath').value = '/pyq/dbms-2023';
+      q('#notificationTitle').dispatchEvent(new window.Event('input', { bubbles: true }));
+      q('#notificationBody').dispatchEvent(new window.Event('input', { bubbles: true }));
+      q('#notificationPath').dispatchEvent(new window.Event('input', { bubbles: true }));
+      return q('#notificationPreviewTitle').textContent === 'New papers!'
+        && q('#notificationPreviewBody').textContent === 'DBMS added.'
+        && /dbms-2023/.test(q('#notificationPreviewPath').textContent);
+    })());
+
+  check('empty submission is blocked client-side', (async () => {
+    q('#notificationTitle').value = '';
+    q('#notificationBody').value = '';
+    const before = apiCalls.filter((u) => u.includes('/api/notify')).length;
+    await window.sendNotification();
+    const after = apiCalls.filter((u) => u.includes('/api/notify')).length;
+    return after === before
+      && q('#notificationError').style.display === 'block'
+      && /title and message/i.test(q('#notificationError').textContent);
+  })());
+
+  check('valid submission sends a Bearer-authorized POST to the Worker', (async () => {
+    q('#notificationTitle').value = 'New paper: DBMS';
+    q('#notificationBody').value = 'Just approved.';
+    q('#notificationPath').value = '/pyq/dbms-2023';
+    const before = notifyCalls.length;
+    const sending = window.sendNotification();
+    // The button must be disabled (loading state) while the request is in flight.
+    const disabledWhileSending = q('#notificationSendBtn').disabled === true
+      && /Sending/.test(q('#notificationSendBtn').textContent);
+    const result = await sending;
+    return result.ok === true
+      && notifyCalls.length === before + 1
+      && disabledWhileSending
+      && notifyCalls[before].body.title === 'New paper: DBMS'
+      && notifyCalls[before].body.body === 'Just approved.'
+      && notifyCalls[before].body.path === '/pyq/dbms-2023'
+      && notifyCalls[before].authorization === 'Bearer mock-admin-token'
+      && q('#notificationSendBtn').disabled === false
+      && /sent/i.test(q('#notificationSuccessText').textContent);
+  })());
+
+  console.log('\n7. Review Queue workspace');
   window.showAdminView('review');
   await wait(150);
   const card = q('[data-submission-id="sub1"]');
