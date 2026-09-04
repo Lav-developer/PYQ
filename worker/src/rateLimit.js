@@ -5,13 +5,22 @@
 
 const WINDOW_MS = 60 * 1000;
 const MAX_REQUESTS_PER_WINDOW = 30;
+const NOTIFY_MAX_REQUESTS_PER_WINDOW = 6;
 const BURST_MAX = 60;
+
+function limitForEndpoint(endpoint) {
+  // Notification sends are admin actions; keep the per-IP ceiling low so a
+  // misbehaving client cannot spam FCM (the 30s per-admin cooldown in the
+  // handler is the primary accidental-repeat guard).
+  return endpoint === 'notify' ? NOTIFY_MAX_REQUESTS_PER_WINDOW : MAX_REQUESTS_PER_WINDOW;
+}
 
 export async function checkRateLimit(ip, endpoint) {
   if (typeof PYQ_CACHE === 'undefined') {
     return { allowed: true, remaining: 999, reset: 0 };
   }
 
+  const max = limitForEndpoint(endpoint);
   const now = Date.now();
   const windowKey = Math.floor(now / WINDOW_MS);
   const key = `ratelimit:${ip}:${endpoint}:${windowKey}`;
@@ -20,13 +29,13 @@ export async function checkRateLimit(ip, endpoint) {
     const current = await PYQ_CACHE.get(key, 'text');
     let count = current ? parseInt(current, 10) : 0;
 
-    if (count >= MAX_REQUESTS_PER_WINDOW) {
+    if (count >= max) {
       if (count < BURST_MAX) {
         count += 1;
         await PYQ_CACHE.put(key, String(count), { expirationTtl: 120 });
         return {
           allowed: true,
-          remaining: Math.max(0, MAX_REQUESTS_PER_WINDOW - count),
+          remaining: Math.max(0, max - count),
           reset: (windowKey + 1) * WINDOW_MS,
         };
       }
@@ -42,7 +51,7 @@ export async function checkRateLimit(ip, endpoint) {
 
     return {
       allowed: true,
-      remaining: Math.max(0, MAX_REQUESTS_PER_WINDOW - count),
+      remaining: Math.max(0, max - count),
       reset: (windowKey + 1) * WINDOW_MS,
     };
   } catch (err) {
@@ -71,5 +80,6 @@ export function normalizeEndpoint(url) {
   if (path.startsWith('/api/courses')) return 'courses';
   if (path.startsWith('/api/homepage')) return 'homepage';
   if (path.startsWith('/api/stats')) return 'stats';
+  if (path.startsWith('/api/notify')) return 'notify';
   return 'other';
 }

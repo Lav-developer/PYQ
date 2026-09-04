@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Download DSMNRU PYQ Android App</title>
+    <meta name="description" content="Download the free DSMNRU PYQ Android app — browse previous year question papers, read PDFs in-app, upload papers and get notifications for new additions.">
+    <link rel="icon" href="/img/icon-192.png" type="image/png">
+    <link rel="shortcut icon" href="/img/icon-192.png" type="image/png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/normalize/8.0.1/normalize.min.css">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/fontawesome.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/solid.min.css">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap">
+
+    <!-- Performance: this page loads NO Firebase and NO analytics SDK. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+    <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+    <link rel="stylesheet" href="styles.css">
+
+    <meta name="robots" content="index, follow">
+    <link rel="canonical" href="https://dsmnru-pyq.netlify.app/download.html">
+    <link rel="alternate" hreflang="en" href="https://dsmnru-pyq.netlify.app/download.html">
+    <link rel="manifest" href="/manifest.json">
+    <link rel="apple-touch-icon" href="/img/icon-192.png">
+    <meta name="theme-color" content="#0f172a">
+    <meta property="og:site_name" content="DSMNRU PYQ Archive">
+    <meta property="og:locale" content="en_IN">
+    <meta property="og:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="https://dsmnru-pyq.netlify.app/img/social-preview.png">
+    <meta property="og:title" content="Download DSMNRU PYQ Android App">
+    <meta property="og:description" content="Free DSMNRU PYQ Android app — previous year question papers, in-app PDF reader, uploads and new-paper notifications.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://dsmnru-pyq.netlify.app/download.html">
+    <meta name="twitter:title" content="Download DSMNRU PYQ Android App">
+    <meta name="twitter:description" content="Free DSMNRU PYQ Android app for DSMNRU students.">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"WebPage","name":"Download DSMNRU PYQ Android App","description":"Download the free DSMNRU PYQ Android app for browsing previous year question papers.","url":"https://dsmnru-pyq.netlify.app/download.html","isPartOf":{"@type":"WebSite","name":"DSMNRU PYQ Archive","url":"https://dsmnru-pyq.netlify.app/"}}</script>
+</head>
+<body>
+    <header class="header-container">
+        <div class="container">
+            <div class="header-content">
+                <div class="header-top">
+                    <h1><i class="fas fa-graduation-cap"></i> DSMNRU Archive</h1>
+                </div>
+                <p class="subtitle">Get the DSMNRU PYQ archive in your pocket.</p>
+                <div class="page-nav" aria-label="Site sections">
+                    <a class="page-nav-link" href="/"><i class="fas fa-file-alt"></i> PYQs</a>
+                    <a class="page-nav-link" href="contributors.html"><i class="fas fa-users"></i> Contributors</a>
+                    <a class="page-nav-link" href="tools.html"><i class="fas fa-tools"></i> Tools</a>
+                    <a class="page-nav-link active" href="download.html"><i class="fas fa-download"></i> Download App</a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mt-4">
+        <section class="content-section py-5">
+            <div class="container">
+                <div class="section-header">
+                    <h2><i class="fas fa-mobile-alt"></i> DSMNRU PYQ for Android</h2>
+                    <p class="section-description">A dedicated app for browsing the archive — search papers, read them in the built-in PDF viewer, upload your own, and get notified when new papers are added.</p>
+                </div>
+
+                <!-- Download hero -->
+                <div class="download-hero">
+                    <img class="download-app-icon" src="/img/icon-192.png" alt="DSMNRU PYQ app icon" width="112" height="112">
+                    <div class="download-hero-copy">
+                        <div class="d-flex align-items-center flex-wrap gap-2">
+                            <span class="download-version-chip"><i class="fas fa-tag me-1"></i> Version <span id="apkVersionName">1.4.0</span></span>
+                            <span class="download-version-chip"><i class="fas fa-box me-1"></i> Build <span id="apkVersionCode">11</span></span>
+                        </div>
+                        <p class="download-hero-text">Free, community-built and focused on DSMNRU previous year question papers. The APK is distributed directly from this project — it is not on Google Play.</p>
+                        <div class="download-cta-row">
+                            <a id="downloadApkBtn" class="btn btn-primary btn-lg download-cta" href="#apk-setup-note" data-track-event="apk_download_click">
+                                <i class="fas fa-download me-2"></i><span class="cta-label">Download APK</span>
+                            </a>
+                            <a class="btn btn-outline-light btn-lg" href="/"><i class="fas fa-home me-2"></i>Back to Website</a>
+                        </div>
+                        <p id="apkPendingNote" class="download-note mt-3" hidden>
+                            <i class="fas fa-hourglass-half me-1"></i>
+                            The APK link appears here as soon as the next Android build is published. No download has started yet.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- Release facts -->
+                <div class="apk-facts" aria-label="Release information">
+                    <div class="apk-fact">
+                        <div class="apk-fact-label"><i class="fas fa-android me-1"></i> Requires</div>
+                        <div class="apk-fact-value" id="apkMinAndroid">Android 7.0 (API 24) or newer</div>
+                    </div>
+                    <div class="apk-fact is-unknown">
+                        <div class="apk-fact-label"><i class="fas fa-hdd me-1"></i> APK size</div>
+                        <div class="apk-fact-value" id="apkFileSize">Not published yet</div>
+                    </div>
+                    <div class="apk-fact is-unknown">
+                        <div class="apk-fact-label"><i class="fas fa-calendar-check me-1"></i> Last updated</div>
+                        <div class="apk-fact-value" id="apkReleasedAt">Not published yet</div>
+                    </div>
+                    <div class="apk-fact">
+                        <div class="apk-fact-label"><i class="fas fa-download me-1"></i> Distribution</div>
+                        <div class="apk-fact-value">Direct APK — no Play Store</div>
+                    </div>
+                </div>
+
+                <!-- Features -->
+                <div class="tools-grid mt-5">
+                    <article class="tool-card">
+                        <div class="tool-icon"><i class="fas fa-search"></i></div>
+                        <h3 class="tool-title">Browse &amp; search</h3>
+                        <p class="tool-description">The full PYQ archive with course, semester, session and subject filters — formatted for a phone screen.</p>
+                    </article>
+                    <article class="tool-card">
+                        <div class="tool-icon"><i class="fas fa-file-pdf"></i></div>
+                        <h3 class="tool-title">In-app PDF reader</h3>
+                        <p class="tool-description">Open papers in a built-in viewer with pinch zoom and page-by-page loading — no browser hand-off.</p>
+                    </article>
+                    <article class="tool-card">
+                        <div class="tool-icon"><i class="fas fa-cloud-upload-alt"></i></div>
+                        <h3 class="tool-title">Contribute papers</h3>
+                        <p class="tool-description">Upload a PDF (or images, auto-merged) from your phone. Approved uploads join the archive.</p>
+                    </article>
+                    <article class="tool-card">
+                        <div class="tool-icon"><i class="fas fa-bell"></i></div>
+                        <h3 class="tool-title">New-paper notifications</h3>
+                        <p class="tool-description">Optional push notifications when the archive publishes new papers — you choose whether to allow them.</p>
+                    </article>
+                    <article class="tool-card">
+                        <div class="tool-icon"><i class="fas fa-star"></i></div>
+                        <h3 class="tool-title">Save papers</h3>
+                        <p class="tool-description">Keep a personal list of saved papers and pick up where you left off with recent-view history.</p>
+                    </article>
+                    <article class="tool-card">
+                        <div class="tool-icon"><i class="fas fa-tools"></i></div>
+                        <h3 class="tool-title">Study tools</h3>
+                        <p class="tool-description">SGPA calculator, attendance tracker and study planner — the same tools the website offers, on device.</p>
+                    </article>
+                </div>
+
+                <!-- Installation instructions -->
+                <section class="legal-section mt-5" aria-labelledby="installHeading">
+                    <h2 id="installHeading" class="legal-heading"><i class="fas fa-list-ol me-2"></i>Installation instructions</h2>
+                    <ol class="legal-list">
+                        <li><strong>Download the APK</strong> using the button above — the file is saved to your device's Downloads folder.</li>
+                        <li><strong>Open the APK file</strong> from your Downloads app or file manager (tap the "Downloads" notification or open Files).</li>
+                        <li><strong>Allow installation</strong> if Android asks: <em>"Install unknown apps"</em> / <em>"Allow from this source"</em>. Because this app is distributed directly (not through the Play Store), Android may require you to approve the browser or file manager as an allowed source.</li>
+                        <li><strong>Review the permissions</strong> and tap <strong>Install</strong>.</li>
+                        <li><strong>Open the app</strong> when installation completes.</li>
+                    </ol>
+                    <p class="legal-muted">
+                        <strong>Note:</strong> clicking "Download APK" only starts a file download — it does <em>not</em> install the app. Installation happens only after you open the downloaded file and confirm it in Android's installer screen.
+                    </p>
+                </section>
+
+                <!-- Safety / trust -->
+                <section class="legal-section" aria-labelledby="safetyHeading">
+                    <h2 id="safetyHeading" class="legal-heading"><i class="fas fa-shield-alt me-2"></i>Trust &amp; safety</h2>
+                    <p class="legal-body">
+                        The DSMNRU PYQ APK is built directly from the project source published in this GitHub repository
+                        <a href="https://github.com/Lav-developer/PYQ" target="_blank" rel="noopener">Lav-developer/PYQ</a>.
+                        We distribute the file ourselves so students always have a current copy; it is not listed on Google Play.
+                    </p>
+                    <ul class="legal-list">
+                        <li>Only download the APK from this page or the linked GitHub Release — we cannot vouch for copies hosted elsewhere.</li>
+                        <li>Android may show an "unknown sources" warning for any directly installed app; that is normal for this distribution method, not a sign of a problem in our build.</li>
+                        <li>Install updates only from the same source (or this page) so the app can update in place.</li>
+                    </ul>
+                </section>
+
+                <!-- Admin / setup note -->
+                <section class="legal-section" aria-labelledby="apkSetupNote" id="apk-setup-note" tabindex="-1">
+                    <h2 id="apkSetupNote" class="legal-heading"><i class="fas fa-screwdriver-wrench me-2"></i>Release status</h2>
+                    <p class="legal-body">
+                        This page is configured with version <strong>1.4.0</strong> (build 11), Android requirement
+                        <strong>Android 7.0 (API 24) or newer</strong>, and reads its download URL from the centralized
+                        <code>apk-config.js</code> file. The Android GitHub Actions workflow currently publishes the release
+                        APK as a build <em>artifact</em> only — a stable GitHub Release link is added on the
+                        <code>android-app</code> branch. Until that link exists, the Download button intentionally stays
+                        disabled here rather than pointing at a non-existent file. No file will download from this page until
+                        the release link is configured.
+                    </p>
+                </section>
+
+                <!-- Legal links -->
+                <nav class="legal-links mt-4" aria-label="Legal pages">
+                    <a href="privacy.html"><i class="fas fa-user-shield me-1"></i> Privacy Policy</a>
+                    <a href="terms.html"><i class="fas fa-file-contract me-1"></i> Terms &amp; Conditions</a>
+                </nav>
+            </div>
+        </section>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <p>&copy; 2025 DSMNRU Academic Archive. Made with <i class="fas fa-heart" style="color: #e74c3c;"></i> for students.</p>
+            <nav class="footer-links" aria-label="Footer">
+                <a href="/">Home</a>
+                <a href="download.html">Download App</a>
+                <a href="privacy.html">Privacy Policy</a>
+                <a href="terms.html">Terms &amp; Conditions</a>
+            </nav>
+            <div class="social-links">
+                <a href="https://whatsapp.com/channel/0029Vat8KYICxoAmUBFMaO0t" target="_blank" title="WhatsApp" aria-label="WhatsApp"><i class="fas fa-comments"></i></a>
+            </div>
+        </div>
+    </footer>
+
+    <script defer src="apk-config.js"></script>
+    <script defer src="download.js"></script>
+</body>
+</html>

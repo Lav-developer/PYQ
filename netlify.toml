@@ -63,6 +63,18 @@ force = true
   [headers.values]
     Cache-Control = "public, max-age=604800, must-revalidate"
 
+# The APK release config must propagate immediately after a release update —
+# do not let the generic 7-day *.js cache delay the new build link.
+[[headers]]
+  for = "/apk-config.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
+[[headers]]
+  for = "/download.js"
+  [headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate"
+
 [[headers]]
   for = "/img/*"
   [headers.values]

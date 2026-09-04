@@ -68,8 +68,10 @@ npx wrangler kv:namespace create PYQ_CACHE
 
 # 2. Set secrets (never commit these)
 npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON   # paste full JSON file contents
-# /api/invalidate intentionally uses a Firebase ID token with admin:true;
-# do not configure a browser-visible static invalidation key.
+# /api/invalidate and /api/notify intentionally use a Firebase ID token with
+# admin:true (verified server-side); do not configure browser-visible static
+# keys. /api/notify reuses the same service account for FCM v1; notification
+# credentials are never exposed to the frontend or committed.
 
 # 3. Edit wrangler.toml:
 #    - [[kv_namespaces]] id = "<id from step 1>"
@@ -348,15 +350,19 @@ via the stale-while-revalidate pattern.
 
 ## 12. Testing
 
-`cd worker && node test/worker.test.js` — **132 assertions** against a
-mocked Firestore, exercising the full refresh-strategy and public-SEO contract:
+`cd worker && node test/worker.test.js` — **153 assertions** against a
+mocked Firestore, exercising the full refresh-strategy and public-SEO contract
+(plus `node test/admin-ia-test.cjs` for the admin panel and
+`node test/static-pages-test.cjs` for the public pages):
 
 **Endpoints & behavior:** health, list (incl. limit/page capping,
 defaults, capping), filters (course, semester, session, combined),
 search (incl. short-query 400, HTML stripping, year search), sorting
 (az/za/popular, invalid sort fallback), single-item (200/404/400),
 contributors, courses, homepage, stats, CORS, invalid routes and
-methods, rate-limit 429.
+methods, rate-limit 429, admin push notifications
+(`POST /api/notify`: auth 401s, payload validation, exact FCM topic
+payload, duplicate-send cooldown, safe downstream errors).
 
 **Cache accounting (the critical new coverage):**
 - **Cold cache** — first request triggers exactly one index sweep (311

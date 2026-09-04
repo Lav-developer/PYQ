@@ -101,6 +101,7 @@
 - 👥 **Contributors** — Add/edit/delete (`PYQs Provider` etc.)
 - 👤 **Users** — Registered profiles, edit role/course/phone, delete
 - 🚩 **Feedback Inbox** — **NEW** `Broken Reports & PYQ Requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved`, realtime `new` pulse, counts in hero
+- 🔔 **Notifications** — compose + preview a push for all installed Android devices → `POST /api/notify` (admin token) → FCM topic `all_users` (30 s duplicate-send cooldown)
 - 📊 **Lazy Admin** — **0 reads on login** — each section fetches only when expanded (saves 50K quota), hero note: *"Expand any card to fetch"*
 - 🧹 **No Analytics** — Intentionally removed (non-mandate) to save reads
 
@@ -433,6 +434,19 @@ The candidate list is read from **Firestore, the source of truth** — it reuses
 Glassmorphism dark theme (`styles.css` tokens: `--color-primary` teal, `--color-background` charcoal, `--color-surface` card). All pages share `Manrope` + `FKGroteskNeue`, `backdrop-filter: blur(14px)`, `border-radius: 18-24px`. Edit tokens in `:root` for theming.
 
 ---
+
+## 📱 Android App & APK Download
+
+The repository has two deployables:
+
+- **`main`** — the website (this branch) + its Cloudflare Worker API.
+- **`android-app`** — a dedicated Capacitor Android app (`com.dsmnru.pyq`, currently 1.4.0 / build 11, min Android 7.0) with its own UI, in-app PDF viewer, uploads and FCM push.
+
+The website serves **`/download.html`**, which reads the current APK link from the centralized **`/apk-config.js`** — the only place the site points at a release asset. APK binaries are never committed to `main`.
+
+**Notification chain:** admin panel → `POST /api/notify` (Cloudflare Worker, admin Firebase ID token verified server-side) → FCM topic `all_users` → Android app. The Android app subscribes to that topic itself — no FCM token database is used.
+
+See **`docs/android-notification-integration.md`** for the full contract, secret setup and release flow.
 
 ## 📱 PWA & Offline
 

@@ -952,6 +952,46 @@
             color: var(--admin-text);
             font-size: 0.78rem; font-weight: 600; white-space: nowrap;
         }
+
+        /* Notifications workspace */
+        .notification-preview {
+            padding: 1rem 1.1rem;
+            border-radius: 16px;
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            background: linear-gradient(180deg, rgba(15, 23, 42, 0.92), rgba(15, 23, 42, 0.78));
+            box-shadow: 0 14px 30px rgba(2, 6, 23, 0.25);
+            max-width: 430px;
+        }
+        .notification-preview-head {
+            display: flex; align-items: center; gap: 0.5rem;
+            font-size: 0.76rem; font-weight: 700; letter-spacing: 0.05em;
+            text-transform: uppercase; color: rgba(237, 247, 251, 0.7);
+            margin-bottom: 0.7rem;
+        }
+        .notification-preview-head i { color: var(--admin-primary); }
+        .notification-preview-title {
+            font-weight: 700; color: var(--admin-text); font-size: 0.98rem;
+            margin-bottom: 0.35rem; overflow-wrap: anywhere;
+        }
+        .notification-preview-title.is-placeholder { color: rgba(237, 247, 251, 0.45); }
+        .notification-preview-body {
+            font-size: 0.88rem; color: rgba(237, 247, 251, 0.82);
+            line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+        }
+        .notification-preview-body.is-placeholder { color: rgba(237, 247, 251, 0.45); }
+        .notification-preview-path {
+            margin-top: 0.6rem; padding-top: 0.55rem;
+            border-top: 1px dashed rgba(148, 163, 184, 0.24);
+            font-size: 0.76rem; color: rgba(110, 231, 216, 0.85);
+            overflow-wrap: anywhere;
+        }
+        .notification-preview-path.is-placeholder { color: rgba(237, 247, 251, 0.4); }
+        .notification-preview-footer {
+            margin-top: 0.7rem; font-size: 0.72rem; color: rgba(237, 247, 251, 0.5);
+        }
+        .btn-loading { opacity: 0.72; pointer-events: none; }
+        .btn-loading .fa-paper-plane::before { content: "\f110"; animation: adminSpin 1s linear infinite; }
+        @keyframes adminSpin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -1000,6 +1040,7 @@
                     <button type="button" class="admin-nav-item" data-view="contributors" onclick="showAdminView('contributors')"><i class="fas fa-users"></i><span>Contributors</span></button>
                     <button type="button" class="admin-nav-item" data-view="users" onclick="showAdminView('users')"><i class="fas fa-user-shield"></i><span>Users</span></button>
                     <button type="button" class="admin-nav-item" data-view="feedback" onclick="showAdminView('feedback')"><i class="fas fa-flag"></i><span>Feedback</span><span class="admin-nav-badge" id="navFeedbackBadge">0</span></button>
+                    <button type="button" class="admin-nav-item" data-view="notifications" onclick="showAdminView('notifications')"><i class="fas fa-bell"></i><span>Notifications</span></button>
                     <button type="button" class="admin-nav-item" data-view="rewards" onclick="showAdminView('rewards')"><i class="fas fa-trophy"></i><span>Rewards</span></button>
                     <button type="button" class="admin-nav-item" data-view="settings" onclick="showAdminView('settings')"><i class="fas fa-gear"></i><span>Settings</span></button>
                 </nav>
@@ -1368,6 +1409,84 @@
                         </div>
                     </div></div>
 
+                </section>
+                <section class="admin-view" id="view-notifications" data-view="notifications" aria-labelledby="title-notifications">
+                    <div class="admin-view-head">
+                        <div>
+                            <h1 class="admin-view-title" id="title-notifications">Notifications</h1>
+                            <p class="admin-view-sub">Send a push notification to all installed Android app devices (FCM topic <code>all_users</code>).</p>
+                        </div>
+                        <div class="admin-view-actions"></div>
+                    </div>
+                    <div class="admin-grid-2">
+                        <div class="card section-card">
+                            <div class="card-header">
+                                <div class="section-header-button mb-0">
+                                    <span>
+                                        <span class="section-chip"><i class="fas fa-paper-plane"></i> Compose</span>
+                                        <span class="d-block mt-2">Sent through the Cloudflare Worker → FCM</span>
+                                    </span>
+                                    <span class="d-inline-flex align-items-center"></span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <form id="notificationForm" novalidate>
+                                    <div class="mb-3">
+                                        <label for="notificationTitle" class="form-label">Notification Title <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="notificationTitle" maxlength="120" autocomplete="off"
+                                               placeholder="e.g. New B.Tech 4th Sem papers added" required>
+                                        <div class="form-text">Maximum 120 characters.</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="notificationBody" class="form-label">Message <span class="text-danger">*</span></label>
+                                        <textarea class="form-control" id="notificationBody" rows="4" maxlength="300"
+                                                  placeholder="Short message shown in the notification…" required></textarea>
+                                        <div class="form-text">Maximum 300 characters.</div>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="notificationPath" class="form-label">Optional URL / deep link</label>
+                                        <input type="text" class="form-control" id="notificationPath" maxlength="500" autocomplete="off"
+                                               placeholder="/pyq/dbms-2023 or /paper.html?id=…">
+                                        <div class="form-text">Must start with <code>/</code> — tapping the notification opens this page inside the app. Leave empty to open the app home.</div>
+                                    </div>
+                                    <div id="notificationError" class="alert alert-danger" style="display: none;" role="alert"></div>
+                                    <div id="notificationSuccess" class="alert alert-success" style="display: none;" role="status">
+                                        <i class="fas fa-circle-check me-1"></i><span id="notificationSuccessText"></span>
+                                    </div>
+                                    <button type="submit" id="notificationSendBtn" class="btn btn-primary w-100">
+                                        <i class="fas fa-paper-plane me-1"></i><span class="btn-label">Send Notification</span>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+
+                        <div class="card section-card">
+                            <div class="card-header">
+                                <div class="section-header-button mb-0">
+                                    <span>
+                                        <span class="section-chip"><i class="fas fa-eye"></i> Preview</span>
+                                        <span class="d-block mt-2">How the notification will appear</span>
+                                    </span>
+                                    <span class="d-inline-flex align-items-center"></span>
+                                </div>
+                            </div>
+                            <div class="card-body">
+                                <div class="notification-preview" aria-live="polite">
+                                    <div class="notification-preview-head"><i class="fas fa-mobile-alt"></i> DSMNRU PYQ</div>
+                                    <div class="notification-preview-title is-placeholder" id="notificationPreviewTitle">Notification Title</div>
+                                    <div class="notification-preview-body is-placeholder" id="notificationPreviewBody">Message preview appears here as you type…</div>
+                                    <div class="notification-preview-path is-placeholder" id="notificationPreviewPath">No deep link</div>
+                                    <div class="notification-preview-footer">Tap target: all installed Android app devices</div>
+                                </div>
+                                <p class="admin-note mt-3 mb-0">
+                                    <i class="fas fa-circle-info me-1"></i>
+                                    Sent to the single FCM topic the Android app subscribes to. FCM does not report
+                                    subscriber counts — if no device has the app installed yet, no device receives it.
+                                    A 30-second cooldown prevents accidental duplicate sends.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </section>
                 <section class="admin-view" id="view-rewards" data-view="rewards" aria-labelledby="title-rewards">
                     <div class="admin-view-head">

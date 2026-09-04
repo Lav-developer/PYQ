@@ -31,6 +31,7 @@ stay extremely low even as the PYQ collection grows from 311 → 10,000+.
 | GET | `/api/homepage` | Homepage summary (recent, trending, course counts, stats) |
 | GET | `/api/stats` | Aggregated stats |
 | POST | `/api/invalidate` | Stamp cache invalidation (verified Firebase ID token with `admin: true`) |
+| POST | `/api/notify` | Send a push notification to all Android devices via FCM topic `all_users` (same admin-token rule; body `{ title, body, path }`; 30 s per-admin cooldown) |
 | GET | `/pyq/:slug` | Server-rendered public, indexable PYQ page (served through Netlify rewrite) |
 | GET | `/sitemap.xml` | Dynamic public-PYQ sitemap (served through Netlify rewrite) |
 
@@ -102,6 +103,10 @@ Copy the returned `id` into `wrangler.toml` (`[[kv_namespaces]] → id`).
 
    - Firebase Console → Project Settings → Service accounts → **Generate new private key**
    - Save the downloaded JSON (e.g. `dsmnru-data-firebase-adminsdk-xxxx.json`)
+   - Grant the account the **Firebase Cloud Messaging API Admin** role if you
+     will send push notifications (`POST /api/notify`), or another role that
+     permits FCM HTTP v1 sends. Firestore access keeps working with the
+     existing Cloud Datastore User role.
 
 3. Set secrets (never commit these):
 
