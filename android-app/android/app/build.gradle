@@ -80,6 +80,7 @@ dependencies {
     // at the bottom of this file) — every FCM code path degrades silently
     // when it doesn't, so debug builds without the file run normally.
     implementation 'com.google.firebase:firebase-messaging:24.1.1'
+    implementation 'com.google.firebase:firebase-analytics'
     // Android Credential Manager + Google ID token library for the NATIVE
     // Google sign-in (account chooser → Google ID token → Firebase
     // accounts:signInWithIdp in www/js/auth.js — same dsmnru-data project).
