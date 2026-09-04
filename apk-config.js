@@ -42,7 +42,7 @@ window.DSMNRU_APK = {
     minAndroid: 'Android 7.0 (API 24) or newer',
 
     // Fill these in once the first GitHub Release asset exists.
-    fileSize: 5 MB,      // e.g. '18 MB' — only when known reliably
+    fileSize: '5 MB',      // e.g. '18 MB' — only when known reliably
     releasedAt: '2026-09-04',    // e.g. '2026-09-04' — only when known
     releaseNotesUrl: ''  // e.g. the GitHub Release page URL
 };
