@@ -15,7 +15,7 @@
 
 import { getAllDocuments } from './firestore.js';
 import { KV_KEYS, getFromKV, setKV, DEFAULT_KV_TTL } from './cache.js';
-import { getInvalidationTimestamp, INDEX_HARD_TTL } from './cache.js';
+import { getInvalidationTimestamp, INDEX_HARD_TTL, isKVStorageUnavailable } from './cache.js';
 import { createSlug, encodeSlugId, isSafePyqSlug } from './slug.js';
 
 function normalize(str) {
@@ -260,6 +260,21 @@ export function getItemBySlug(index, slug) {
 }
 
 /**
+ * Isolate-local last-resort copy of the most recently built index.
+ *
+ * KV READ failing (outage) or the KV value being absent is already handled by
+ * rebuilding from Firestore. What must not happen is rebuilding on *every*
+ * request while KV writes are rejected (daily PUT quota exhausted): the write
+ * fails, so the next request finds KV empty again and sweeps the whole
+ * collection again. This short-lived isolate copy breaks that loop; it is only
+ * consulted when KV returned no index at all, so it can never shadow a KV
+ * value, and it still passes through the normal invalidation check below
+ * (`_cachedAt` vs the KV invalidation timestamp).
+ */
+const INDEX_MEMORY_TTL_MS = 60 * 1000;
+let memoryIndex = null;
+
+/**
  * Build a fresh index by reading the entire PYQS collection from Firestore
  * (using cursor pagination with `__name__` tiebreaker). Stores in KV.
  */
@@ -283,6 +298,7 @@ export async function buildSearchIndex() {
   // Use a very long hard TTL — the index should be invalidated explicitly
   // by the admin, not by a short clock-driven refresh.
   await setKV(KV_KEYS.SEARCH_INDEX, cacheData, INDEX_HARD_TTL);
+  memoryIndex = { data: cacheData, builtAt: Date.now() };
   console.log(`Search index built: ${index.length} items, cached in KV`);
 
   return cacheData;
@@ -302,7 +318,19 @@ export async function buildSearchIndex() {
  *   }
  */
 export async function getSearchIndex({ forceRebuild = false } = {}) {
-  const cached = await getFromKV(KV_KEYS.SEARCH_INDEX);
+  let cached = await getFromKV(KV_KEYS.SEARCH_INDEX);
+  // KV had no index (fresh namespace, eviction, expired hard TTL) AND KV
+  // storage is failing (write rejected or read failed) — reuse the isolate's
+  // recent build instead of sweeping Firestore on every request, which is the
+  // only way the collection sweep could turn a KV quota problem into a
+  // Firestore load problem. When KV is healthy this never triggers: an expired
+  // entry still rebuilds immediately, exactly as before.
+  if ((!cached || !cached.items || cached.items.length === 0)
+    && isKVStorageUnavailable()
+    && memoryIndex && (Date.now() - memoryIndex.builtAt) < INDEX_MEMORY_TTL_MS) {
+    console.log('Search index served from isolate memory (KV storage unavailable)');
+    cached = memoryIndex.data;
+  }
   const invalidationTs = await getInvalidationTimestamp();
 
   if (forceRebuild) {
