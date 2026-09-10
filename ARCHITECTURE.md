@@ -116,7 +116,7 @@ firebase deploy --only firestore:rules
 
 | Binding | Type | Description |
 |---|---|---|
-| `PYQ_CACHE` | KV namespace | Cache: search index, per-item docs, contributors, courses, homepage, stats, rate-limit counters |
+| `PYQ_CACHE` | KV namespace | Cache: search index, per-item docs, contributors, homepage, stats. Rate-limit counters are written **only** for sensitive admin endpoints (`notify`, `invalidate`) after authorization — public reads are limited in-isolate with zero KV operations |
 | `FIREBASE_SERVICE_ACCOUNT_JSON` | secret | Full Firebase service-account JSON (used for Firestore REST auth) |
 | `FIREBASE_PROJECT_ID` | var | e.g. `dsmnru-data` |
 | `ALLOWED_ORIGINS` | var | Comma-separated CORS allow-list |
@@ -186,6 +186,11 @@ explicitly triggered.
 
 ### Edge cache TTLs
 
+Values returned by `getCacheTTL()`. Successful JSON responses are emitted with
+`Cache-Control: public, s-maxage=60, max-age=60`; no second response-cache layer
+runs inside the Worker, so admin invalidation takes effect as soon as the index
+rebuild completes.
+
 | Endpoint | TTL |
 |---|---|
 | `/api/pyqs` (list) | 120 s |
@@ -206,7 +211,7 @@ explicitly triggered.
   stale, so the first affected detail/SEO request revalidates that one document
   before it can be rendered.
 - `pyq:contributors:list` — **1 h**
-- `pyq:courses:list` — **24 h**
+- `pyq:courses:list` — read-only (24 h if seeded out-of-band); the built-in catalog is a constant and is never written to KV
 - `pyq:homepage:summary`, `pyq:stats` — **5 / 10 min**
 
 ### Robust pagination cursor
@@ -302,6 +307,13 @@ during crawler traffic.
 - Firestore down + KV cold → API returns `500 { error }`; frontend shows a
   graceful empty/error state (existing `showEmptyState` paths) and never fully
   breaks.
+- **KV PUT quota exhausted (HTTP 429 on writes)** → public reads keep working:
+  they never write KV, the limiter is isolate-local, and when KV cannot store a
+  rebuilt index the isolate serves its last build for up to 60 s instead of
+  re-sweeping Firestore on every request. Sensitive endpoints keep a KV-backed
+  ceiling; if that counter is unavailable they fall back to the isolate-local
+  counter with the same ceiling (`degraded`), and the notify cooldown simply
+  stops guarding duplicates. Authorization is never affected.
 - No aggressive retries: index rebuilds happen only on TTL expiry or explicit
   invalidation.
 
@@ -403,6 +415,16 @@ payload, duplicate-send cooldown, safe downstream errors).
 
 **Other:**
 - Rate-limiting 429 under burst (crawl routes deliberately bypass it)
+- **KV write accounting** — repeated public GETs (browse, search, item,
+  contributors, homepage, stats, courses) perform **0** KV PUTs; a burst of
+  public GETs is capped at 60/min with **0** KV PUTs; unauthenticated
+  `/api/notify` floods perform 0 KV PUTs; a simulated traffic mix of 600
+  public GETs + admin invalidation + notification stays at ~9 KV PUTs
+- **KV failure/quota behavior** — with KV PUTs rejected, public list/search/
+  homepage/item keep returning correct `200`s and the index is not re-swept per
+  request; with KV fully unreachable, public reads and admin authorization are
+  unaffected; the sensitive ceiling falls back to the isolate-local counter
+  (degraded) instead of failing open
 - Cache invalidation auth and CORS preflight (200 with a verified Firebase
   `admin: true` ID token, 401 otherwise)
 - Invalid route + POST-on-GET 405

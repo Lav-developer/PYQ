@@ -88,6 +88,32 @@ export async function setEdgeCache(request, response, ttlSeconds = 60) {
   }
 }
 
+// ── KV storage availability ────────────────────────────────────────
+// KV reads/writes can fail independently of application logic (most commonly
+// because the free-tier daily PUT quota is exhausted and Cloudflare answers
+// with HTTP 429). These flags are observations only — they never change a
+// response by themselves. `search.js` uses them to decide whether it may reuse
+// its short-lived isolate copy of the search index instead of re-sweeping
+// Firestore on every request while KV cannot store the rebuilt index.
+const KV_FAILURE_MEMORY_MS = 5 * 60 * 1000;
+let kvWriteUnavailable = false;
+let kvReadFailedAt = 0;
+
+/**
+ * True when the last KV write was rejected, or a KV read failed within the
+ * recent past. Used as a fallback hint, never as an authorization signal.
+ */
+export function isKVStorageUnavailable() {
+  return kvWriteUnavailable
+    || (kvReadFailedAt > 0 && (Date.now() - kvReadFailedAt) < KV_FAILURE_MEMORY_MS);
+}
+
+/** Forget observed KV failures (used by tests; harmless anywhere else). */
+export function resetKVAvailabilityState() {
+  kvWriteUnavailable = false;
+  kvReadFailedAt = 0;
+}
+
 export async function getFromKV(key) {
   if (typeof PYQ_CACHE === 'undefined') return null;
   try {
@@ -95,6 +121,7 @@ export async function getFromKV(key) {
     if (!value) return null;
     return JSON.parse(value);
   } catch (err) {
+    kvReadFailedAt = Date.now();
     console.warn(`KV read failed for ${key}:`, err.message);
     return null;
   }
@@ -105,7 +132,9 @@ export async function setKV(key, data, ttlSeconds = DEFAULT_KV_TTL) {
   try {
     const value = JSON.stringify(data);
     await PYQ_CACHE.put(key, value, { expirationTtl: ttlSeconds });
+    kvWriteUnavailable = false;
   } catch (err) {
+    kvWriteUnavailable = true;
     console.warn(`KV write failed for ${key}:`, err.message);
   }
 }

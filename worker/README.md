@@ -135,13 +135,20 @@ npx wrangler deploy
 
 ## Cache & Invalidation
 
-- **Edge cache (Cloudflare Cache API):** caches whole GET responses.
-  TTLs: list/search 60–120s, item 120s, contributors 600s, courses 1h.
+- **HTTP caching:** successful API responses are sent with
+  `Cache-Control: public, s-maxage=60, max-age=60` (see `getCacheTTL` /
+  `jsonResponse`). There is deliberately **no** second response-cache layer
+  inside the Worker, so an admin invalidation takes effect as soon as the
+  index rebuild completes. (`cache.js` still exports Cache API helpers, but
+  they are not wired into the request path.)
 - **KV:** stores the search index (all compact PYQ metadata; refreshed
   via admin invalidation — **no short fixed-clock rebuild**, a 7-day
   hard TTL is the safety fallback only), per-item full docs (1 h),
-  contributors (1 h), courses (24 h), homepage (5 min). A per-item value that
+  contributors (1 h), homepage (5 min). A per-item value that
   predates an admin invalidation is revalidated once before it is reused.
+  `/api/courses` serves a compile-time constant catalog and intentionally
+  performs **no** KV write (a KV value is still read and honoured if one is
+  seeded out-of-band).
 - **Invalidation (primary refresh trigger):** `POST /api/invalidate`
   with `Authorization: Bearer <Firebase ID token>` stamps an invalidation
   timestamp only when the token has a verified `admin: true` custom claim,
@@ -157,11 +164,37 @@ npx wrangler deploy
 
 ## Rate limiting
 
-KV-backed limiter: 30 requests/min per IP per endpoint, with a 60/min burst.
-Returns `429` with `Retry-After`. API endpoints use it; public `/pyq/*` and
-`/sitemap.xml` deliberately bypass it because Netlify external rewrites do not
-reliably preserve a crawler's individual IP and a limiter write per render would
-add needless KV traffic.
+Two tiers, both returning `429` with `Retry-After` (`no-store`):
+
+1. **Public read endpoints** (`/api/pyqs`, `/api/pyqs/search`, `/api/pyqs/:id`,
+   `/api/homepage`, `/api/stats`, `/api/contributors`, `/api/courses`, unknown
+   paths): 60 requests/min per IP per endpoint, counted **in the isolate**
+   (a plain `Map`). This performs **zero KV operations** — the previous
+   KV-backed counter wrote one KV PUT for every request, which is what
+   exhausted the free-tier daily PUT allowance (≈1,000/day).
+2. **Sensitive / expensive admin operations** (`/api/notify`,
+   `/api/invalidate`): the original KV-backed, cross-isolate counter with the
+   original small ceilings (notify 6/min). It runs **after** the Firebase
+   admin token has been verified, so unauthenticated floods cannot consume KV
+   writes. A per-admin 30 s cooldown still guards accidental duplicate
+   notifications.
+
+Public `/pyq/*` and `/sitemap.xml` deliberately bypass the limiter entirely,
+because Netlify external rewrites do not reliably preserve a crawler's
+individual IP. `/api/health` is answered before the limiter.
+
+### KV failure behavior
+
+- Public reads never depend on KV, so a KV read/write outage or an exhausted
+  daily PUT quota does not degrade them; a flooding IP is still capped at the
+  isolate ceiling (fail closed at that ceiling, never blanket fail-open).
+- If the distributed tier cannot read or write its KV counter, it falls back to
+  the isolate-local counter with the *same* small ceiling (`degraded: true`) —
+  `notify`/`invalidate` keep meaningful protection, and authorization plus the
+  notify cooldown are unaffected.
+- If KV cannot store a rebuilt search index (expired entry + rejected PUTs),
+  the isolate reuses its last build for at most 60 s instead of sweeping the
+  whole Firestore collection on every request (`INDEX_MEMORY_TTL_MS`).
 
 ## Slug stability and duplicates
 

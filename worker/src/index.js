@@ -43,7 +43,9 @@ import {
   getItemById, getItemBySlug, assignCanonicalSlugs, isPublicIndexItem,
   isPublicPyq, runBackgroundRebuild,
 } from './search.js';
-import { checkRateLimit, getClientIP, normalizeEndpoint } from './rateLimit.js';
+import {
+  checkRateLimit, enforceDistributedRateLimit, getClientIP, normalizeEndpoint,
+} from './rateLimit.js';
 import {
   sanitizeSearchQuery, parsePagination, validateSort,
   validateFilters, isValidDocId, parseJSONBody,
@@ -198,18 +200,19 @@ async function handleRequest(request, ctx) {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
-  // Rate limiting
+  // Tier-1 rate limiting (isolate-local, zero KV operations).
+  //
+  // The previous limiter wrote a KV counter for every request, which is what
+  // exhausted the free-tier daily PUT allowance. Public reads are now guarded
+  // by an in-isolate counter; only sensitive/expensive endpoints keep a
+  // KV-backed distributed counter, and that one is applied *after* the admin
+  // token is verified inside the handler (see enforceDistributedRateLimit).
   const ip = getClientIP(request);
   const endpoint = normalizeEndpoint(url);
   const rateCheck = await checkRateLimit(ip, endpoint);
   if (!rateCheck.allowed) {
     console.log(`Rate limit exceeded for ${ip} on ${endpoint}`);
-    return jsonResponse({
-      error: 'Too many requests. Please slow down.',
-      retryAfter: Math.ceil((rateCheck.reset - Date.now()) / 1000),
-    }, 429, {
-      'Retry-After': String(Math.ceil((rateCheck.reset - Date.now()) / 1000)),
-    });
+    return rateLimitedResponse(rateCheck);
   }
 
 
@@ -542,8 +545,10 @@ async function handleCourses() {
     'B.V.A.', 'BPO', 'D.Pharm', 'MBA', 'MCA', 'M.Tech',
   ];
 
-  await setKV(KV_KEYS.COURSES, { courses: defaultCourses, _cachedAt: Date.now() }, 86400);
-
+  // The built-in catalog is a compile-time constant, so rebuilding it is free.
+  // Deliberately NO KV write here: caching a constant only spent one of the
+  // daily PUTs and saved no work. A KV value seeded out-of-band (or by an
+  // earlier deployment) is still honoured by the read above.
   return jsonResponse(defaultCourses, 200);
 }
 
@@ -615,6 +620,14 @@ async function handleInvalidate(request) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
+  // KV-backed distributed ceiling, applied only after authorization: an
+  // invalidation schedules a full search-index rebuild, so a leaked/replayed
+  // admin token must not be able to trigger rebuilds in a tight loop.
+  const limit = await enforceDistributedRateLimit(getClientIP(request), 'invalidate');
+  if (!limit.allowed) {
+    return rateLimitedResponse(limit);
+  }
+
   await invalidateAll();
 
   return jsonResponse({
@@ -639,6 +652,14 @@ async function handleNotify(request) {
     return jsonResponse({ error: 'Unauthorized' }, 401);
   }
 
+  // Strong, KV-backed distributed ceiling for the one endpoint that can spam
+  // every installed app. Applied after authorization so unauthenticated
+  // traffic can never consume KV writes.
+  const limit = await enforceDistributedRateLimit(getClientIP(request), 'notify');
+  if (!limit.allowed) {
+    return rateLimitedResponse(limit);
+  }
+
   const body = await parseJSONBody(request);
   const validated = validateNotificationPayload(body);
   if (!validated.ok) {
@@ -647,16 +668,22 @@ async function handleNotify(request) {
 
   // Secondary guard against double-clicks / duplicate sends, independent of
   // the IP rate limiter (an admin token can be used from multiple admins).
+  // KV being unavailable (quota exhausted) degrades this convenience guard
+  // only: authorization and the ceiling above are still enforced.
   const cooldownKey = `notify:cooldown:${admin.sub || 'unknown'}`;
   if (typeof PYQ_CACHE !== 'undefined') {
-    const waiting = await PYQ_CACHE.get(cooldownKey, 'text');
-    if (waiting) {
-      return jsonResponse({
-        error: 'A notification was just sent from this admin account. Please wait a moment before sending another.',
-        retryAfter: NOTIFY_COOLDOWN_SECONDS,
-      }, 429, {
-        'Retry-After': String(NOTIFY_COOLDOWN_SECONDS),
-      });
+    try {
+      const waiting = await PYQ_CACHE.get(cooldownKey, 'text');
+      if (waiting) {
+        return jsonResponse({
+          error: 'A notification was just sent from this admin account. Please wait a moment before sending another.',
+          retryAfter: NOTIFY_COOLDOWN_SECONDS,
+        }, 429, {
+          'Retry-After': String(NOTIFY_COOLDOWN_SECONDS),
+        });
+      }
+    } catch (err) {
+      console.warn('Notify cooldown read failed (KV unavailable):', err.message);
     }
   }
 
@@ -668,7 +695,13 @@ async function handleNotify(request) {
     });
 
     if (typeof PYQ_CACHE !== 'undefined') {
-      await PYQ_CACHE.put(cooldownKey, '1', { expirationTtl: NOTIFY_COOLDOWN_SECONDS });
+      try {
+        await PYQ_CACHE.put(cooldownKey, '1', { expirationTtl: NOTIFY_COOLDOWN_SECONDS });
+      } catch (err) {
+        // The message was already accepted by FCM; a failed cooldown write
+        // only weakens the double-click guard, never the send itself.
+        console.warn('Notify cooldown write failed (KV unavailable):', err.message);
+      }
     }
 
     return jsonResponse({
@@ -718,6 +751,21 @@ function getCacheTTL(path) {
   if (path.match(/^\/api\/pyqs\//)) return 120;
   if (path === '/api/pyqs') return 120;
   return 60;
+}
+
+/**
+ * 429 response shared by the tier-1 (isolate-local) and tier-2 (KV-backed
+ * distributed) rate limiters. `no-store` comes from jsonResponse's 4xx rule so
+ * a limiter verdict is never cached by a client or an intermediary.
+ */
+function rateLimitedResponse(rateCheck) {
+  const retryAfter = Math.max(1, Math.ceil((rateCheck.reset - Date.now()) / 1000));
+  return jsonResponse({
+    error: 'Too many requests. Please slow down.',
+    retryAfter,
+  }, 429, {
+    'Retry-After': String(retryAfter),
+  });
 }
 
 function sitemapUnavailableResponse() {

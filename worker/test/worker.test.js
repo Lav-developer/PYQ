@@ -29,12 +29,20 @@ class MockKV {
   constructor() {
     this.store = new Map();       // key -> deserialized object
     this.meta = new Map();        // key -> { expiresAt: ms epoch | Infinity }
-    this.operations = { reads: 0, writes: 0 };
+    // `writes` counts successful PUTs; `putAttempts` counts every PUT the
+    // Worker tried (including ones rejected by the simulated quota).
+    this.operations = { reads: 0, writes: 0, putAttempts: 0, deletes: 0 };
+    // Failure injection — models a KV outage or an exhausted daily quota.
+    this.failReads = false;
+    this.failWrites = false;
     this._now = () => Date.now();  // injectable for "expiry" tests
   }
 
   async get(key, type) {
     this.operations.reads += 1;
+    if (this.failReads) {
+      throw new Error('KV GET failed: 429 too many requests (daily read limit)');
+    }
     const m = this.meta.get(key);
     if (!m) return null;
     if (m.expiresAt !== Infinity && this._now() > m.expiresAt) {
@@ -48,6 +56,10 @@ class MockKV {
   }
 
   async put(key, value, opts = {}) {
+    this.operations.putAttempts += 1;
+    if (this.failWrites) {
+      throw new Error('KV PUT failed: 429 too many requests (daily write limit exceeded)');
+    }
     this.operations.writes += 1;
     const ttl = opts && opts.expirationTtl;
     const expiresAt = ttl ? this._now() + ttl * 1000 : Infinity;
@@ -57,6 +69,7 @@ class MockKV {
   }
 
   async delete(key) {
+    this.operations.deletes += 1;
     this.store.delete(key);
     this.meta.delete(key);
   }
@@ -76,6 +89,10 @@ class MockKV {
     this.meta.clear();
     this.operations.reads = 0;
     this.operations.writes = 0;
+    this.operations.putAttempts = 0;
+    this.operations.deletes = 0;
+    this.failReads = false;
+    this.failWrites = false;
   }
 }
 
@@ -406,6 +423,13 @@ const env = {
 };
 
 const worker = (await import('../src/index.js')).default;
+// Same module instance the Worker uses — lets tests reset the isolate-local
+// limiter between scenarios and exercise the distributed tier directly.
+const {
+  resetLocalRateLimitState, enforceDistributedRateLimit, checkRateLimit,
+  PUBLIC_LIMIT, SENSITIVE_LIMITS,
+} = await import('../src/rateLimit.js');
+const { resetKVAvailabilityState } = await import('../src/cache.js');
 
 // ── Test helpers ──────────────────────────────────────────────────
 
@@ -443,6 +467,8 @@ async function expectJson(res, expectedStatus, name) {
 function freshState() {
   mockKV.clear();
   mockCaches.default.store.clear();
+  resetLocalRateLimitState();
+  resetKVAvailabilityState();
   firestoreStats.pyqs = 0;
   firestoreStats.contributors = 0;
   pdfFetches = 0;
@@ -622,20 +648,62 @@ console.log('9. CORS');
       && /Authorization/i.test(preflight.headers.get('Access-Control-Allow-Headers') || ''));
 }
 
-// 10. Invalid requests + rate limiting
+// 10. Invalid requests + rate limiting (zero KV writes for public traffic)
 console.log('10. Invalid + rate limiting');
 {
+  freshState();
   const res = await request('/api/unknown');
   await expectJson(res, 404, 'GET /api/unknown (404)');
   const res2 = await request('/api/pyqs', { method: 'POST' });
   await expectJson(res2, 405, 'POST /api/pyqs (405)');
+  check('invalid route / rejected method: 0 KV writes',
+    mockKV.operations.putAttempts === 0,
+    `putAttempts ${mockKV.operations.putAttempts}`);
 
-  let limited = false;
-  for (let i = 0; i < 70; i++) {
+  // Warm the two KV data caches that the burst below touches so the measured
+  // window only contains the limiter's own accounting.
+  freshState();
+  await request('/api/pyqs?limit=1');
+  await request('/api/stats');
+  const putsBeforeBurst = mockKV.operations.putAttempts;
+  const writesBeforeBurst = mockKV.operations.writes;
+  // Start the measured burst from an empty isolate-local window.
+  resetLocalRateLimitState();
+
+  let allowedCount = 0;
+  let blockedCount = 0;
+  for (let i = 0; i < PUBLIC_LIMIT + 10; i++) {
     const r = await request('/api/stats');
-    if (r.status === 429) { limited = true; break; }
+    if (r.status === 429) blockedCount += 1; else allowedCount += 1;
   }
-  check('rate limit triggers 429 after burst', limited);
+  check('rate limit triggers 429 after burst', blockedCount > 0,
+    `allowed ${allowedCount}, blocked ${blockedCount}`);
+  check(`public burst is capped at the isolate ceiling (${PUBLIC_LIMIT}/min)`,
+    allowedCount === PUBLIC_LIMIT, `allowed ${allowedCount}`);
+  check(`burst of ${PUBLIC_LIMIT + 10} public GETs: ${mockKV.operations.putAttempts - putsBeforeBurst} KV PUTs (previously 1 per request)`,
+    mockKV.operations.putAttempts === putsBeforeBurst
+      && mockKV.operations.writes === writesBeforeBurst,
+    `putAttempts +${mockKV.operations.putAttempts - putsBeforeBurst}`);
+
+  const limitedResponse = await request('/api/stats');
+  check('429 response carries Retry-After and a JSON body',
+    limitedResponse.status === 429 && Number(limitedResponse.headers.get('Retry-After')) >= 1);
+  check('429 response is not cacheable',
+    /no-store/.test(limitedResponse.headers.get('Cache-Control') || ''));
+  await limitedResponse.text();
+
+  // Unauthenticated traffic to the sensitive endpoint must not write KV either.
+  freshState();
+  for (let i = 0; i < 20; i++) {
+    await request('/api/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Hi', body: 'There' }),
+    });
+  }
+  check('unauthenticated /api/notify flood: 0 KV PUTs',
+    mockKV.operations.putAttempts === 0,
+    `putAttempts ${mockKV.operations.putAttempts}`);
 }
 
 // ─────────────────── CACHE BEHAVIOR ────────────────────────────────
@@ -1207,6 +1275,237 @@ console.log('18. Tiebreaker correctness (duplicate primary keys)');
 
   // Restore dataset for any subsequent tests
   setPyqs(311);
+}
+
+// ─────────────── KV WRITE ACCOUNTING / QUOTA EXHAUSTION ────────────
+
+// 20. Public reads must not write to KV (the daily-PUT fix)
+console.log('20. KV write accounting (public GET traffic)');
+{
+  freshState();
+  setPyqs(311);
+  setContributors(5);
+
+  // /api/courses serves a compile-time constant — caching it spent a PUT for
+  // no benefit, so a cold call must not write anything at all.
+  const putsBeforeCourses = mockKV.operations.putAttempts;
+  const coursesRes = await request('/api/courses');
+  const coursesData = await expectJson(coursesRes, 200, 'GET /api/courses (cold)');
+  check('/api/courses cold: no KV write for the constant catalog',
+    mockKV.operations.putAttempts === putsBeforeCourses,
+    `putAttempts +${mockKV.operations.putAttempts - putsBeforeCourses}`);
+  check('/api/courses still returns the catalog', Array.isArray(coursesData) && coursesData.length > 0);
+
+  // Warm every public read endpoint once: the first (cold) call per endpoint
+  // may legitimately write its data cache to KV.
+  await request('/api/pyqs?page=1&limit=20');
+  await request('/api/pyqs/search?q=Subject%201');
+  await request('/api/pyqs/pyq_1');
+  await request('/api/contributors');
+  await request('/api/homepage');
+  await request('/api/stats');
+
+  const putsAfterWarm = mockKV.operations.putAttempts;
+  const writesAfterWarm = mockKV.operations.writes;
+
+  for (let i = 0; i < 5; i++) {
+    await request('/api/pyqs?page=1&limit=20');
+    await request('/api/pyqs/search?q=Subject%201');
+    await request('/api/pyqs/pyq_1');
+    await request('/api/contributors');
+    await request('/api/homepage');
+    await request('/api/stats');
+  }
+
+  check('30 repeated public GETs: 0 KV PUTs (previously 1 per request)',
+    mockKV.operations.putAttempts === putsAfterWarm,
+    `putAttempts +${mockKV.operations.putAttempts - putsAfterWarm}`);
+  check('30 repeated public GETs: 0 successful KV writes',
+    mockKV.operations.writes === writesAfterWarm,
+    `writes +${mockKV.operations.writes - writesAfterWarm}`);
+}
+
+// 21. Sensitive endpoints keep the KV-backed distributed ceiling
+console.log('21. Sensitive endpoint limiter (KV-backed, post-auth)');
+{
+  freshState();
+  const notifyCeiling = SENSITIVE_LIMITS.notify;
+  const verdicts = [];
+  for (let i = 0; i < notifyCeiling + 2; i++) {
+    verdicts.push(await enforceDistributedRateLimit('203.0.113.9', 'notify'));
+  }
+  check(`distributed notify ceiling: ${notifyCeiling} allowed, then blocked`,
+    verdicts.slice(0, notifyCeiling).every((v) => v.allowed)
+      && verdicts.slice(notifyCeiling).every((v) => !v.allowed));
+  check('distributed limiter still writes one KV counter per checked request',
+    mockKV.operations.putAttempts === notifyCeiling,
+    `putAttempts ${mockKV.operations.putAttempts}`);
+
+  // KV PUT quota exhausted → the SAME ceiling is enforced isolate-locally.
+  freshState();
+  mockKV.failWrites = true;
+  const degraded = [];
+  for (let i = 0; i < notifyCeiling + 2; i++) {
+    degraded.push(await enforceDistributedRateLimit('203.0.113.10', 'notify'));
+  }
+  check('KV PUT failure: sensitive ceiling still enforced (degraded, no fail-open)',
+    degraded.slice(0, notifyCeiling).every((v) => v.allowed)
+      && degraded.slice(notifyCeiling).every((v) => !v.allowed)
+      && degraded[degraded.length - 1].degraded === true);
+
+  // KV GET failure → same degraded fallback.
+  freshState();
+  mockKV.failReads = true;
+  const readFailed = await enforceDistributedRateLimit('203.0.113.11', 'notify');
+  check('KV GET failure: verdict degraded but still enforced',
+    readFailed.allowed === true && readFailed.degraded === true);
+  mockKV.failReads = false;
+  mockKV.failWrites = false;
+
+  // Public-tier requests keep working with no KV involvement at all.
+  freshState();
+  mockKV.failReads = true;
+  mockKV.failWrites = true;
+  let publicAllowed = 0;
+  for (let i = 0; i < PUBLIC_LIMIT + 5; i++) {
+    const verdict = await checkRateLimit('203.0.113.12', 'stats');
+    if (verdict.allowed) publicAllowed += 1;
+  }
+  check(`public-tier limiter is KV-independent (allows ${PUBLIC_LIMIT} with KV down)`,
+    publicAllowed === PUBLIC_LIMIT);
+  check('public-tier limiter performed 0 KV operations while KV was down',
+    mockKV.operations.putAttempts === 0 && mockKV.operations.reads === 0,
+    `reads ${mockKV.operations.reads}, putAttempts ${mockKV.operations.putAttempts}`);
+  mockKV.failReads = false;
+  mockKV.failWrites = false;
+}
+
+// 22. KV unavailable (quota exhausted) — public traffic + protected endpoints
+console.log('22. KV unavailable: public traffic continues, auth still enforced');
+{
+  freshState();
+  setPyqs(311);
+  setContributors(5);
+  mockKV.failWrites = true;   // simulate "daily PUT limit exceeded → HTTP 429"
+
+  const listRes = await request('/api/pyqs?page=1&limit=5');
+  const listData = await expectJson(listRes, 200, 'GET /api/pyqs (KV PUT unavailable)');
+  check('public list still served when KV writes fail',
+    listData && listData.items.length === 5 && listData.total === 311);
+
+  // The failed index write must not cause a full Firestore sweep per request.
+  const readsBeforeRepeat = firestoreStats.pyqs;
+  await request('/api/pyqs?page=3&limit=5');
+  check('KV write outage: isolate memory prevents a sweep per request',
+    firestoreStats.pyqs === readsBeforeRepeat,
+    `swept ${firestoreStats.pyqs - readsBeforeRepeat} extra pages`);
+
+  const searchRes = await request('/api/pyqs/search?q=Subject%201&limit=5');
+  const searchData = await expectJson(searchRes, 200, 'GET /api/pyqs/search (KV PUT unavailable)');
+  check('public search still served when KV writes fail', searchData && searchData.total > 0);
+
+  const homeRes = await request('/api/homepage');
+  const homeData = await expectJson(homeRes, 200, 'GET /api/homepage (KV PUT unavailable)');
+  check('homepage still served when KV writes fail', homeData && homeData.recent.length > 0);
+
+  const itemRes = await request('/api/pyqs/pyq_3');
+  const itemData = await expectJson(itemRes, 200, 'GET /api/pyqs/pyq_3 (KV PUT unavailable)');
+  check('item detail still served when KV writes fail', itemData && itemData.id === 'pyq_3');
+
+  // KV fully unreachable (reads too).
+  mockKV.failReads = true;
+  const outageRes = await request('/api/pyqs?page=2&limit=5');
+  const outageData = await expectJson(outageRes, 200, 'GET /api/pyqs (KV reads + writes unavailable)');
+  check('public list still served during a full KV outage',
+    outageData && outageData.items.length === 5 && outageData.page === 2);
+
+  // Authorization is independent of KV availability.
+  const authHeaders = { 'Content-Type': 'application/json', Authorization: `Bearer ${firebaseAdminToken}` };
+  const body = JSON.stringify({ title: 'KV outage', body: 'Still authorized.' });
+  const noToken = await request('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body });
+  await expectJson(noToken, 401, 'POST /api/notify without token (KV down)');
+  const nonAdmin = await request('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${firebaseNonAdminToken}` }, body });
+  await expectJson(nonAdmin, 401, 'POST /api/notify with non-admin token (KV down)');
+  const invalid = await request('/api/notify', { method: 'POST', headers: authHeaders, body: 'not-json' });
+  await expectJson(invalid, 400, 'POST /api/notify with malformed body (KV down)');
+
+  fcmMessages.length = 0;
+  const sendRes = await request('/api/notify', { method: 'POST', headers: authHeaders, body });
+  await expectJson(sendRes, 200, 'POST /api/notify with admin token (KV down)');
+  check('authorized notification still sends when KV is unavailable', fcmMessages.length === 1);
+
+  mockKV.failReads = false;
+  mockKV.failWrites = false;
+  freshState();
+}
+
+// 23. KV PUT budget under a simulated day of production traffic
+console.log('23. KV PUT budget (simulated traffic mix)');
+{
+  freshState();
+  setPyqs(311);
+  setContributors(5);
+
+  const endpoints = [
+    '/api/pyqs?page=1&limit=20',
+    '/api/pyqs?page=2&limit=20',
+    '/api/pyqs/search?q=Subject%201',
+    '/api/pyqs/pyq_1',
+    '/api/contributors',
+    '/api/homepage',
+    '/api/stats',
+    '/api/courses',
+  ];
+
+  // Real clients come from many IPs; give each simulated visitor its own
+  // CF-Connecting-IP so this measures traffic, not the abuse limiter.
+  const ipCount = 30;
+  const requestsPerIp = 20;
+  let okCount = 0;
+  for (let ip = 0; ip < ipCount; ip++) {
+    for (let n = 0; n < requestsPerIp; n++) {
+      const res = await request(endpoints[n % endpoints.length], {
+        headers: { 'CF-Connecting-IP': `198.51.100.${ip + 1}` },
+      });
+      if (res.status === 200) okCount += 1;
+    }
+  }
+
+  const publicRequests = ipCount * requestsPerIp;
+  const publicPuts = mockKV.operations.putAttempts;
+  check(`simulated ${publicRequests} public GETs all succeeded`, okCount === publicRequests,
+    `ok ${okCount}`);
+  check(`public traffic PUT budget: ${publicPuts} PUTs for ${publicRequests} requests (cold caches included)`,
+    publicPuts * 20 < publicRequests && publicPuts < 20,
+    `${publicPuts} PUTs for ${publicRequests} requests`);
+
+  // Admin traffic: one invalidation + one notification, as on a normal day.
+  const putsBeforeAdmin = mockKV.operations.putAttempts;
+  fcmMessages.length = 0;
+  const invRes = await request('/api/invalidate', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${firebaseAdminToken}`, 'CF-Connecting-IP': '198.51.100.200' },
+  });
+  const notifyRes = await request('/api/notify', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${firebaseAdminToken}`,
+      'CF-Connecting-IP': '198.51.100.201',
+    },
+    body: JSON.stringify({ title: 'Simulated', body: 'Traffic mix' }),
+  });
+  const adminPuts = mockKV.operations.putAttempts - putsBeforeAdmin;
+  check('admin invalidation + notification still work',
+    invRes.status === 200 && notifyRes.status === 200 && fcmMessages.length === 1);
+  check('admin KV writes stay bounded (invalidate stamp + notify counter/cooldown)',
+    adminPuts <= 4, `${adminPuts} PUTs`);
+
+  check(`total simulated-day KV PUTs: ${mockKV.operations.putAttempts} (free-tier limit is 1,000)`,
+    mockKV.operations.putAttempts < 30,
+    `${mockKV.operations.putAttempts} PUTs total`);
+
+  freshState();
 }
 
 // ─────────────────── SCALE TESTS ───────────────────────────────────
