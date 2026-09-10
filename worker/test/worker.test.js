@@ -286,6 +286,25 @@ async function mockFetch(input, init) {
     });
   }
 
+  // Resend HTTP send — captured so tests can assert the exact email payload
+  // (sender, reply_to, recipient, subject, html/text). resendFailNext +
+  // resendFailStatus simulate a downstream rejection of any shape.
+  if (url === 'https://api.resend.com/emails' && method === 'POST') {
+    const headers = init.headers instanceof Headers
+      ? { Authorization: init.headers.get('Authorization'), 'Content-Type': init.headers.get('Content-Type') }
+      : { Authorization: (init.headers && init.headers.Authorization) || '', 'Content-Type': (init.headers && init.headers['Content-Type']) || '' };
+    resendCalls.push({ headers, body: JSON.parse(init.body) });
+    if (resendFailNext) {
+      resendFailNext = false;
+      return new Response(JSON.stringify({ name: 'validation_error', message: 'internal upstream detail (injected test failure)' }), {
+        status: resendFailStatus, headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify({ id: '4ef9a417-02e9-4d39-ad75-9611e0fcc33c', object: 'email' }), {
+      status: 200, headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   if (url.includes(':runQuery') && method === 'POST') {
     const body = JSON.parse(init.body);
     const collectionId = body.structuredQuery.from[0].collectionId;
@@ -408,6 +427,12 @@ const firebaseNonAdminToken = await new SignJWT({})
 const fcmMessages = [];
 let fcmFailNext = false;
 
+const resendCalls = [];
+let resendFailNext = false;
+let resendFailStatus = 500;
+const TEST_RESEND_KEY = 're_test_1234567890_ABCDEF';
+const TEST_ADMIN_EMAIL = 'admin-alerts@dsmnru.test';
+
 const env = {
   PYQ_CACHE: mockKV,
   FIREBASE_PROJECT_ID: 'dsmnru-data',
@@ -420,6 +445,8 @@ const env = {
     client_id: '123',
   }),
   ALLOWED_ORIGINS: 'http://localhost:8000,https://dsmnru-pyq.netlify.app',
+  RESEND_API_KEY: TEST_RESEND_KEY,
+  ADMIN_EMAIL: TEST_ADMIN_EMAIL,
 };
 
 const worker = (await import('../src/index.js')).default;
@@ -1506,6 +1533,273 @@ console.log('23. KV PUT budget (simulated traffic mix)');
     `${mockKV.operations.putAttempts} PUTs total`);
 
   freshState();
+}
+
+// 24. Email notifications (Resend) — helper unit tests + the three routes
+console.log('24. Email notifications (Resend)');
+{
+  // The Worker entry copies env bindings into globalThis on each request
+  // (only for keys not already present), so RESEND_API_KEY / ADMIN_EMAIL are
+  // injected on the first request of this section.
+  const emailPost = (path, body, extraHeaders = {}) => request(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
+    body: JSON.stringify(body),
+  });
+  const adminAuth = { Authorization: `Bearer ${firebaseAdminToken}` };
+  const studentPayload = {
+    to: 'student@example.com',
+    title: 'B.A. 1st Sem History {2024-25}',
+    studentName: 'Rahul Kumar',
+    course: 'B.A.',
+    semester: '1st',
+    submissionId: 'abc123',
+  };
+
+  // ── 24a. email.js helper (unit-level) ──────────────────────────────
+  const emailModule = await import('../src/email.js');
+
+  check('helper: sender + reply-to are the verified Resend identity',
+    emailModule.EMAIL_SENDER === 'DSMNRU PYQ <noreply@dsmnrupyq.lovie.me>'
+    && emailModule.EMAIL_REPLY_TO === 'contact@dsmnrupyq.lovie.me');
+
+  resendCalls.length = 0;
+  const okSend = await emailModule.sendEmail({ to: 'student@example.com', subject: 'S', html: '<p>hi</p>', text: 'hi' });
+  check('helper: 2xx → ok with the Resend message id',
+    okSend.ok === true && okSend.id === '4ef9a417-02e9-4d39-ad75-9611e0fcc33c');
+  check('helper: POSTs api.resend.com with Bearer RESEND_API_KEY + JSON content type',
+    resendCalls.length === 1
+    && resendCalls[0].headers.Authorization === `Bearer ${TEST_RESEND_KEY}`
+    && resendCalls[0].headers['Content-Type'] === 'application/json');
+  check('helper: payload shape is from/to[]/subject/html/reply_to/text',
+    resendCalls[0].body.from === 'DSMNRU PYQ <noreply@dsmnrupyq.lovie.me>'
+    && Array.isArray(resendCalls[0].body.to) && resendCalls[0].body.to[0] === 'student@example.com'
+    && resendCalls[0].body.reply_to === 'contact@dsmnrupyq.lovie.me'
+    && resendCalls[0].body.text === 'hi'
+    && !JSON.stringify(resendCalls[0].body).includes(TEST_RESEND_KEY));
+
+  resendFailNext = true;
+  resendFailStatus = 422;
+  const failSend = await emailModule.sendEmail({ to: 'student@example.com', subject: 'S', html: '<p>hi</p>' });
+  check('helper: non-2xx → ok:false with the upstream status (never throws)',
+    failSend.ok === false && failSend.reason === 'http' && failSend.status === 422);
+
+  resendCalls.length = 0;
+  const savedHelperKey = globalThis.RESEND_API_KEY;
+  delete globalThis.RESEND_API_KEY;
+  const noKeySend = await emailModule.sendEmail({ to: 'student@example.com', subject: 'S', html: '<p>hi</p>' });
+  check('helper: missing RESEND_API_KEY → not_configured, zero HTTP calls',
+    noKeySend.ok === false && noKeySend.reason === 'not_configured' && resendCalls.length === 0);
+  globalThis.RESEND_API_KEY = savedHelperKey;
+
+  const badToSend = await emailModule.sendEmail({ to: 'not-an-email', subject: 'S', html: '<p>hi</p>' });
+  check('helper: invalid recipient rejected before any HTTP call',
+    badToSend.ok === false && badToSend.reason === 'invalid_email' && resendCalls.length === 0);
+
+  const hostile = '<script>alert(1)</script> & "quotes"';
+  const escTemplate = emailModule.submissionReceivedEmailTemplate({
+    to: 'x@y.com', title: hostile, studentName: 'Rahul <b> Kumar', course: 'B.A.', semester: '1st',
+  });
+  check('template: dynamic values are HTML-escaped (no script/img injection)',
+    !escTemplate.html.includes('<script>')
+    && escTemplate.html.includes('&lt;script&gt;alert(1)&lt;/script&gt;')
+    && escTemplate.html.includes('&quot;quotes&quot;')
+    && !escTemplate.html.includes('Rahul <b>'));
+  check('template: every email carries a plain-text fallback',
+    typeof escTemplate.text === 'string' && escTemplate.text.includes(hostile));
+
+  // ── 24b. POST /api/email/submission-received (public, validated) ────
+  freshState();
+  resendCalls.length = 0;
+
+  const okRes = await emailPost('/api/email/submission-received', studentPayload);
+  const okData = await expectJson(okRes, 200, 'POST /api/email/submission-received (valid, no token needed)');
+  check('response reports sent + adminNotified', okData && okData.sent === true && okData.adminNotified === true);
+  check('exactly two emails: student receipt + admin alert', resendCalls.length === 2,
+    `sent=${resendCalls.length}`);
+  const studentMail = resendCalls.find((m) => m.body.to[0] === 'student@example.com');
+  const adminMail = resendCalls.find((m) => m.body.to[0] === TEST_ADMIN_EMAIL);
+  check('student receipt: correct subject/sender/reply-to',
+    !!studentMail
+    && studentMail.body.subject === 'PYQ Submission Received — DSMNRU PYQ'
+    && studentMail.body.from === 'DSMNRU PYQ <noreply@dsmnrupyq.lovie.me>'
+    && studentMail.body.reply_to === 'contact@dsmnrupyq.lovie.me');
+  check('student receipt includes the paper title and does NOT claim approval',
+    !!studentMail
+    && studentMail.body.html.includes('B.A. 1st Sem History {2024-25}')
+    && studentMail.body.html.includes('pending admin verification')
+    && !studentMail.body.html.includes('has been <strong>approved</strong>')
+    && studentMail.body.subject !== 'PYQ Approved — You Earned 10 Points 🎉');
+  check('admin alert: subject + student details + submission id + review call-to-action',
+    !!adminMail
+    && adminMail.body.subject === 'New PYQ Submission — Review Required'
+    && adminMail.body.html.includes('Rahul Kumar')
+    && adminMail.body.html.includes('student@example.com')
+    && adminMail.body.html.includes('abc123')
+    && adminMail.body.html.includes('B.A.')
+    && adminMail.body.html.includes('1st'));
+
+  {
+    const invalid = async (over, name) => {
+      const res = await emailPost('/api/email/submission-received', { ...studentPayload, ...over });
+      await expectJson(res, 400, name);
+    };
+    await invalid({ to: 'javascript:alert(1)' }, 'POST /api/email/submission-received (bad recipient)');
+    await invalid({ to: 'student@' }, 'POST /api/email/submission-received (incomplete recipient)');
+    await invalid({ title: '' }, 'POST /api/email/submission-received (missing title)');
+    await invalid({ title: 'x'.repeat(201) }, 'POST /api/email/submission-received (title too long)');
+    await invalid({ studentName: 'x'.repeat(81) }, 'POST /api/email/submission-received (name too long)');
+    {
+      // A bare JSON string body is not an object → 400.
+      const res = await request('/api/email/submission-received', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '"not-an-object"',
+      });
+      await expectJson(res, 400, 'POST /api/email/submission-received (non-object body)');
+    }
+  }
+
+  {
+    // Hostile markup must arrive escaped in every rendered email.
+    resendCalls.length = 0;
+    const injectedRes = await emailPost('/api/email/submission-received', {
+      ...studentPayload,
+      title: '<img src=x onerror=alert(1)>',
+      studentName: '<script>alert(1)</script>',
+    });
+    await expectJson(injectedRes, 200, 'POST /api/email/submission-received (markup sanitized, not rejected)');
+    check('markup in title/name is escaped in both emails, never executed',
+      resendCalls.length === 2
+      && resendCalls.every((m) => !m.body.html.includes('<img src=x') && !m.body.html.includes('<script>alert')))
+  }
+
+  {
+    // Downstream Resend failure → isolated 502 with safe, generic text.
+    resendFailNext = true;
+    resendFailStatus = 500;
+    const failRes = await emailPost('/api/email/submission-received', studentPayload);
+    const failData = await expectJson(failRes, 502, 'POST /api/email/submission-received (Resend rejects)');
+    const serialized = JSON.stringify(failData || {});
+    check('failure response leaks no API key or upstream detail',
+      !serialized.includes(TEST_RESEND_KEY) && !serialized.includes('injected test failure'));
+  }
+
+  {
+    // Missing binding at route level → 503 config error, zero Resend calls.
+    resendCalls.length = 0;
+    delete env.RESEND_API_KEY;
+    delete globalThis.RESEND_API_KEY;
+    const unconfRes = await emailPost('/api/email/submission-received', studentPayload);
+    await expectJson(unconfRes, 503, 'POST /api/email/submission-received (RESEND_API_KEY unset)');
+    check('unconfigured route makes no Resend call', resendCalls.length === 0);
+    env.RESEND_API_KEY = TEST_RESEND_KEY;
+    delete globalThis.RESEND_API_KEY; // re-injected from env on the next request
+  }
+
+  {
+    // ADMIN_EMAIL unset → student receipt still sent, admin alert skipped.
+    resendCalls.length = 0;
+    delete env.ADMIN_EMAIL;
+    delete globalThis.ADMIN_EMAIL;
+    const noAdminRes = await emailPost('/api/email/submission-received', studentPayload);
+    const noAdminData = await expectJson(noAdminRes, 200, 'POST /api/email/submission-received (ADMIN_EMAIL unset)');
+    check('student receipt still sent; adminNotified is false',
+      noAdminData && noAdminData.sent === true && noAdminData.adminNotified === false && resendCalls.length === 1);
+    env.ADMIN_EMAIL = TEST_ADMIN_EMAIL;
+    delete globalThis.ADMIN_EMAIL; // re-injected from env on the next request
+  }
+
+  {
+    // Public endpoint: Tier-1 isolate-local ceiling (60/min/IP), ZERO KV ops.
+    freshState();
+    resendCalls.length = 0;
+    let limited = 0;
+    for (let i = 0; i < 61; i++) {
+      const r = await emailPost('/api/email/submission-received', studentPayload, { 'CF-Connecting-IP': '203.0.113.9' });
+      if (r.status === 429) limited += 1;
+    }
+    check('public email endpoint capped at 60/min per IP without a single KV write',
+      limited === 1 && mockKV.operations.putAttempts === 0,
+      `limited=${limited} puts=${mockKV.operations.putAttempts}`);
+  }
+
+  // ── 24c. POST /api/email/approved + /api/email/rejected (admin token) ──
+  freshState();
+  resendCalls.length = 0;
+  const approvedPayload = { ...studentPayload, pointsBalance: 40 };
+
+  const apprNoAuth = await emailPost('/api/email/approved', approvedPayload);
+  await expectJson(apprNoAuth, 401, 'POST /api/email/approved (no token)');
+  const apprNonAdmin = await emailPost('/api/email/approved', approvedPayload, { Authorization: `Bearer ${firebaseNonAdminToken}` });
+  await expectJson(apprNonAdmin, 401, 'POST /api/email/approved (non-admin token)');
+
+  const apprOk = await emailPost('/api/email/approved', approvedPayload, adminAuth);
+  const apprOkData = await expectJson(apprOk, 200, 'POST /api/email/approved (valid)');
+  check('approval email: exact subject, +10 points, and the new balance',
+    apprOkData && apprOkData.sent === true
+    && resendCalls.length === 1
+    && resendCalls[0].body.subject === 'PYQ Approved — You Earned 10 Points 🎉'
+    && resendCalls[0].body.to[0] === 'student@example.com'
+    && resendCalls[0].body.html.includes('+10')
+    && resendCalls[0].body.html.includes('40 points'));
+
+  const badBalance = await emailPost('/api/email/approved', { ...approvedPayload, pointsBalance: 'lots' }, adminAuth);
+  await expectJson(badBalance, 400, 'POST /api/email/approved (non-numeric balance)');
+
+  freshState();
+  resendCalls.length = 0;
+  const rejectedPayload = { ...studentPayload, reason: 'Blurry pages' };
+
+  const rejNoAuth = await emailPost('/api/email/rejected', rejectedPayload);
+  await expectJson(rejNoAuth, 401, 'POST /api/email/rejected (no token)');
+
+  const rejOk = await emailPost('/api/email/rejected', rejectedPayload, adminAuth);
+  const rejOkData = await expectJson(rejOk, 200, 'POST /api/email/rejected (valid with reason)');
+  check('rejection email: exact subject + the provided reason',
+    rejOkData && rejOkData.sent === true
+    && resendCalls.length === 1
+    && resendCalls[0].body.subject === 'PYQ Submission Update — DSMNRU PYQ'
+    && resendCalls[0].body.html.includes('Blurry pages'));
+
+  resendCalls.length = 0;
+  const noReason = await emailPost('/api/email/rejected', { ...rejectedPayload, reason: '' }, adminAuth);
+  await expectJson(noReason, 200, 'POST /api/email/rejected (no reason provided)');
+  check('rejection without a reason does not invent one',
+    resendCalls.length === 1 && !resendCalls[0].body.html.includes('>Reason<') && !resendCalls[0].body.text.includes('Reason:'));
+
+  const longReason = await emailPost('/api/email/rejected', { ...rejectedPayload, reason: 'x'.repeat(301) }, adminAuth);
+  await expectJson(longReason, 400, 'POST /api/email/rejected (reason too long)');
+
+  {
+    // Downstream failure on an admin route → 502, review action unaffected.
+    resendFailNext = true;
+    resendFailStatus = 401;
+    const rejFail = await emailPost('/api/email/rejected', rejectedPayload, adminAuth);
+    const rejFailData = await expectJson(rejFail, 502, 'POST /api/email/rejected (Resend rejects)');
+    check('admin-route failure leaks no API key or upstream detail',
+      rejFailData && !JSON.stringify(rejFailData).includes(TEST_RESEND_KEY));
+  }
+
+  {
+    // Admin email routes keep the KV-backed distributed ceiling (30/min).
+    freshState();
+    resendCalls.length = 0;
+    let adminLimited = 0;
+    for (let i = 0; i < 31; i++) {
+      const r = await emailPost('/api/email/approved', approvedPayload, {
+        ...adminAuth,
+        'CF-Connecting-IP': '203.0.113.10',
+      });
+      if (r.status === 429) adminLimited += 1;
+    }
+    check('admin email endpoint capped by the distributed limiter (30/min)',
+      adminLimited === 1, `limited=${adminLimited}`);
+  }
+
+  freshState();
+  resendCalls.length = 0;
+  resendFailNext = false;
 }
 
 // ─────────────────── SCALE TESTS ───────────────────────────────────

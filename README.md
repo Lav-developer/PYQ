@@ -98,6 +98,7 @@
 - 📥 **Bulk CSV Import** — `pyqs` / `contributors` ( `id` → update, else create )
 - 📚 **Content Library** — Card list, local **0-read search** (`#adminPyqSearch`), Copy Server 1/2, Edit/Delete by **doc id** (fixes filtered delete bug)
 - ⏳ **Review Queue** — every `pendingUploads` submission → filters `Pending / Approved / Rejected / All`, Download / Copy URL / **Approve (+10 points)** / **Reject (0 points)** / Delete
+- 📧 **Email notifications** — students get a "submission received" receipt, an admin gets a "review required" alert, and students are emailed the approve (+10 points) / reject outcome via Resend (`worker/src/email.js`, secrets `RESEND_API_KEY` + `ADMIN_EMAIL`). Best-effort by design: a failed email never blocks the submission, approval, rejection, or points
 - 👥 **Contributors** — Add/edit/delete (`PYQs Provider` etc.)
 - 👤 **Users** — Registered profiles, edit role/course/phone, delete
 - 🚩 **Feedback Inbox** — **NEW** `Broken Reports & PYQ Requests` → filters `All / Broken / Requests / New`, `Mark Resolved` / `Delete` / `Clear resolved`, realtime `new` pulse, counts in hero
@@ -210,7 +211,7 @@ Run the Worker test suite:
 ```bash
 cd worker
 npm install
-node test/worker.test.js        # 132 assertions, mocked Firestore
+node test/worker.test.js        # 235 assertions, mocked Firestore (+ Resend email routes)
 ```
 
 Frontend smoke tests (need `jsdom`):
@@ -220,9 +221,9 @@ cd worker
 npm install --no-save jsdom
 node test/frontend-smoke-test.cjs
 node test/paper-smoke-test.cjs
-node test/contribution-points-test.cjs   # 65 assertions — upload → pending → approve/reject → points
+node test/contribution-points-test.cjs   # 80 assertions — upload → pending → approve/reject → points (+ email ride-along)
 node test/duplicate-detection-test.cjs   # 45 assertions — title-led matching + admin hint UI
-node test/admin-ia-test.cjs              # 68 assertions — sidebar IA, lazy loading, rewards
+node test/admin-ia-test.cjs              # 73 assertions — sidebar IA, lazy loading, rewards
 node test/duplicate-index-freshness-test.cjs  # 13 — exact-title regression (stale index)
 ```
 
@@ -317,8 +318,9 @@ match /point_transactions/{id}{ allow read: if isAdminByEmail() || ownsRewardEma
 2. Images → `jsPDF` 6 attempts (2000px→900px, 0.9→0.58 quality) → single PDF
 3. PDF → `https://api.gofile.io/servers` → `https://{server}.gofile.io/uploadFile` → `downloadPage` URL *(unchanged)*
 4. Metadata → `pendingUploads` (`status: pending`, email normalized to lowercase) → *"Submission received — 10 points will be credited if approved"*
-5. Admin → *Review Queue* → Download → verify → **Approve (+10 points, idempotent)** or **Reject (0 points)**
-6. Publishing stays manual: *Quick Create* → `pyqs` (approval never publishes)
+5. A confirmation email goes to the student and a "review required" alert to the admin (Resend via the Worker — best-effort, a failed email never fails the upload)
+6. Admin → *Review Queue* → Download → verify → **Approve (+10 points, idempotent)** or **Reject (0 points)** → the student is emailed the outcome
+7. Publishing stays manual: *Quick Create* → `pyqs` (approval never publishes)
 
 ---
 

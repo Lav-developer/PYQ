@@ -24,6 +24,15 @@ ALLOWED_ORIGINS = "http://localhost:8000,http://localhost:5000,http://localhost:
 #   npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON
 #     → paste the FULL contents of your Firebase service account JSON file
 #
+#   npx wrangler secret put RESEND_API_KEY
+#     → Resend API key for the verified domain dsmnrupyq.lovie.me
+#       (emails are sent from "DSMNRU PYQ <noreply@dsmnrupyq.lovie.me>",
+#       Reply-To contact@dsmnrupyq.lovie.me). Never commit this value.
+#
+#   npx wrangler secret put ADMIN_EMAIL
+#     → recipient of the "New PYQ Submission — Review Required" alert.
+#       If unset, student emails still work; only the admin alert is skipped.
+#
 # FIREBASE_SERVICE_ACCOUNT_JSON is injected as a secret. POST /api/invalidate
 # is authorized with a Firebase ID token whose verified custom claim is
 # admin:true; there is intentionally no browser-visible static API key.

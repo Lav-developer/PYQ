@@ -1664,6 +1664,51 @@ function escapeUploadText(value) {
         .replace(/"/g, '&quot;');
 }
 
+/**
+ * Best-effort "submission received" email via the Cloudflare Worker (Resend).
+ *
+ * Called AFTER the pendingUploads document was created successfully. The
+ * request is fire-and-forget with its own timeout: email is secondary to the
+ * actual submission, so this function swallows every error (endpoint down,
+ * 4xx/5xx, offline) and never throws, never blocks, and never changes the
+ * upload result. All content is re-validated and HTML-escaped server-side.
+ */
+function notifySubmissionReceived(data) {
+    try {
+        if (typeof fetch !== 'function') return;
+        const controller = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+        const timeoutId = controller
+            ? setTimeout(function () { controller.abort(); }, 8000)
+            : null;
+        const settle = function () {
+            if (timeoutId) clearTimeout(timeoutId);
+        };
+        fetch(buildApiUrl('/email/submission-received'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                submissionId: data.submissionId || '',
+                to: data.to || '',
+                title: data.title || '',
+                course: data.course || '',
+                semester: data.semester || '',
+                studentName: data.studentName || ''
+            }),
+            signal: controller ? controller.signal : undefined
+        }).then(function (response) {
+            settle();
+            if (!response.ok) {
+                console.warn('Submission receipt email was not sent (HTTP ' + response.status + '). The submission itself is unaffected.');
+            }
+        }).catch(function (error) {
+            settle();
+            console.warn('Submission receipt email skipped: ' + ((error && error.message) ? error.message : error));
+        });
+    } catch (error) {
+        console.warn('Submission receipt email skipped: ' + ((error && error.message) ? error.message : error));
+    }
+}
+
 // Minimal abuse protection for the public (no sign-in) upload form. It only
 // guards the browser; the real guardrails are the Firestore rules, which
 // reject anything that is not a valid pending submission.
@@ -1881,7 +1926,7 @@ function setupUserUploadHandler() {
 
             // Save metadata to Firestore pendingUploads collection
             await ensureFirestore();
-            await db.collection('pendingUploads').add({
+            const pendingUploadRef = await db.collection('pendingUploads').add({
                 title: title,
                 course: course,
                 semester: semester,
@@ -1901,6 +1946,18 @@ function setupUserUploadHandler() {
                 status: points.SUBMISSION_STATUS.PENDING
             });
             recordUploadThrottle();
+
+            // Best-effort email receipt via the Worker (Resend). The
+            // submission itself is already saved — this is strictly a
+            // notification and must never fail or delay the upload result.
+            notifySubmissionReceived({
+                submissionId: pendingUploadRef && pendingUploadRef.id ? pendingUploadRef.id : '',
+                to: userEmail,
+                title: title,
+                course: course,
+                semester: semester,
+                studentName: userName
+            });
 
             progressBar.style.width = '100%';
             statusMessage.innerHTML =

@@ -59,10 +59,19 @@ export const SENSITIVE_LOCAL_LIMIT = 30;
  * Tier-2 ceilings, KV-backed and shared across isolates. Unchanged from the
  * previous implementation (`NOTIFY` was 6/min; invalidate is admin-only and
  * triggers a full search-index rebuild, so it keeps a small ceiling too).
+ * The two email review endpoints are admin-only (verified token) and each
+ * call triggers real Resend sends, so they get a generous-but-bounded
+ * ceiling that still allows bulk reviews. The PUBLIC email endpoint
+ * (`/api/email/submission-received`) deliberately stays OUT of this map:
+ * like public reads it is guarded only by the isolate-local Tier-1 counter,
+ * because a KV write per unauthenticated request would hand floods the very
+ * PUT-quota exhaustion this design removed.
  */
 export const SENSITIVE_LIMITS = {
   notify: 6,
   invalidate: 10,
+  emailapproved: 30,
+  emailrejected: 30,
 };
 
 const KV_KEY_PREFIX = 'ratelimit:';
@@ -212,5 +221,8 @@ export function normalizeEndpoint(url) {
   if (path.startsWith('/api/stats')) return 'stats';
   if (path.startsWith('/api/notify')) return 'notify';
   if (path.startsWith('/api/invalidate')) return 'invalidate';
+  if (path.startsWith('/api/email/submission-received')) return 'emailsubmission';
+  if (path.startsWith('/api/email/approved')) return 'emailapproved';
+  if (path.startsWith('/api/email/rejected')) return 'emailrejected';
   return 'other';
 }

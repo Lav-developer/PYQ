@@ -1691,6 +1691,62 @@ async function resolveRewardUid(email) {
     return null;
 }
 
+/**
+ * Best-effort review-outcome email via the Cloudflare Worker (Resend).
+ *
+ * Called ONLY after the review action already succeeded in Firestore:
+ *   - 'approved'  → after the reward transaction returned awarded: true, so
+ *                   the existing idempotency guard guarantees the student is
+ *                   emailed at most once per submission even on retries.
+ *   - 'rejected'  → after the rejection update succeeded.
+ *
+ * Fire-and-forget with its own timeout: email is secondary to the review, so
+ * this never blocks the admin UI, never throws, and a failure never turns an
+ * already-successful approval/rejection into an error. All content is
+ * re-validated and HTML-escaped server-side; the Worker only accepts this
+ * call with a verified Firebase admin token.
+ */
+function notifyReviewStatusEmail(kind, submission, extra) {
+    try {
+        if (!auth || !auth.currentUser || (kind !== 'approved' && kind !== 'rejected')) return;
+        const email = submissionEmailOf(submission);
+        if (!email) return;
+
+        auth.currentUser.getIdToken(true).then(function (idToken) {
+            const payload = {
+                to: email,
+                studentName: String((submission && (submission.studentName || submission.name)) || ''),
+                title: String((submission && submission.title) || ''),
+                course: String((submission && submission.course) || ''),
+                semester: String((submission && submission.semester) || ''),
+                submissionId: String((submission && submission.id) || '')
+            };
+            if (kind === 'approved' && extra && extra.pointsBalance !== undefined && extra.pointsBalance !== null) {
+                payload.pointsBalance = extra.pointsBalance;
+            }
+            if (kind === 'rejected' && extra && extra.reason) {
+                payload.reason = String(extra.reason);
+            }
+            return fetch(API_BASE_URL + '/email/' + kind, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + idToken
+                },
+                body: JSON.stringify(payload)
+            });
+        }).then(function (response) {
+            if (response && !response.ok) {
+                console.warn('Submission ' + kind + ' email was not sent (HTTP ' + response.status + '). The review action itself is unaffected.');
+            }
+        }).catch(function (error) {
+            console.warn('Submission ' + kind + ' email skipped: ' + ((error && error.message) ? error.message : error));
+        });
+    } catch (error) {
+        console.warn('Submission ' + kind + ' email skipped: ' + ((error && error.message) ? error.message : error));
+    }
+}
+
 async function approveSubmission(docId) {
     if (!requireAdminForReview()) return;
     if (submissionActionBusy.has(docId)) return;
@@ -1790,6 +1846,13 @@ async function approveSubmission(docId) {
             return { awarded: true, points: reward, total: currentPoints + reward };
         });
 
+        // Approval email only when points were actually awarded NOW: the
+        // transaction's idempotency guard means a retried approval returns
+        // awarded: false and must not trigger a duplicate reward email.
+        if (result.awarded) {
+            notifyReviewStatusEmail('approved', submission, { pointsBalance: result.total });
+        }
+
         alert(result.awarded
             ? 'Approved — +' + result.points + ' points credited. Balance: ' + result.total + '.'
             : 'Approved — points were already awarded for this submission, so nothing extra was credited. Balance: ' + result.total + '.');
@@ -1831,6 +1894,9 @@ async function rejectSubmission(docId) {
             reviewedByUid: currentAdmin.uid || '',
             rejectionReason: reason.trim().slice(0, 300) || null
         });
+        // Fire-and-forget outcome email — the rejection above already
+        // succeeded, so a notification failure must not surface as an error.
+        notifyReviewStatusEmail('rejected', submission, { reason: reason.trim().slice(0, 300) || '' });
         alert('Submission rejected. No points were awarded.');
     } catch (error) {
         console.error('Error rejecting submission:', error);
