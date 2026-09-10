@@ -26,6 +26,7 @@
 
 import * as ui from '../ui.js';
 import * as core from '../uploadcore.js';
+import { WORKER_ORIGIN } from '../api.js';
 
 const storage = (typeof localStorage !== 'undefined') ? localStorage : null;
 
@@ -287,13 +288,52 @@ export default async function renderUpload(root, ctx) {
       const headers = { 'Content-Type': 'application/json' };
       if (user && user.idToken) headers.Authorization = 'Bearer ' + user.idToken;
       const res = await fetch(core.pendingUploadsUrl(), { method: 'POST', headers, body: JSON.stringify(doc) });
+      let submissionId = '';
       if (!res.ok) {
         const body = await res.json().catch(() => null);
         throw new Error((body && body.error && body.error.message) || 'Could not register the submission. Try again.');
+      } else {
+        const body = await res.json().catch(() => null);
+        submissionId = core.extractFirestoreDocumentId(body);
       }
 
       core.recordUploadThrottle(storage, Date.now());
       setProgress(100, 'Done');
+
+      // Best-effort email notification via the existing production Worker
+      // endpoint (Resend). Mirrors the website's notifySubmissionReceived():
+      // fire-and-forget, 8s timeout, swallow all errors, never blocks success.
+      // Uses WORKER_ORIGIN from api.js — the same base URL the app already
+      // uses for all other API calls — so no new configuration.
+      try {
+        const payload = core.buildSubmissionReceivedEmailPayload({
+          submissionId,
+          to: check.email,
+          title: String(title).trim(),
+          course: String(course).trim(),
+          semester: String(semester).trim(),
+          studentName: String(studentName).trim(),
+        });
+        const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+        const timeoutId = controller ? setTimeout(() => controller.abort(), 8000) : null;
+        const settle = () => { if (timeoutId) clearTimeout(timeoutId); };
+        fetch(core.submissionReceivedEmailUrl(WORKER_ORIGIN), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: controller ? controller.signal : undefined,
+        }).then((r) => {
+          settle();
+          if (!r.ok) {
+            console.warn('Submission receipt email was not sent (HTTP ' + r.status + '). The submission itself is unaffected.');
+          }
+        }).catch((err) => {
+          settle();
+          console.warn('Submission receipt email skipped: ' + ((err && err.message) ? err.message : err));
+        });
+      } catch (err) {
+        console.warn('Submission receipt email skipped: ' + ((err && err.message) ? err.message : err));
+      }
 
       // 4) In-app success state (no page jump, no website).
       root.innerHTML = `

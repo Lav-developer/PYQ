@@ -20,6 +20,56 @@
 export const MAX_FINAL_PDF_SIZE = 10 * 1024 * 1024; // 10 MB, like the website
 export const GOFILE_SERVERS_URL = 'https://api.gofile.io/servers';
 
+// ── Worker email notification (production Resend flow, PR #17) ──────────
+// The Worker origin is the SAME one the app's api.js already uses — no new
+// backend, no secret material. The Android app calls the public
+// POST /api/email/submission-received endpoint AFTER a successful
+// pendingUploads insert; the Worker talks to Resend.
+export const WORKER_ORIGIN = 'https://dsmnru-pyq-api.kush210431-cloudflare.workers.dev';
+export const SUBMISSION_RECEIVED_EMAIL_PATH = '/api/email/submission-received';
+export function submissionReceivedEmailUrl(origin = WORKER_ORIGIN) {
+  const base = String(origin || '').trim().replace(/\/+$/, '') || WORKER_ORIGIN;
+  return base + SUBMISSION_RECEIVED_EMAIL_PATH;
+}
+
+/**
+ * Extract the Firestore document ID from a REST insert response.
+ * REST returns { name: "projects/.../documents/pendingUploads/<id>", ... }.
+ * Returns '' when the shape is unexpected — the Worker treats submissionId
+ * as optional, so an empty value is still a valid notification.
+ */
+export function extractFirestoreDocumentId(restBody) {
+  if (!restBody || typeof restBody !== 'object') return '';
+  const name = restBody.name;
+  if (typeof name !== 'string' || !name) return '';
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  const parts = trimmed.split('/');
+  return parts[parts.length - 1] || '';
+}
+
+/**
+ * Build the payload expected by POST /api/email/submission-received.
+ * Mirrors the website's notifySubmissionReceived() shape.
+ */
+export function buildSubmissionReceivedEmailPayload({
+  submissionId = '',
+  to = '',
+  title = '',
+  course = '',
+  semester = '',
+  studentName = '',
+} = {}) {
+  return {
+    submissionId: String(submissionId || '').trim().slice(0, 100),
+    to: String(to || '').trim(),
+    title: String(title || '').trim(),
+    course: String(course || '').trim(),
+    semester: String(semester || '').trim(),
+    studentName: String(studentName || '').trim(),
+  };
+}
+
 // ── reward identity (points.js parity) ─────────────────────────────────
 
 export function normalizeRewardEmail(raw) {
