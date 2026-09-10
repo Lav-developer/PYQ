@@ -42,6 +42,10 @@ const store = {
 
 const stats = { reads: 0, writes: 0, transactions: 0 };
 
+// Tracks every frontend call to the Worker email endpoints (Resend flow).
+// mode: 'ok' → 200, 'fail' → HTTP 500, 'throw' → network-level error.
+const emailApi = { calls: [], mode: 'ok' };
+
 function materialize(data) {
   const out = {};
   Object.keys(data || {}).forEach((key) => {
@@ -275,10 +279,25 @@ async function bootAdmin() {
   window.alert = () => {};
   window.confirm = () => true;
   window.prompt = () => '';
-  window.fetch = async () => new Response(JSON.stringify([]), {
-    status: 200,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  window.fetch = async (url, init = {}) => {
+    const href = String(url);
+    if (href.includes('/api/email/')) {
+      emailApi.calls.push({
+        win: 'admin',
+        kind: href.split('/api/email/')[1],
+        body: init.body ? JSON.parse(init.body) : null,
+      });
+      if (emailApi.mode === 'throw') throw new Error('email network down (test injection)');
+      return new Response(JSON.stringify({ status: 'ok', sent: true }), {
+        status: emailApi.mode === 'fail' ? 500 : 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response(JSON.stringify([]), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  };
   window.eval(pointsJs);
   window.eval(adminJs);
   await wait(30);
@@ -309,13 +328,22 @@ async function bootPublic() {
   }
   window.bootstrap = { Modal: MockModal };
   window.alert = () => {};
-  window.fetch = async (url) => {
+  window.fetch = async (url, init = {}) => {
     const href = String(url);
     requestedUrls.push(href);
     const json = (body, status = 200) => new Response(JSON.stringify(body), {
       status,
       headers: { 'Content-Type': 'application/json' },
     });
+    if (href.includes('/api/email/')) {
+      emailApi.calls.push({
+        win: 'public',
+        kind: href.split('/api/email/')[1],
+        body: init.body ? JSON.parse(init.body) : null,
+      });
+      if (emailApi.mode === 'throw') throw new Error('email network down (test injection)');
+      return json({ status: 'ok', sent: true }, emailApi.mode === 'fail' ? 500 : 200);
+    }
     if (href.includes('api.gofile.io/servers')) {
       return json({ status: 'ok', data: { servers: [{ name: 'store1' }] } });
     }
@@ -625,6 +653,112 @@ function fillUploadForm(window, { name, email, title = 'B.A. 1st Sem History {20
   check('upload throttling blocks an immediate second submission',
     Object.keys(store.pendingUploads).length === beforeThrottle,
     `docs=${Object.keys(store.pendingUploads).length} before=${beforeThrottle}`);
+
+  // ── 15. Email notifications ride along — and NEVER break core flows ─
+  console.log('\n15. Email notifications (Resend) ride along, never block');
+  const callsOf = (win, kind, submissionId) => emailApi.calls.filter((c) =>
+    c.win === win && c.kind === kind && (!submissionId || (c.body && c.body.submissionId === submissionId)));
+
+  {
+    // 15a. One receipt request per successful upload, with correct data.
+    // Successful uploads so far: firstId, rejectedId, 2 case variants, Meera.
+    const receipts = emailApi.calls.filter((c) => c.win === 'public' && c.kind === 'submission-received');
+    check('a receipt was requested for each of the 5 successful uploads',
+      await waitFor(() => emailApi.calls.filter((c) => c.win === 'public' && c.kind === 'submission-received').length === 5),
+      `got ${receipts.length}`);
+    const firstReceipt = receipts.find((c) => c.body && c.body.submissionId === firstId);
+    check('receipt POSTs the student email + paper title (+ name/course/semester)',
+      !!firstReceipt
+      && firstReceipt.body.to === 'rahul@gmail.com'
+      && firstReceipt.body.title === 'B.A. 1st Sem History {2024-25}'
+      && firstReceipt.body.studentName === 'Rahul Kumar'
+      && firstReceipt.body.course === 'B.A.'
+      && firstReceipt.body.semester === '1st');
+    check('receipt submissionId matches the created pendingUploads document id',
+      !!firstReceipt && firstReceipt.body.submissionId === firstId,
+      firstReceipt ? `id=${firstReceipt.body.submissionId}` : 'no receipt');
+    check('receipt carries no points or review fields (client cannot grant them)',
+      !!firstReceipt
+      && firstReceipt.body.points === undefined
+      && firstReceipt.body.pointsBalance === undefined
+      && firstReceipt.body.reason === undefined);
+  }
+
+  {
+    // 15b. Approval email exactly once per awarded submission — the
+    // idempotency guard (awarded === true) kept duplicate approvals silent.
+    check('one approval email per awarded submission (4 awarded so far)',
+      await waitFor(() => emailApi.calls.filter((c) => c.win === 'admin' && c.kind === 'approved').length === 4),
+      `got ${emailApi.calls.filter((c) => c.win === 'admin' && c.kind === 'approved').length}`);
+    const firstApprovals = callsOf('admin', 'approved', firstId);
+    check('the two duplicate approvals did NOT duplicate the approval email',
+      firstApprovals.length === 1, `got ${firstApprovals.length}`);
+    check('approval email reports the +10 balance from the transaction result',
+      firstApprovals.length === 1
+      && firstApprovals[0].body.to === 'rahul@gmail.com'
+      && firstApprovals[0].body.pointsBalance === 10
+      && firstApprovals[0].body.points === undefined);
+  }
+
+  {
+    // 15c. Rejection email carries the real reason — and only for real rejects.
+    const rejections = callsOf('admin', 'rejected', rejectedId);
+    check('one rejection email containing the stored reason',
+      rejections.length === 1 && rejections[0].body.reason === 'Wrong course',
+      JSON.stringify(rejections.map((c) => c.body && c.body.reason)));
+    check('an already-rewarded submission cannot be rejected into an email',
+      callsOf('admin', 'rejected', firstId).length === 0);
+  }
+
+  {
+    // 15d. THE CRITICAL GUARANTEE: email failures must not break the core
+    // submission / approval / rejection operations. (Approve and reject use
+    // separate submissions: an already-rewarded submission can never be
+    // downgraded to rejected — existing, intentional behaviour.)
+    emailApi.mode = 'throw'; // receipt request fails at the network level
+    const idsBefore = new Set(Object.keys(store.pendingUploads));
+    fillUploadForm(pw, { name: 'Rahul Kumar', email: 'rahul@gmail.com', title: 'Offline receipt test {2025-26}' });
+    const appeared = await waitFor(() => Object.keys(store.pendingUploads).length === idsBefore.size + 1);
+    const throwId = Object.keys(store.pendingUploads).find((id) => !idsBefore.has(id));
+    check('PYQ submission still succeeds when the receipt request throws', appeared && !!throwId);
+
+    emailApi.mode = 'fail'; // review-status endpoints answer HTTP 500
+    aw.loadPendingUploads();
+    await waitFor(() => Array.from(aw.document.querySelectorAll('[data-submission-id]'))
+      .some((el) => el.getAttribute('data-submission-id') === throwId));
+    await aw.approveSubmission(throwId);
+    const approvedOk = await waitFor(() => store.pendingUploads[throwId] && store.pendingUploads[throwId].status === 'approved');
+    check('approval +10 points still succeed when the email endpoint returns 500',
+      approvedOk
+      && store.point_transactions[throwId]
+      && store.point_transactions[throwId].amount === 10
+      && store.reward_accounts.rahul_gmail_com.points === 40,
+      `points=${store.reward_accounts.rahul_gmail_com.points}`);
+
+    // Fresh submission rejected while the receipt + outcome endpoints 500.
+    const idsBeforeRej = new Set(Object.keys(store.pendingUploads));
+    fillUploadForm(pw, { name: 'Rahul Kumar', email: 'rahul@gmail.com', title: 'Failing email reject test {2025-26}' });
+    const appearedRej = await waitFor(() => Object.keys(store.pendingUploads).length === idsBeforeRej.size + 1);
+    const rejectId = Object.keys(store.pendingUploads).find((id) => !idsBeforeRej.has(id));
+    check('PYQ submission still succeeds when the receipt endpoint answers 500', appearedRej && !!rejectId);
+    aw.loadPendingUploads();
+    await waitFor(() => Array.from(aw.document.querySelectorAll('[data-submission-id]'))
+      .some((el) => el.getAttribute('data-submission-id') === rejectId));
+    aw.prompt = () => 'Duplicate paper';
+    await aw.rejectSubmission(rejectId);
+    const rejectedOk = await waitFor(() => store.pendingUploads[rejectId] && store.pendingUploads[rejectId].status === 'rejected');
+    check('rejection still succeeds when the email endpoint returns 500', rejectedOk);
+    check('a failed rejection email never awards points',
+      store.reward_accounts.rahul_gmail_com.points === 40 && !store.point_transactions[rejectId]);
+
+    check('every failing email request was still attempted, then swallowed',
+      callsOf('public', 'submission-received', throwId).length === 1
+      && callsOf('admin', 'approved', throwId).length === 1
+      && callsOf('public', 'submission-received', rejectId).length === 1
+      && callsOf('admin', 'rejected', rejectId).length === 1);
+
+    emailApi.mode = 'ok';
+  }
 
   console.log(`\nResults: ${pass} passed, ${fail} failed`);
   if (fail) process.exit(1);

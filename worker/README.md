@@ -32,6 +32,9 @@ stay extremely low even as the PYQ collection grows from 311 → 10,000+.
 | GET | `/api/stats` | Aggregated stats |
 | POST | `/api/invalidate` | Stamp cache invalidation (verified Firebase ID token with `admin: true`) |
 | POST | `/api/notify` | Send a push notification to all Android devices via FCM topic `all_users` (same admin-token rule; body `{ title, body, path }`; 30 s per-admin cooldown) |
+| POST | `/api/email/submission-received` | Send the student "PYQ Submission Received" receipt + the admin "New PYQ Submission — Review Required" alert via Resend. Public but strictly validated and rate-limited; the frontend calls it **after** the `pendingUploads` document was created, so a failure never affects the submission |
+| POST | `/api/email/approved` | Send the "PYQ Approved — You Earned 10 Points 🎉" email via Resend (verified Firebase admin token). Called only after the approval transaction awarded the points (`awarded: true`), so retried approvals cannot duplicate it |
+| POST | `/api/email/rejected` | Send the "PYQ Submission Update — DSMNRU PYQ" email via Resend, including the stored rejection reason when one exists (verified Firebase admin token) |
 | GET | `/pyq/:slug` | Server-rendered public, indexable PYQ page (served through Netlify rewrite) |
 | GET | `/sitemap.xml` | Dynamic public-PYQ sitemap (served through Netlify rewrite) |
 
@@ -114,7 +117,14 @@ Copy the returned `id` into `wrangler.toml` (`[[kv_namespaces]] → id`).
 npx wrangler secret put FIREBASE_SERVICE_ACCOUNT_JSON   # paste the JSON file contents
 ```
 
-4. Set vars in `wrangler.toml`:
+4. Email notifications (Resend) — see the dedicated section below:
+
+```bash
+npx wrangler secret put RESEND_API_KEY    # API key for the verified domain dsmnrupyq.lovie.me
+npx wrangler secret put ADMIN_EMAIL       # recipient of the "review required" alert
+```
+
+5. Set vars in `wrangler.toml`:
 
 ```toml
 [vars]
@@ -122,13 +132,13 @@ FIREBASE_PROJECT_ID = "dsmnru-data"
 ALLOWED_ORIGINS = "https://dsmnru-pyq.netlify.app"
 ```
 
-5. Deploy:
+6. Deploy:
 
 ```bash
 npx wrangler deploy
 ```
 
-6. Copy the Worker URL (e.g. `https://dsmnru-pyq-api.<your-subdomain>.workers.dev`)
+7. Copy the Worker URL (e.g. `https://dsmnru-pyq-api.<your-subdomain>.workers.dev`)
    and set `API_BASE_URL` in the frontend (`script.js` / `paper.js`).
 
 ---
@@ -162,22 +172,75 @@ npx wrangler deploy
   available; otherwise the API returns a 5xx JSON error and the
   frontend shows a graceful empty/error state (it never fully breaks).
 
+## Email notifications (Resend)
+
+Transactional email is a **secondary, best-effort side effect** of the core
+flows. The frontend calls the Worker **after** the real Firestore operation
+has already succeeded, fire-and-forget with its own timeout, and swallows
+every error — so a Resend outage can never break a submission, an approval, a
+rejection, or the +10 points ledger.
+
+| Email | Trigger | Recipient |
+|---|---|---|
+| `PYQ Submission Received — DSMNRU PYQ` | `POST /api/email/submission-received`, called by `script.js` right after `pendingUploads.add()` succeeds | Student's submitted email |
+| `New PYQ Submission — Review Required` | same request (two emails, one API call) | `ADMIN_EMAIL` binding |
+| `PYQ Approved — You Earned 10 Points 🎉` | `POST /api/email/approved`, called by `admin.js` only when the approval transaction returned `awarded: true` | Student's reward email |
+| `PYQ Submission Update — DSMNRU PYQ` | `POST /api/email/rejected`, called by `admin.js` after the rejection update succeeds | Student's reward email |
+
+### Configuration
+
+```bash
+npx wrangler secret put RESEND_API_KEY   # Resend API key (never commit, never log)
+npx wrangler secret put ADMIN_EMAIL      # where "review required" alerts go
+```
+
+- **Sender:** `DSMNRU PYQ <noreply@dsmnrupyq.lovie.me>` (verified Resend
+  domain `dsmnrupyq.lovie.me`). **Reply-To:**
+  `contact@dsmnrupyq.lovie.me` (replies are routed to the team inbox by
+  ImprovMX — DNS/ImprovMX/Resend settings are configured out-of-band and are
+  NOT managed in this repository).
+- `ADMIN_EMAIL` is required only for the admin alert. Without it, student
+  emails still work and the API reports `adminNotified: false`.
+
+### Behavior & guarantees
+
+- All emails are composed server-side in `worker/src/email.js`: payload
+  fields are strictly validated (hard caps, reject-not-truncate), dynamic
+  values are HTML-escaped (user input can never inject markup), every email
+  has a plain-text fallback, and recipients must pass a shape check.
+- The submission-received endpoint is public (uploads are public) but is
+  capped by the isolate-local Tier-1 limiter (60/min/IP, **zero** KV
+  operations). The approved/rejected endpoints require a verified Firebase
+  admin token (`admin: true`) and keep a KV-backed 30/min distributed
+  ceiling, applied after authorization.
+- The approval email fires only when the existing idempotency guard awarded
+  points (`awarded === true`), so retried or duplicate approvals never
+  duplicate the reward email. Points logic itself is untouched.
+- Responses are honest but isolated: `400` invalid payload, `401` missing
+  admin token, `503` when `RESEND_API_KEY` is unset, `502` when Resend
+  rejects the send — with generic error text only. Failures are logged
+  server-side without the API key and with recipient addresses masked.
+
 ## Rate limiting
 
 Two tiers, both returning `429` with `Retry-After` (`no-store`):
 
 1. **Public read endpoints** (`/api/pyqs`, `/api/pyqs/search`, `/api/pyqs/:id`,
    `/api/homepage`, `/api/stats`, `/api/contributors`, `/api/courses`, unknown
-   paths): 60 requests/min per IP per endpoint, counted **in the isolate**
+   paths) **and the public email endpoint** (`/api/email/submission-received`):
+   60 requests/min per IP per endpoint, counted **in the isolate**
    (a plain `Map`). This performs **zero KV operations** — the previous
    KV-backed counter wrote one KV PUT for every request, which is what
-   exhausted the free-tier daily PUT allowance (≈1,000/day).
+   exhausted the free-tier daily PUT allowance (≈1,000/day). The public email
+   endpoint deliberately stays on this tier so an unauthenticated flood cannot
+   burn KV writes.
 2. **Sensitive / expensive admin operations** (`/api/notify`,
-   `/api/invalidate`): the original KV-backed, cross-isolate counter with the
-   original small ceilings (notify 6/min). It runs **after** the Firebase
-   admin token has been verified, so unauthenticated floods cannot consume KV
-   writes. A per-admin 30 s cooldown still guards accidental duplicate
-   notifications.
+   `/api/invalidate`, `/api/email/approved`, `/api/email/rejected`): the
+   original KV-backed, cross-isolate counter with the original small ceilings
+   (notify 6/min, email review endpoints 30/min to allow bulk reviews). It
+   runs **after** the Firebase admin token has been verified, so
+   unauthenticated floods cannot consume KV writes. A per-admin 30 s cooldown
+   still guards accidental duplicate notifications.
 
 Public `/pyq/*` and `/sitemap.xml` deliberately bypass the limiter entirely,
 because Netlify external rewrites do not reliably preserve a crawler's

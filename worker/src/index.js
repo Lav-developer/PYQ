@@ -13,6 +13,14 @@
  *   POST /api/invalidate     — Invalidate cache (Firebase admin-token only)
  *   POST /api/notify         — Send FCM push to Android `all_users` topic
  *                             (Firebase admin-token only, validated body)
+ *   POST /api/email/submission-received — Resend receipt to the student +
+ *                             review alert to ADMIN_EMAIL (public, validated,
+ *                             rate-limited; called after a pendingUploads
+ *                             document was already created successfully)
+ *   POST /api/email/approved — Resend "approved +10 points" to the student
+ *                             (Firebase admin-token only)
+ *   POST /api/email/rejected — Resend the rejection outcome to the student
+ *                             (Firebase admin-token only)
  *   GET /pyq/:slug           — Server-rendered, crawlable public PYQ page
  *   GET /sitemap.xml         — Dynamic sitemap from the KV search index
  *
@@ -53,6 +61,13 @@ import {
 import {
   NOTIFICATION_TOPIC, validateNotificationPayload, sendTopicNotification,
 } from './fcm.js';
+import {
+  validateSubmissionReceivedPayload,
+  validateReviewEmailPayload,
+  sendSubmissionReceivedEmails,
+  sendApprovedEmail,
+  sendRejectedEmail,
+} from './email.js';
 import { handleOptions, withCors } from './cors.js';
 import { isSafePyqSlug } from './slug.js';
 import {
@@ -195,7 +210,17 @@ async function handleRequest(request, ctx) {
   }
 
   // POST-only admin routes. Everything else on the API is GET.
-  const WRITABLE_ROUTES = new Set(['/api/invalidate', '/api/notify']);
+  // The three /api/email/* routes are the Resend notification triggers:
+  // submission-received is public (strictly validated + rate-limited, the
+  // same trust level as the public upload itself); approved/rejected require
+  // a verified Firebase admin token, like /api/invalidate and /api/notify.
+  const WRITABLE_ROUTES = new Set([
+    '/api/invalidate',
+    '/api/notify',
+    '/api/email/submission-received',
+    '/api/email/approved',
+    '/api/email/rejected',
+  ]);
   if (method !== 'GET' && !WRITABLE_ROUTES.has(path)) {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
@@ -238,6 +263,12 @@ async function handleRequest(request, ctx) {
       response = await handleInvalidate(request);
     } else if (path === '/api/notify' && method === 'POST') {
       response = await handleNotify(request);
+    } else if (path === '/api/email/submission-received' && method === 'POST') {
+      response = await handleSubmissionReceivedEmail(request);
+    } else if (path === '/api/email/approved' && method === 'POST') {
+      response = await handleReviewStatusEmail(request, 'approved');
+    } else if (path === '/api/email/rejected' && method === 'POST') {
+      response = await handleReviewStatusEmail(request, 'rejected');
     } else {
       response = jsonResponse({ error: 'Not found' }, 404);
     }
@@ -722,6 +753,94 @@ async function handleNotify(request) {
       error: 'Notification service is temporarily unavailable. No notification was sent.',
     }, 502);
   }
+}
+
+// ─── Email notifications (Resend — dsmnrupyq.lovie.me) ──────────────
+//
+// The frontend calls these AFTER the real operation has already succeeded in
+// Firestore, fire-and-forget from the browser, so a failure here can never
+// break a submission, an approval, or a rejection. The heavy lifting
+// (validation, escaping, templates, sending) lives in email.js.
+
+/**
+ * POST /api/email/submission-received — public, strictly validated.
+ * Body: { to, title, studentName?, course?, semester?, submissionId? }
+ * Sends the student receipt + the ADMIN_EMAIL review alert.
+ * Email failure is reported as 502 but never affects the submission itself.
+ */
+async function handleSubmissionReceivedEmail(request) {
+  const body = await parseJSONBody(request);
+  const validated = validateSubmissionReceivedPayload(body);
+  if (!validated.ok) {
+    return jsonResponse({ error: validated.error }, 400);
+  }
+
+  const outcome = await sendSubmissionReceivedEmails(validated.value);
+
+  if (!outcome.configured) {
+    return jsonResponse({
+      error: 'Email notifications are not configured (missing RESEND_API_KEY). The submission itself is unaffected.',
+    }, 503);
+  }
+
+  if (!outcome.student.ok) {
+    return jsonResponse({
+      error: 'Email service is temporarily unavailable. The submission itself is unaffected.',
+      sent: false,
+    }, 502);
+  }
+
+  return jsonResponse({
+    status: 'ok',
+    sent: true,
+    adminNotified: outcome.admin.ok === true,
+  }, 200);
+}
+
+/**
+ * POST /api/email/approved | /api/email/rejected — Firebase admin token
+ * required (same rule as /api/invalidate and /api/notify).
+ * Body: { to, title, studentName?, course?, semester?, submissionId?,
+ *         reason? (rejected), pointsBalance? (approved) }
+ */
+async function handleReviewStatusEmail(request, kind) {
+  const admin = await verifyFirebaseAdminToken(request);
+  if (!admin) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  // Same post-auth KV-backed ceiling as the other admin POST routes; these
+  // endpoints trigger real (billable) Resend sends.
+  const endpoint = kind === 'approved' ? 'emailapproved' : 'emailrejected';
+  const limit = await enforceDistributedRateLimit(getClientIP(request), endpoint);
+  if (!limit.allowed) {
+    return rateLimitedResponse(limit);
+  }
+
+  const body = await parseJSONBody(request);
+  const validated = validateReviewEmailPayload(body, kind);
+  if (!validated.ok) {
+    return jsonResponse({ error: validated.error }, 400);
+  }
+
+  const outcome = kind === 'approved'
+    ? await sendApprovedEmail(validated.value)
+    : await sendRejectedEmail(validated.value);
+
+  if (!outcome.configured) {
+    return jsonResponse({
+      error: 'Email notifications are not configured (missing RESEND_API_KEY). The review action itself is unaffected.',
+    }, 503);
+  }
+
+  if (!outcome.result.ok) {
+    return jsonResponse({
+      error: 'Email service is temporarily unavailable. The review action itself is unaffected.',
+      sent: false,
+    }, 502);
+  }
+
+  return jsonResponse({ status: 'ok', sent: true }, 200);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────
