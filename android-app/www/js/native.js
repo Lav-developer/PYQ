@@ -123,6 +123,11 @@ export const native = {
     return { ok: false, code: 'GOOGLE_SIGNIN_UNAVAILABLE', message: 'Native Google sign-in not available here' };
   },
 
+  async getAppVersion() {
+    if (isNative() && typeof bridge.getAppVersion === 'function') return bridge.getAppVersion();
+    return { versionName: '', versionCode: 0 };
+  },
+
   async downloadAndInstall(url, fileName) {
     if (isNative() && typeof bridge.downloadAndInstall === 'function') return bridge.downloadAndInstall({ url, fileName });
     throw new Error('In-app installation is available only in the Android app');

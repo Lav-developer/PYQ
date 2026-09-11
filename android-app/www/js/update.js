@@ -1,17 +1,16 @@
 import { native } from './native.js';
 import { WORKER_ORIGIN } from './api.js';
 
-export const CURRENT_VERSION_CODE = 12;
-export function isNewer(remote, local = CURRENT_VERSION_CODE) { return Number.isInteger(Number(remote)) && Number(remote) > Number(local); }
-export function parseUpdate(raw) {
-  if (!raw || typeof raw !== 'object' || !/^\d+\.\d+\.\d+$/.test(String(raw.version)) || !isNewer(raw.versionCode) || !/^https:\/\/(github\.com|objects\.githubusercontent\.com)\//.test(String(raw.downloadUrl))) return null;
+export function isNewer(remote, local) { return Number.isInteger(Number(remote)) && Number(remote) > Number(local); }
+export function parseUpdate(raw, localVersionCode) {
+  if (!raw || typeof raw !== 'object' || !/^\d+\.\d+\.\d+$/.test(String(raw.version)) || !isNewer(raw.versionCode, localVersionCode) || !/^https:\/\/(github\.com|objects\.githubusercontent\.com)\//.test(String(raw.downloadUrl))) return null;
   return { ...raw, versionCode: Number(raw.versionCode), releaseNotes: Array.isArray(raw.releaseNotes) ? raw.releaseNotes.filter(x => typeof x === 'string').slice(0, 5) : [], mandatory: raw.mandatory === true };
 }
 let lastCheck = 0;
 export async function checkForUpdate({ force = false, ui = null } = {}) {
   if (!force && Date.now() - lastCheck < 6 * 60 * 60 * 1000) return null;
   lastCheck = Date.now();
-  try { const r = await fetch(`${WORKER_ORIGIN}/api/app-update`, { headers: { Accept: 'application/json' } }); const update = parseUpdate(await r.json()); if (update && ui) showUpdate(update, ui); return update; } catch { return null; }
+  try { const installed = await native.getAppVersion(); const r = await fetch(`${WORKER_ORIGIN}/api/app-update`, { headers: { Accept: 'application/json' } }); const update = parseUpdate(await r.json(), Number(installed.versionCode)); if (update && ui) showUpdate(update, ui); return update; } catch { return null; }
 }
 function showUpdate(update, ui) {
   const notes = update.releaseNotes.length ? `<ul>${update.releaseNotes.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '<p>Bug fixes and improvements.</p>';

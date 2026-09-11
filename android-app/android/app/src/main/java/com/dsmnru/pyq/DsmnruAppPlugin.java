@@ -366,6 +366,17 @@ public class DsmnruAppPlugin extends Plugin {
     }
 
     @PluginMethod
+    public void getAppVersion(PluginCall call) {
+        try {
+            android.content.pm.PackageInfo info = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            JSObject result = new JSObject();
+            result.put("versionName", info.versionName == null ? "" : info.versionName);
+            result.put("versionCode", android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+            call.resolve(result);
+        } catch (Exception e) { call.reject("Unable to read installed app version"); }
+    }
+
+    @PluginMethod
     public void downloadAndInstall(PluginCall call) {
         String source = call.getString("url", "");
         String name = sanitizeName(call.getString("fileName", "dsmnru-update.apk"));
