@@ -14,6 +14,7 @@ import { parseSiteUrl } from './slug.js';
 import * as ui from './ui.js';
 import { openAuthSheet, verificationPromptSheet, googleInfoSheet, initAuthUI } from './authui.js';
 import { createDrawer } from './drawer.js';
+import { checkForUpdate } from './update.js';
 
 import renderHome from './views/home.js';
 import renderSearch from './views/search.js';
@@ -357,6 +358,7 @@ function wireAndroid() {
       state.online = navigator.onLine !== false;
       paintNetworkBanner();
       auth.refreshIfNeeded();
+      checkForUpdate({ ui });
       checkLaunchLink();
     });
   } catch { /* older core without listeners — WebView defaults apply */ }
@@ -381,6 +383,7 @@ document.addEventListener('visibilitychange', () => {
 // ── boot ───────────────────────────────────────────────────────────────
 async function boot() {
   wireAndroid();
+checkForUpdate({ ui });
   paintNetworkBanner();
 
   // Restore a persisted Firebase session (zero requests when the token is

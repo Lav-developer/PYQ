@@ -9,6 +9,13 @@ import android.app.DownloadManager;
 import android.os.Environment;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
+import androidx.core.content.FileProvider;
+import android.os.Build;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 
 import androidx.credentials.CredentialManager;
 import androidx.credentials.CredentialManagerCallback;
@@ -356,6 +363,33 @@ public class DsmnruAppPlugin extends Plugin {
         JSObject payload = new JSObject();
         payload.put("url", url);
         notifyListeners("siteDeepLink", payload, true);
+    }
+
+    @PluginMethod
+    public void getAppVersion(PluginCall call) {
+        try {
+            android.content.pm.PackageInfo info = getContext().getPackageManager().getPackageInfo(getContext().getPackageName(), 0);
+            JSObject result = new JSObject();
+            result.put("versionName", info.versionName == null ? "" : info.versionName);
+            result.put("versionCode", android.os.Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode);
+            call.resolve(result);
+        } catch (Exception e) { call.reject("Unable to read installed app version"); }
+    }
+
+    @PluginMethod
+    public void downloadAndInstall(PluginCall call) {
+        String source = call.getString("url", "");
+        String name = sanitizeName(call.getString("fileName", "dsmnru-update.apk"));
+        if (!source.startsWith("https://github.com/") && !source.startsWith("https://objects.githubusercontent.com/")) { call.reject("Untrusted update URL"); return; }
+        Executors.newSingleThreadExecutor().execute(() -> {
+            File out = new File(getContext().getCacheDir(), name);
+            try {
+                HttpURLConnection c = (HttpURLConnection) new URL(source).openConnection(); c.setConnectTimeout(15000); c.setReadTimeout(30000); c.setInstanceFollowRedirects(true);
+                if (c.getResponseCode() < 200 || c.getResponseCode() >= 300) throw new Exception("Download failed: HTTP " + c.getResponseCode());
+                try (InputStream in = c.getInputStream(); FileOutputStream fos = new FileOutputStream(out)) { byte[] b = new byte[8192]; int n; while ((n=in.read(b)) >= 0) fos.write(b,0,n); }
+                Intent i = new Intent(Intent.ACTION_VIEW); Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".fileprovider", out); i.setDataAndType(uri, "application/vnd.android.package-archive"); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i); call.resolve();
+            } catch (Exception e) { if (out.exists()) out.delete(); call.reject("Could not install update: " + e.getMessage()); }
+        });
     }
 
     private boolean isHttpUrl(String url) {

@@ -9,17 +9,17 @@
 import { SITE_ORIGIN } from '../api.js';
 import * as ui from '../ui.js';
 
-const APP_VERSION = '1.4.0';
 
 export default async function renderAbout(root, ctx) {
   ctx.setHeader({ title: 'About', brand: false });
+  const { versionName } = await ctx.native.getAppVersion();
 
   root.innerHTML = `
     <div class="stack">
       <section class="card card-pad about-hero">
         <div class="hero-emblem" aria-hidden="true"></div>
         <h1>DSMNRU PYQ</h1>
-        <p class="h-sub">Dedicated Android app · v${APP_VERSION}<br>
+        <p class="h-sub">Dedicated Android app · v${versionName || 'Unknown'}<br>
         Dr. Shakuntala Misra National Rehabilitation University<br>previous-year question-paper archive</p>
       </section>
 

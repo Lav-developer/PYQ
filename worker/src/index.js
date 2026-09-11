@@ -59,6 +59,7 @@ import {
   renderSitemapXml,
 } from './seo.js';
 import { jwtVerify, createRemoteJWKSet } from 'jose';
+import { toUpdateMetadata } from './appUpdate.js';
 // ─── Firebase ID Token Verification ───────────────────────────────
 
 const FIREBASE_PROJECT_ID = 'dsmnru-data';
@@ -225,6 +226,8 @@ async function handleRequest(request, ctx) {
       response = await handleCourses();
     } else if (path === '/api/homepage' && method === 'GET') {
       response = await handleHomepage(ctx);
+    } else if (path === '/api/app-update' && method === 'GET') {
+      response = await handleAppUpdate();
     } else if (path === '/api/stats' && method === 'GET') {
       response = await handleStats(ctx);
     } else if (path === '/api/invalidate' && method === 'POST') {
@@ -242,6 +245,18 @@ async function handleRequest(request, ctx) {
 
 
   return response;
+}
+
+
+async function handleAppUpdate() {
+  const response = await fetch('https://api.github.com/repos/Lav-developer/PYQ/releases?per_page=30', {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DSMNRU-PYQ-updater' },
+  });
+  if (!response.ok) throw new Error(`GitHub releases: ${response.status}`);
+  const releases = await response.json();
+  const candidates = (Array.isArray(releases) ? releases : []).map(toUpdateMetadata).filter(Boolean);
+  candidates.sort((a, b) => b.versionCode - a.versionCode);
+  return candidates.length ? jsonResponse(candidates[0]) : jsonResponse({ available: false });
 }
 
 // ─── Helpers shared by list/search/homepage/stats handlers ─────────

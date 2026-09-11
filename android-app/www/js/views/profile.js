@@ -11,7 +11,6 @@
  * rendered — everything user-facing is human text.
  */
 
-const APP_VERSION = '1.4.0';
 
 function esc(s) { return String(s == null ? '' : s); }
 
@@ -28,6 +27,8 @@ function dateLabel(iso) {
 
 export default async function renderProfile(root, ctx) {
   const { ui, auth, store, api, native, router } = ctx;
+  const { versionName } = await native.getAppVersion();
+  const appVersion = versionName || 'Unknown';
   ctx.setHeader({ title: 'Profile', brand: false });
 
   const user = auth.current();
@@ -174,7 +175,7 @@ export default async function renderProfile(root, ctx) {
   if (user && user.admin) {
     items.push({ act: 'admin', icon: 'tools', label: 'Open admin panel', sub: 'Administration stays on the website — there is no second panel' });
   }
-  items.push({ act: 'about', icon: 'info', label: 'About this app', sub: `Version ${APP_VERSION}` });
+  items.push({ act: 'about', icon: 'info', label: 'About this app', sub: `Version ${appVersion}` });
   more.innerHTML = `<div class="sheet-list">${items.map((it) => `
     <button class="sheet-item" data-act="${it.act}" type="button">${ui.icon(it.icon)}<span>${ui.esc(it.label)}<small>${ui.esc(it.sub)}</small></span><span class="tail">${ui.icon('chevron')}</span></button>`).join('')}</div>`;
   more.addEventListener('click', (e) => {
@@ -204,7 +205,7 @@ export default async function renderProfile(root, ctx) {
         break;
       case 'about':
         ui.sheet({
-          title: `DSMNRU PYQ · Version ${APP_VERSION}`,
+          title: `DSMNRU PYQ · Version ${appVersion}`,
           content: `<p class="sheet-text">A dedicated Android app for the DSMNRU previous-year
             question-paper archive — same data and accounts as the website, in a
             native interface.<br><br>

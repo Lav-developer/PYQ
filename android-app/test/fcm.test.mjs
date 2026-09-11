@@ -62,8 +62,8 @@ test('Gradle wires firebase-messaging and keeps google-services conditional', ()
   assert.match(gradle, /apply plugin: 'com\.google\.gms\.google-services'/,
     'google-services plugin applied when google-services.json exists');
   assert.match(gradle, /google-services\.json/, 'apply is guarded by the presence of google-services.json');
-  assert.match(gradle, /versionCode 11/, 'versionCode increased for the 1.4.0 production release');
-  assert.match(gradle, /versionName "1\.4\.0"/, 'versionName 1.4.0 (production release)');
+  assert.match(gradle, /versionCode 12/, 'current production versionCode is 12');
+  assert.match(gradle, /versionName \"1\.4\.1\"/, 'current production versionName is 1.4.1');
   // Consistent package identity + stable debug signature (update-in-place).
   assert.match(gradle, /applicationId "com\.dsmnru\.pyq"/, 'single applicationId preserved');
   assert.match(gradle, /signingConfig signingConfigs\.debug/, 'debug buildType uses the shared debug signing config');
