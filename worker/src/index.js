@@ -225,6 +225,8 @@ async function handleRequest(request, ctx) {
       response = await handleCourses();
     } else if (path === '/api/homepage' && method === 'GET') {
       response = await handleHomepage(ctx);
+    } else if (path === '/api/app-update' && method === 'GET') {
+      response = await handleAppUpdate();
     } else if (path === '/api/stats' && method === 'GET') {
       response = await handleStats(ctx);
     } else if (path === '/api/invalidate' && method === 'POST') {
@@ -242,6 +244,29 @@ async function handleRequest(request, ctx) {
 
 
   return response;
+}
+
+
+async function handleAppUpdate() {
+  const response = await fetch('https://api.github.com/repos/Lav-developer/PYQ/releases?per_page=30', {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DSMNRU-PYQ-updater' },
+  });
+  if (!response.ok) throw new Error(`GitHub releases: ${response.status}`);
+  const releases = await response.json();
+  const valid = releases.filter(r => r && r.published_at && !r.draft && !r.prerelease && /^v?\d+\.\d+\.\d+$/.test(String(r.tag_name || '')));
+  const candidates = valid.map(r => {
+    const asset = (r.assets || []).find(a => a && a.browser_download_url && String(a.name || '').toLowerCase().endsWith('.apk') && !/source|debug|unsigned/i.test(a.name));
+    const version = String(r.tag_name).replace(/^v/, '');
+    const parts = version.split('.').map(Number);
+    const body = String(r.body || '');
+    const declared = body.match(/versionCode\s*[:=]\s*(\d+)/i);
+    // Release notes may declare the Gradle versionCode; retain a compatible
+    // fallback for the current 1.4.x release train (1.4.1 is code 12).
+    const versionCode = declared ? Number(declared[1]) : (parts[0] === 1 && parts[1] === 4 ? 11 + parts[2] : parts[0] * 10000 + parts[1] * 100 + parts[2]);
+    return asset ? { version, versionCode, downloadUrl: asset.browser_download_url, releaseNotes: body.split('\n').map(x => x.replace(/^[-*]\s*/, '').trim()).filter(Boolean).slice(0, 5), mandatory: false, publishedAt: r.published_at } : null;
+  }).filter(Boolean).sort((a,b) => b.versionCode - a.versionCode);
+  if (!candidates.length) return jsonResponse({ available: false });
+  return jsonResponse(candidates[0]);
 }
 
 // ─── Helpers shared by list/search/homepage/stats handlers ─────────
