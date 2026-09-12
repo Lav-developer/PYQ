@@ -104,5 +104,16 @@
          nothing except that push stays silent; the decision is never
          re-asked on later launches. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!--
+      In-app updater (downloadAndInstall): the app is distributed OUTSIDE
+      Google Play, so the release APK downloaded from the GitHub release is
+      handed straight to the system package installer. Android 8+ REFUSES to
+      resolve the installer intent unless the app declares this permission —
+      without it the update downloads to 100% and then never installs. The
+      per-user "Install unknown apps" toggle is still requested at install
+      time (ACTION_MANAGE_UNKNOWN_APP_SOURCES) and stays fully in the user's
+      control.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

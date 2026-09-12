@@ -4,18 +4,28 @@ import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.app.DownloadManager;
 import android.os.Environment;
+import android.provider.Settings;
 import android.webkit.MimeTypeMap;
 import android.webkit.URLUtil;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
 import android.os.Build;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import androidx.credentials.CredentialManager;
 import androidx.credentials.CredentialManagerCallback;
@@ -64,6 +74,12 @@ import java.util.concurrent.Executors;
  *                    navigator.share), used for sharing a paper link.
  *  • getLaunchUrl  → the /pyq/&lt;slug&gt; URL that started the activity, so the
  *                    app can deep-link into its own paper screen.
+ *  • downloadAndInstall → the in-app updater: downloads the official GitHub
+ *                    release APK (URL/redirect policy in UpdateUrlPolicy),
+ *                    verifies it, and hands it to the system package
+ *                    installer; progress streams to JS via
+ *                    `updateDownloadProgress` and the plugin call is always
+ *                    answered exactly once.
  */
 @CapacitorPlugin(name = "DsmnruApp")
 public class DsmnruAppPlugin extends Plugin {
@@ -376,20 +392,297 @@ public class DsmnruAppPlugin extends Plugin {
         } catch (Exception e) { call.reject("Unable to read installed app version"); }
     }
 
+    // ── in-app updater: GitHub release APK → verify → package installer ──
+
+    // One download/install at a time: a second tap (or a watchdog retry that
+    // races a slow first attempt) must never corrupt the in-flight download.
+    private final AtomicBoolean updaterBusy = new AtomicBoolean(false);
+
+    private static final int CONNECT_TIMEOUT_MS = 15000;
+    private static final int READ_TIMEOUT_MS = 30000;
+    /** Progress event cadence during the download phase (~12 ticks for a 5.7 MB APK). */
+    private static final long PROGRESS_EVERY_BYTES = 512 * 1024;
+    private static final String DOWNLOAD_USER_AGENT = "DSMNRU-PYQ-android-updater";
+
+    /**
+     * In-app update: download the GitHub release APK into the app cache,
+     * VERIFY it, then hand it to the Android package installer.
+     *
+     * The phases are streamed to JS through `updateDownloadProgress` events
+     * (phase: download → verify → install) so the updater UI follows REAL
+     * bytes, and EVERY terminal path resolves or rejects the plugin call
+     * EXACTLY ONCE — including Throwables that are not Exceptions. The JS
+     * layer must never be left sitting on "Downloading…" forever.
+     *
+     * Security (see UpdateUrlPolicy): HTTPS GitHub release URLs only — the
+     * initial URL must be github.com or objects.githubusercontent.com, and
+     * redirects are followed by hand so every hop is re-validated against
+     * GitHub's own asset CDN (never a scheme downgrade, never another host).
+     * JS may pass `expectedVersionCode`; the downloaded archive is parsed
+     * with PackageManager and rejected unless it IS that exact release.
+     */
     @PluginMethod
     public void downloadAndInstall(PluginCall call) {
         String source = call.getString("url", "");
-        String name = sanitizeName(call.getString("fileName", "dsmnru-update.apk"));
-        if (!source.startsWith("https://github.com/") && !source.startsWith("https://objects.githubusercontent.com/")) { call.reject("Untrusted update URL"); return; }
+        String fileName = UpdateUrlPolicy.sanitizeApkFileName(call.getString("fileName", ""), "dsmnru-update.apk");
+        int expectedVersionCode = 0;
+        Object rawExpected = call.getData() == null ? null : call.getData().get("expectedVersionCode");
+        if (rawExpected instanceof Number) expectedVersionCode = ((Number) rawExpected).intValue();
+
+        if (!UpdateUrlPolicy.isTrustedUpdateUrl(source)) {
+            call.reject("UPDATE_URL_UNTRUSTED: only official GitHub release downloads can be installed");
+            return;
+        }
+        if (!updaterBusy.compareAndSet(false, true)) {
+            call.reject("UPDATE_BUSY: an update is already downloading — try again in a moment");
+            return;
+        }
+
+        final Context appContext = getContext().getApplicationContext();
+        final File apkFile = new File(appContext.getCacheDir(), fileName);
+        final File partFile = new File(appContext.getCacheDir(), fileName + ".part");
+        final int expected = expectedVersionCode;
+        // A plugin call is answered exactly once, even if an unexpected
+        // Throwable (not an Exception) escapes somewhere below.
+        final AtomicBoolean answered = new AtomicBoolean(false);
+
         Executors.newSingleThreadExecutor().execute(() -> {
-            File out = new File(getContext().getCacheDir(), name);
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL(source).openConnection(); c.setConnectTimeout(15000); c.setReadTimeout(30000); c.setInstanceFollowRedirects(true);
-                if (c.getResponseCode() < 200 || c.getResponseCode() >= 300) throw new Exception("Download failed: HTTP " + c.getResponseCode());
-                try (InputStream in = c.getInputStream(); FileOutputStream fos = new FileOutputStream(out)) { byte[] b = new byte[8192]; int n; while ((n=in.read(b)) >= 0) fos.write(b,0,n); }
-                Intent i = new Intent(Intent.ACTION_VIEW); Uri uri = FileProvider.getUriForFile(getContext(), getContext().getPackageName()+".fileprovider", out); i.setDataAndType(uri, "application/vnd.android.package-archive"); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i); call.resolve();
-            } catch (Exception e) { if (out.exists()) out.delete(); call.reject("Could not install update: " + e.getMessage()); }
+                // ── phase 1: DOWNLOAD (or reuse a fully-verified APK from a
+                // previous attempt — e.g. the user just granted the
+                // "Install unknown apps" permission and tapped retry) ──────
+                long contentLength = -1;
+                if (apkFile.isFile()) {
+                    try {
+                        verifyApk(appContext, apkFile, -1, expected);
+                        contentLength = apkFile.length();
+                        emitProgress("download", contentLength, contentLength);
+                    } catch (IOException notReusable) {
+                        apkFile.delete(); // stale/corrupt leftover — download fresh
+                    }
+                }
+                if (!apkFile.isFile()) {
+                    partFile.delete(); // never resume into a stale partial file
+                    contentLength = downloadTo(source, partFile);
+                }
+
+                // ── phase 2: VERIFY, then atomically promote .part → .apk ──
+                if (partFile.exists()) {
+                    emitProgress("verify", partFile.length(), contentLength);
+                    verifyApk(appContext, partFile, contentLength, expected);
+                    if (!partFile.renameTo(apkFile)) {
+                        partFile.delete();
+                        throw new IOException("UPDATE_INVALID_APK: could not finalize the downloaded update");
+                    }
+                }
+
+                // ── phase 3: INSTALL — launch the system installer on the
+                // main thread, and wait for its real outcome ───────────────
+                emitProgress("install", apkFile.length(), apkFile.length());
+                final AtomicReference<String> launchError = new AtomicReference<>(null);
+                final CountDownLatch launched = new CountDownLatch(1);
+                ContextCompat.getMainExecutor(appContext).execute(() -> {
+                    try {
+                        launchError.set(startPackageInstaller(appContext, apkFile));
+                    } catch (Throwable t) {
+                        launchError.set("UPDATE_INSTALL_FAILED: " + safeMessage(t));
+                    } finally {
+                        launched.countDown();
+                    }
+                });
+                if (!launched.await(15, TimeUnit.SECONDS)) {
+                    throw new IOException("UPDATE_INSTALL_FAILED: the installer did not respond");
+                }
+                String error = launchError.get();
+                if (error != null) throw new IOException(error);
+
+                JSObject done = new JSObject();
+                done.put("ok", true);
+                done.put("installerOpened", true);
+                resolveOnce(answered, call, done);
+            } catch (Throwable t) {
+                // ANY failure — network, verification, or installer — must
+                // reach JS as a rejection. A partially downloaded or invalid
+                // file is deleted; a VERIFIED apk is kept so an immediate
+                // retry (e.g. after granting the install permission) can
+                // skip straight to the installer.
+                partFile.delete();
+                rejectOnce(answered, call, safeMessage(t));
+            } finally {
+                updaterBusy.set(false);
+            }
         });
+    }
+
+    /**
+     * Stream the release APK to {@code part}, following redirects BY HAND so
+     * every hop is re-validated (GitHub release downloads redirect from
+     * github.com to its *.githubusercontent.com asset CDN). Returns the
+     * server's Content-Length (-1 when absent).
+     */
+    private long downloadTo(String source, File part) throws IOException {
+        String current = source;
+        for (int hop = 0; hop <= UpdateUrlPolicy.MAX_REDIRECTS; hop++) {
+            if (!UpdateUrlPolicy.isTrustedRedirectTarget(current)) {
+                throw new IOException("UPDATE_DOWNLOAD_FAILED: untrusted download URL");
+            }
+            HttpURLConnection connection = (HttpURLConnection) new URL(current).openConnection();
+            try {
+                connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+                connection.setReadTimeout(READ_TIMEOUT_MS);
+                // Manual redirect handling — the silent default would follow
+                // ANY Location header without re-validation.
+                connection.setInstanceFollowRedirects(false);
+                connection.setRequestProperty("User-Agent", DOWNLOAD_USER_AGENT);
+                int status = connection.getResponseCode();
+                if (status >= 300 && status < 400) {
+                    String location = connection.getHeaderField("Location");
+                    if (location == null || location.isEmpty()) {
+                        throw new IOException("UPDATE_DOWNLOAD_FAILED: HTTP " + status + " redirect without a target");
+                    }
+                    current = new URL(new URL(current), location).toString(); // resolve relative Location too
+                    continue;
+                }
+                if (status < 200 || status >= 300) {
+                    throw new IOException("UPDATE_DOWNLOAD_FAILED: HTTP " + status);
+                }
+                long total = connection.getContentLengthLong();
+                long written = 0;
+                long nextTick = 0;
+                emitProgress("download", 0, total);
+                try (InputStream in = connection.getInputStream();
+                     FileOutputStream out = new FileOutputStream(part)) {
+                    byte[] buffer = new byte[16384];
+                    int read;
+                    while ((read = in.read(buffer)) >= 0) {
+                        out.write(buffer, 0, read);
+                        written += read;
+                        if (written > UpdateUrlPolicy.MAX_APK_BYTES) {
+                            throw new IOException("UPDATE_DOWNLOAD_FAILED: download exceeds any possible release APK");
+                        }
+                        if (written >= nextTick) {
+                            nextTick = written + PROGRESS_EVERY_BYTES;
+                            emitProgress("download", written, total);
+                        }
+                    }
+                    out.flush();
+                } // streams closed HERE — reaching 100% is not "done" until this ran
+                emitProgress("download", written, total); // the real 100% tick
+                if (!UpdateUrlPolicy.isPlausibleApkSize(written, total)) {
+                    throw new IOException(total > 0
+                            ? "UPDATE_DOWNLOAD_FAILED: incomplete download (" + written + " of " + total + " bytes)"
+                            : "UPDATE_DOWNLOAD_FAILED: downloaded file is implausibly small");
+                }
+                return total;
+            } finally {
+                connection.disconnect();
+            }
+        }
+        throw new IOException("UPDATE_DOWNLOAD_FAILED: too many redirects");
+    }
+
+    /**
+     * Prove the file is really the expected, installable APK BEFORE any
+     * installer intent exists: exists → plausible size → ZIP magic → full
+     * PackageManager parse (and, when JS supplied one, the exact expected
+     * versionCode). A single cheap parse for a ~5.7 MB asset; on failure the
+     * caller deletes the file and JS receives UPDATE_INVALID_APK.
+     */
+    private void verifyApk(Context context, File apk, long contentLength, int expectedVersionCode) throws IOException {
+        if (!apk.isFile()) throw new IOException("UPDATE_INVALID_APK: downloaded update file is missing");
+        long size = apk.length();
+        if (!UpdateUrlPolicy.isPlausibleApkSize(size, contentLength)) {
+            throw new IOException("UPDATE_INVALID_APK: unexpected file size (" + size + " bytes)");
+        }
+        try (RandomAccessFile raf = new RandomAccessFile(apk, "r")) {
+            byte[] magic = new byte[4];
+            if (raf.read(magic) < 4 || !UpdateUrlPolicy.looksLikeZip(magic, 4)) {
+                throw new IOException("UPDATE_INVALID_APK: file is not an Android package");
+            }
+        }
+        PackageManager pm = context.getPackageManager();
+        PackageInfo info = pm.getPackageArchiveInfo(apk.getAbsolutePath(), 0);
+        if (info == null || info.packageName == null || info.packageName.isEmpty()) {
+            throw new IOException("UPDATE_INVALID_APK: Android could not parse the package");
+        }
+        if (expectedVersionCode > 0) {
+            long code = Build.VERSION.SDK_INT >= 28 ? info.getLongVersionCode() : info.versionCode;
+            if (code != expectedVersionCode) {
+                throw new IOException("UPDATE_INVALID_APK: package is version code " + code + ", expected " + expectedVersionCode);
+            }
+        }
+    }
+
+    /**
+     * Hand a VERIFIED apk to the system package installer. Runs on the MAIN
+     * thread. Returns null when the installer activity was launched, or a
+     * machine-readable "CODE: human message" the JS layer can act on.
+     */
+    private String startPackageInstaller(Context context, File apk) {
+        Uri uri;
+        try {
+            uri = FileProvider.getUriForFile(context, context.getPackageName() + ".fileprovider", apk);
+        } catch (IllegalArgumentException e) {
+            return "UPDATE_INSTALL_FAILED: downloaded update could not be shared with the installer";
+        }
+        // Android 8+ refuses sideloaded installs until the user allows THIS
+        // app to "install unknown apps". Detect it and open the EXACT
+        // settings screen instead of failing opaquely — after granting, the
+        // retry skips straight to the installer (the verified apk is kept).
+        if (Build.VERSION.SDK_INT >= 26) {
+            boolean canInstall = false;
+            try {
+                canInstall = context.getPackageManager().canRequestPackageInstalls();
+            } catch (Exception e) {
+                canInstall = false;
+            }
+            if (!canInstall) {
+                try {
+                    Intent settings = new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                            Uri.parse("package:" + context.getPackageName()));
+                    settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    context.startActivity(settings);
+                    return "UPDATE_INSTALL_PERMISSION_REQUIRED: allow \"Install unknown apps\" for DSMNRU PYQ, then tap Try again";
+                } catch (Throwable settingsUnavailable) {
+                    return "UPDATE_INSTALL_PERMISSION_REQUIRED: enable \"Install unknown apps\" for DSMNRU PYQ in system settings, then tap Try again";
+                }
+            }
+        }
+        Intent install = new Intent(Intent.ACTION_VIEW);
+        install.setDataAndType(uri, "application/vnd.android.package-archive");
+        install.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            context.startActivity(install);
+            return null;
+        } catch (ActivityNotFoundException noInstaller) {
+            return "UPDATE_INSTALL_FAILED: no package installer is available on this device";
+        } catch (Exception e) {
+            return "UPDATE_INSTALL_FAILED: " + safeMessage(e);
+        }
+    }
+
+    /** Real progress for the JS updater UI (never faked; total may be -1). */
+    private void emitProgress(String phase, long bytes, long total) {
+        JSObject data = new JSObject();
+        data.put("phase", phase);
+        data.put("bytes", bytes);
+        data.put("total", total);
+        notifyListeners("updateDownloadProgress", data);
+    }
+
+    /** A plugin call is answered EXACTLY once — never twice, never never. */
+    private static void resolveOnce(AtomicBoolean answered, PluginCall call, JSObject data) {
+        if (answered.compareAndSet(false, true)) call.resolve(data);
+    }
+
+    private static void rejectOnce(AtomicBoolean answered, PluginCall call, String message) {
+        if (answered.compareAndSet(false, true)) call.reject(message);
+    }
+
+    private static String safeMessage(Throwable t) {
+        if (t == null) return "unknown error";
+        String message = t.getMessage();
+        return (message == null || message.isEmpty()) ? t.getClass().getSimpleName() : message;
     }
 
     private boolean isHttpUrl(String url) {

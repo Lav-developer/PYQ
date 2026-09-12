@@ -16,6 +16,11 @@
  *    free) — only when the user explicitly taps Download.
  *  - share(): the real Android share sheet (ACTION_SEND). navigator.share
  *    does not exist inside the Capacitor WebView, so this is the share action.
+ *  - downloadAndInstall()/onUpdateProgress(): the in-app updater — the
+ *    native layer downloads the official GitHub release APK (real byte
+ *    progress), verifies it and launches the system package installer;
+ *    the plugin call is ALWAYS answered exactly once (resolve or reject),
+ *    so the UI can never sit on "Downloading…" forever.
  *  - Launch/warm deep links from /pyq/<slug> URLs (handled in MainActivity).
  *
  * In a plain browser (dev testing, unit harnesses) the fallbacks keep every
@@ -37,7 +42,11 @@ function resolveBridge() {
 let bridge = resolveBridge();
 
 export function isNative() {
-  if (!bridge) bridge = resolveBridge();
+  // Re-resolve on every probe: the injected Capacitor bridge can appear
+  // AFTER this module is first imported (late bridge injection, test
+  // harnesses installing a fresh fake per case). Never goes back to null
+  // once a bridge has been seen.
+  bridge = resolveBridge() || bridge;
   return !!(bridge && typeof bridge.openExternal === 'function');
 }
 
@@ -128,9 +137,27 @@ export const native = {
     return { versionName: '', versionCode: 0 };
   },
 
-  async downloadAndInstall(url, fileName) {
-    if (isNative() && typeof bridge.downloadAndInstall === 'function') return bridge.downloadAndInstall({ url, fileName });
+  async downloadAndInstall(url, fileName, expectedVersionCode = 0) {
+    if (isNative() && typeof bridge.downloadAndInstall === 'function') {
+      return bridge.downloadAndInstall({ url, fileName, expectedVersionCode: Number(expectedVersionCode) || 0 });
+    }
     throw new Error('In-app installation is available only in the Android app');
+  },
+
+  /**
+   * Live in-app-updater progress from the native downloader:
+   * { phase: 'download' | 'verify' | 'install', bytes, total } — REAL bytes
+   * (total is -1 when the server sends no length). Returns an unsubscribe
+   * function, like onLink; a no-op outside the Android app.
+   */
+  onUpdateProgress(fn) {
+    if (isNative() && typeof bridge.addListener === 'function') {
+      try {
+        const h = bridge.addListener('updateDownloadProgress', (ev) => fn(ev || {}));
+        return () => { try { h.remove && h.remove(); } catch { /* ignore */ } };
+      } catch { return () => {}; }
+    }
+    return () => {};
   },
 
   /** Save a direct .pdf to the device Downloads via DownloadManager. */
