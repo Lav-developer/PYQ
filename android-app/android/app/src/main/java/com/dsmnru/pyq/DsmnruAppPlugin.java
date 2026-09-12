@@ -426,7 +426,10 @@ public class DsmnruAppPlugin extends Plugin {
         String source = call.getString("url", "");
         String fileName = UpdateUrlPolicy.sanitizeApkFileName(call.getString("fileName", ""), "dsmnru-update.apk");
         int expectedVersionCode = 0;
-        Object rawExpected = call.getData() == null ? null : call.getData().get("expectedVersionCode");
+        // `opt` (not `get`): returns null when absent and never throws the
+        // checked JSONException. JS/native.js passes the Worker-reported
+        // versionCode so verifyApk can reject any other package.
+        Object rawExpected = call.getData() == null ? null : call.getData().opt("expectedVersionCode");
         if (rawExpected instanceof Number) expectedVersionCode = ((Number) rawExpected).intValue();
 
         if (!UpdateUrlPolicy.isTrustedUpdateUrl(source)) {

@@ -91,6 +91,15 @@ test('native: the plugin call is ALWAYS answered — no stuck "Downloading…"',
   assert.match(policySrc, /private UpdateUrlPolicy\(\)/);                   // policy is static-only
 });
 
+test('native: expectedVersionCode is read with the non-throwing JSONObject.opt (compilable)', () => {
+  // JSONObject.get(String) throws the CHECKED JSONException — a plain .get
+  // here fails `assembleRelease` with "unreported exception JSONException".
+  // .opt(String) returns null when absent and never throws.
+  assert.match(pluginSrc, /getData\(\)\s*==\s*null\s*\?\s*null\s*:\s*call\.getData\(\)\.opt\("expectedVersionCode"\)/);
+  assert.doesNotMatch(pluginSrc, /getData\(\)\.get\(/);
+  assert.match(pluginSrc, /rawExpected instanceof Number/);                 // typed guard preserved
+});
+
 // ── FileProvider + installer Intent contract ─────────────────────────────
 
 test('installer: FileProvider content:// URI, correct MIME and granted read permission', () => {
