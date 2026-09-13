@@ -18,7 +18,8 @@
  *      permission-required, watchdog, retry
  *   9. Optional updates keep "Later"; mandatory updates keep working
  *  10. version comparison unchanged: 1.4.1 (code 12) → v1.4.2 (code 13)
- *  11. NO version bump: build.gradle stays 1.4.1 / 12
+ *  11. gradle version metadata stays well-formed (the release flow owns
+ *      which exact version ships — tests never pin it)
  *
  * jsdom comes from worker/node_modules when installed (skips otherwise) —
  * same pattern as app-native-bridge.test.mjs.
@@ -125,12 +126,21 @@ test('installer: unknown-app-install permission is detected and guided, never si
 
 // ── version / release safety ─────────────────────────────────────────────
 
-test('NO version bump: the fix keeps versionName 1.4.1 / versionCode 12', () => {
-  // Anchored to statement position (comments may mention other versions).
-  assert.match(gradleSrc, /^\s*versionCode\s+12\s*$/m);
-  assert.match(gradleSrc, /^\s*versionName\s+"1\.4\.1"\s*$/m);
-  assert.doesNotMatch(gradleSrc, /^\s*versionCode\s+13\s*$/m);
-  assert.doesNotMatch(gradleSrc, /^\s*versionName\s+"1\.4\.2"\s*$/m);
+test('gradle version metadata stays well-formed (release flow owns the values)', () => {
+  // PR #20's original task pinned 1.4.1/12 for a temporary local-device
+  // updater test against the already-published v1.4.2 release; that pin is
+  // gone now that production is back at its bumped version. What must hold
+  // FOREVER is only well-formedness: an integer versionCode and a semver
+  // versionName — accidental damage or garbage here breaks every build
+  // tool, while legitimate bumps must never break the test suite. The
+  // updater's version logic is fixture-driven and stays independent of
+  // build.gradle (see the tests below and update-version.test.mjs).
+  const code = gradleSrc.match(/^\s*versionCode\s+(\d+)\s*$/m);
+  const name = gradleSrc.match(/^\s*versionName\s+"(\d+)\.(\d+)\.(\d+)"\s*$/m);
+  assert.ok(code, 'integer versionCode statement present');
+  assert.ok(name, 'semver versionName statement present');
+  assert.ok(Number(code[1]) >= 1, 'versionCode is a positive integer');
+  assert.doesNotMatch(gradleSrc, /^\s*versionCode\s*$/m); // never left empty
 });
 
 test('update detection unchanged: local 1.4.1 (code 12) → GitHub v1.4.2 (code 13) = update available', async () => {

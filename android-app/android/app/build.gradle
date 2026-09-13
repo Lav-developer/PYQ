@@ -7,12 +7,10 @@ android {
         applicationId "com.dsmnru.pyq"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        // LOCAL TEST BUILD for the updater fix: deliberately stays at
-        // 1.4.1 / 12 so the already-published GitHub Release v1.4.2
-        // (versionCode 13) is detected as the update target. Version bumps
-        // happen only in the release flow — never in this fix.
-        versionCode 12
-        versionName "1.4.1"
+        // versionName/versionCode are bumped by the release flow only —
+        // tests assert well-formedness, never exact values.
+        versionCode 13
+        versionName "1.4.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
