@@ -30,12 +30,12 @@
  */
 window.DSMNRU_APK = {
     // Direct URL of the GitHub Release asset `dsmnru-pyq.apk`.
-    releaseUrl: 'https://github.com/Lav-developer/PYQ/releases/download/v1.4.1/dsmnru-pyq.apk',
+    releaseUrl: 'https://github.com/Lav-developer/PYQ/releases/download/v1.4.4/dsmnru-pyq.apk',
 
     // Version metadata currently known from the android-app branch
     // (android-app/android/app/build.gradle). Update on each release.
-    versionName: '1.4.1',
-    versionCode: 12,
+    versionName: '1.4.4',
+    versionCode: 15,
 
     // Minimum Android version from the Android project
     // (android-app/android/variables.gradle → minSdkVersion = 24).
@@ -43,6 +43,6 @@ window.DSMNRU_APK = {
 
     // Fill these in once the first GitHub Release asset exists.
     fileSize: '5 MB',      // e.g. '18 MB' — only when known reliably
-    releasedAt: '2026-09-10',    // e.g. '2026-09-04' — only when known
+    releasedAt: '2026-09-14',    // e.g. '2026-09-04' — only when known
     releaseNotesUrl: ''  // e.g. the GitHub Release page URL
 };
