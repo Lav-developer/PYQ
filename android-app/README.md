@@ -226,10 +226,11 @@ cd android && ./gradlew assembleDebug
 ```
 
 The GitHub Actions workflow (`.github/workflows/android-apk.yml`) runs on
-pushes to `android-app` **and on pull requests targeting it**: the `checks`
-job runs the Worker suite and the app's `npm test` (jsdom reused from the
-Worker devDependencies) first, then the `debug-apk` job builds the debug APK
-in the cloud and uploads it as a workflow artifact — nothing binary is
+pushes to `android-app` **and on pull requests targeting it**: the
+`worker-api` and `android-app` test jobs run the Worker suite and the app's
+`npm test` (jsdom reused from the Worker devDependencies) first — kept as
+separate jobs so a failure always names the culprit — then the `debug-apk`
+job builds the debug APK in the cloud and uploads it as a workflow artifact — nothing binary is
 committed, and no releases are created automatically. A
 signed release APK/AAB can be added later via repository secrets
 (keystore + `google-services.json` are **never** committed; `build.gradle`
@@ -248,7 +249,7 @@ with an existing package". The applicationId stays `com.dsmnru.pyq` across
 debug and release (one app identity, no second package). Release signing
 remains out-of-repo and unconfigured — no production keystore credentials
 exist in this repository. `versionCode` is bumped with every released
-iteration (currently **5 / 1.3.1**).
+iteration (currently **14 / 1.4.3**).
 
 ## Deferred by design
 

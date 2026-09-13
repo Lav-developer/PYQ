@@ -5,8 +5,9 @@ name: Android APK
 # Node, JDK 21 and the Android SDK; Gradle comes from the project wrapper.
 #
 # The APK is uploaded as a workflow artifact only (never committed, no
-# releases are created). A `checks` job runs the Node test suites first so a
-# broken app-logic change can't produce a green APK build unnoticed.
+# releases are created). Two test jobs (`worker-api` and `android-app`) run
+# the Node test suites first so a broken app-logic change can't produce a
+# green APK build unnoticed — kept separate so failures name the culprit.
 #
 # When a semantic version tag vMAJOR.MINOR.PATCH is pushed, a release job
 # additionally validates the signed production APK and publishes a GitHub
@@ -53,10 +54,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  checks:
-    name: App logic + Worker API tests
+  # ────────────────────────────────────────────────────────────────────────
+  # Test gates — deliberately kept as TWO separate jobs so a failing run
+  # always tells you exactly which suite broke: "Worker API tests" vs.
+  # "Android app logic + UI smoke tests". An Android version bump
+  # (versionName/versionCode in android/app/build.gradle) must never make
+  # the Worker API suite fail; the suites are isolated both here and in the
+  # test files (no fixed production-version baseline anywhere).
+  # ────────────────────────────────────────────────────────────────────────
+  worker-api:
+    name: Worker API tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -67,24 +76,42 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: |
-            android-app/package-lock.json
-            worker/package-lock.json
+          cache-dependency-path: worker/package-lock.json
 
-      # The Android app's unit tests + jsdom smoke test are dependency-free
-      # Node tests (jsdom is reused from the Worker devDependencies below).
       - name: Install Worker test dependencies
         run: npm ci --prefix worker --no-audit --no-fund
 
       - name: Run Worker API suite (unchanged backend contract)
         run: |
           node worker/test/worker.test.js
+          node worker/test/app-update.test.cjs
           node worker/test/frontend-smoke-test.cjs
           node worker/test/paper-smoke-test.cjs
           node worker/test/contribution-points-test.cjs
           node worker/test/duplicate-detection-test.cjs
           node worker/test/duplicate-index-freshness-test.cjs
           node worker/test/admin-ia-test.cjs
+
+  android-app:
+    name: Android app logic + UI smoke tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      # The Android app's unit tests + jsdom smoke test are dependency-free
+      # Node tests (jsdom is reused from the Worker devDependencies below).
+      - name: Install Worker test dependencies (jsdom reused by Android smoke tests)
+        run: npm ci --prefix worker --no-audit --no-fund
 
       - name: Run Android app logic + UI smoke tests
         run: npm test --prefix android-app
@@ -305,7 +332,8 @@ jobs:
   # Production GitHub Release.
   #
   # Activates ONLY when a semantic version tag vMAJOR.MINOR.PATCH is pushed
-  # AND the checks + release-apk jobs succeeded. Downloads the signed APK
+  # AND the worker-api, android-app and release-apk jobs succeeded.
+  # Downloads the signed APK
   # artifact, validates tag/version consistency, re-verifies the APK, and
   # creates (or safely updates) a GitHub Release with dsmnru-pyq.apk as the
   # direct asset.
@@ -319,7 +347,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     needs:
-      - checks
+      - worker-api
+      - android-app
       - release-apk
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:

@@ -120,12 +120,15 @@ test('parses the real android/app/build.gradle', async () => {
   const text = await fs.readFile(gradlePath, 'utf8');
   const parsed = parseGradleVersions(text);
   assert.ok(parsed, 'could not parse build.gradle');
+  // versionName exists and is a strict MAJOR.MINOR.PATCH semantic version.
+  // The release flow bumps it for every production release, so only the
+  // FORMAT is asserted here — never a specific production version.
+  assert.equal(typeof parsed.versionName, 'string');
+  assert.match(parsed.versionName, /^\d+\.\d+\.\d+$/, 'versionName must be MAJOR.MINOR.PATCH');
+  // versionCode exists and is a positive integer.
   assert.equal(typeof parsed.versionCode, 'number');
+  assert.ok(Number.isInteger(parsed.versionCode), 'versionCode must be an integer');
   assert.ok(parsed.versionCode > 0, 'versionCode must be positive');
-  assert.match(parsed.versionName, /^\d+\.\d+\.\d+$/, 'versionName must be semver-ish');
-  // Baseline stated by the task.
-  assert.equal(parsed.versionName, '1.4.2', 'production baseline versionName');
-  assert.equal(parsed.versionCode, 13, 'production baseline versionCode');
 });
 
 test('tag version must match Gradle versionName (release gate)', () => {
@@ -236,9 +239,17 @@ test('workflow file declares tag trigger for v*.*.* and a release job', async ()
   );
   // Tag trigger.
   assert.match(wf, /tags:\s*\n\s*-\s*'v\*\.\*\.\*'/);
-  // Release job exists and depends on checks + release-apk.
+  // Release job exists and depends on BOTH test suites + release-apk, so a
+  // failing Worker API test or Android test blocks the release.
   assert.match(wf, /^\s{2}release:/m);
-  assert.match(wf, /needs:\s*\n\s*-\s*checks\s*\n\s*-\s*release-apk/);
+  assert.match(wf, /needs:\s*\n\s*-\s*worker-api\s*\n\s*-\s*android-app\s*\n\s*-\s*release-apk/);
+  // The two test suites live in SEPARATE jobs so a CI failure always names
+  // the culprit (Worker API vs. Android app) instead of one combined job.
+  // An Android version bump must never make the Worker API suite fail.
+  assert.match(wf, /^\s{2}worker-api:/m);
+  assert.match(wf, /^\s{2}android-app:/m);
+  assert.match(wf, /node worker\/test\/worker\.test\.js/);
+  assert.match(wf, /npm test --prefix android-app/);
   // Only runs on v* tags.
   assert.match(wf, /if:\s*startsWith\(github\.ref,\s*'refs\/tags\/v'\)/);
   // Has contents: write for release job.
@@ -294,9 +305,26 @@ test('release job does NOT appear to use a PAT', async () => {
   assert.doesNotMatch(wf, /secrets\.(PAT|PERSONAL|RELEASE)_TOKEN/);
 });
 
-test('production baseline versions in build.gradle are unchanged (1.4.2 / 13)', async () => {
+test('build.gradle declares exactly one release-ready versionName/versionCode (no fixed baseline)', async () => {
   const gradlePath = path.join(REPO_ROOT, 'android-app', 'android', 'app', 'build.gradle');
   const text = await fs.readFile(gradlePath, 'utf8');
-  assert.match(text, /versionCode\s+13\b/, 'versionCode baseline');
-  assert.match(text, /versionName\s+"1\.4\.2"/, 'versionName baseline');
+  // The release workflow bumps versionName/versionCode for EVERY production
+  // release (1.4.1/12 → 1.4.2/13 → 1.4.3/14 → …), so no test may pin a
+  // specific production version as a permanent baseline. Validate the
+  // SHAPE of the declarations instead: exactly one of each, and values
+  // suitable for an Android release. (Cross-checking these against the
+  // release tag and the built APK is the release job's job.)
+  const vnDecls = [...text.matchAll(/versionName\s+"([^"]*)"/g)];
+  const vcDecls = [...text.matchAll(/versionCode\s+(\d+)/g)];
+  assert.equal(vnDecls.length, 1, 'exactly one versionName declaration expected');
+  assert.equal(vcDecls.length, 1, 'exactly one versionCode declaration expected');
+
+  const versionName = vnDecls[0][1];
+  const versionCode = Number(vcDecls[0][1]);
+  // Valid semantic versionName (MAJOR.MINOR.PATCH, no prerelease).
+  assert.match(versionName, /^\d+\.\d+\.\d+$/, 'versionName must be valid MAJOR.MINOR.PATCH semver');
+  // Positive integer versionCode, suitable for an Android release.
+  assert.ok(Number.isInteger(versionCode) && versionCode > 0, 'versionCode must be a positive integer');
+  // Android versionCodes are signed 32-bit ints — stay within the bound.
+  assert.ok(versionCode <= 2147483647, 'versionCode must fit the Android signed 32-bit bound');
 });
