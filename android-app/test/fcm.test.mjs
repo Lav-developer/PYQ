@@ -62,8 +62,14 @@ test('Gradle wires firebase-messaging and keeps google-services conditional', ()
   assert.match(gradle, /apply plugin: 'com\.google\.gms\.google-services'/,
     'google-services plugin applied when google-services.json exists');
   assert.match(gradle, /google-services\.json/, 'apply is guarded by the presence of google-services.json');
-  assert.match(gradle, /versionCode 12/, 'current production versionCode is 12');
-  assert.match(gradle, /versionName \"1\.4\.1\"/, 'current production versionName is 1.4.1');
+  // Version metadata is bumped by the release flow on purpose — pinning the
+  // exact values here made this Firebase-wiring test fail on every
+  // legitimate bump (it broke when production moved to 1.4.2/13). Assert
+  // well-formed metadata instead; which exact version ships is owned by the
+  // release process, and the updater treats versions purely as data
+  // (see update-install.test.mjs).
+  assert.match(gradle, /^        versionCode \d+$/m, 'integer versionCode present');
+  assert.match(gradle, /^        versionName "\d+\.\d+\.\d+"$/m, 'semver versionName present');
   // Consistent package identity + stable debug signature (update-in-place).
   assert.match(gradle, /applicationId "com\.dsmnru\.pyq"/, 'single applicationId preserved');
   assert.match(gradle, /signingConfig signingConfigs\.debug/, 'debug buildType uses the shared debug signing config');

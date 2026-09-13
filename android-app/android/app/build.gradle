@@ -7,6 +7,8 @@ android {
         applicationId "com.dsmnru.pyq"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
+        // versionName/versionCode are bumped by the release flow only —
+        // tests assert well-formedness, never exact values.
         versionCode 13
         versionName "1.4.2"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
