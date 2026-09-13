@@ -7,11 +7,30 @@ name: Android APK
 # The APK is uploaded as a workflow artifact only (never committed, no
 # releases are created). A `checks` job runs the Node test suites first so a
 # broken app-logic change can't produce a green APK build unnoticed.
+#
+# When a semantic version tag vMAJOR.MINOR.PATCH is pushed, a release job
+# additionally validates the signed production APK and publishes a GitHub
+# Release with dsmnru-pyq.apk as a direct asset.
+#
+# Triggers:
+#   · Push to android-app branch (scoped to android-app/worker/workflow paths)
+#   · Pull requests targeting android-app
+#   · Pushes of semantic-version tags vMAJOR.MINOR.PATCH (no path filter — tag
+#     pushes to already-landed commits must still trigger the release).
+#   · Manual workflow_dispatch
 on:
   workflow_dispatch:
   push:
+    # Branch pushes to android-app: only when relevant files change (paths
+    # filter is applied). For tag pushes the paths filter is IGNORED by
+    # GitHub Actions (docs: "Path filters are not evaluated for pushes of
+    # tags"), so a tag-only push (git push origin vX.Y.Z with no new
+    # commits) will correctly trigger the release flow even when no files
+    # were changed by the tag itself.
     branches:
       - android-app
+    tags:
+      - 'v*.*.*'
     paths:
       - 'android-app/**'
       - 'worker/**'
@@ -23,6 +42,11 @@ on:
       - 'android-app/**'
       - 'worker/**'
       - '.github/workflows/android-apk.yml'
+
+# Least-privilege default: regular jobs only need read access. The release
+# job explicitly requests contents: write for GitHub Release publishing.
+permissions:
+  contents: read
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -69,6 +93,12 @@ jobs:
     name: Build debug APK
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    # Debug APK is only useful for branch pushes and pull requests. Tag
+    # pushes (vX.Y.Z) only care about the signed production release, so we
+    # skip debug-apk there to save CI minutes.
+    if: |
+      (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')) ||
+      github.event_name == 'pull_request'
 
     steps:
       - name: Checkout repository
@@ -133,8 +163,10 @@ jobs:
   # Production release build. Runs in one of two modes:
   #  · Signing secrets configured (ANDROID_KEYSTORE_B64 + password/alias
   #    secrets) → signed dsmnru-pyq.apk, verified with apksigner, uploaded.
-  #  · Not configured → the job stops with a clear notice and produces
-  #    NOTHING — a production APK is never falsely labelled.
+  #  · Not configured on a non-tag push → the job stops with a clear notice
+  #    and produces NOTHING — a production APK is never falsely labelled.
+  #  · Not configured on a tag push → the job FAILS (a release tag must
+  #    always produce a signed APK; never silently skip).
   # Credentials exist only as GitHub Secrets; they are decoded into
   # $RUNNER_TEMP at build time and never printed or committed.
   # ────────────────────────────────────────────────────────────────────────
@@ -142,7 +174,9 @@ jobs:
     name: Build release APK (dsmnru-pyq.apk)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
+    # Build release APK when: it's a tag push (always required), or when
+    # signing secrets are available on branch/PR pushes (gated inside the
+    # job via the `signing` step output).
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -152,8 +186,12 @@ jobs:
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
         run: |
+          IS_TAG='${{ startsWith(github.ref, 'refs/tags/v') }}'
           if [ -n "${ANDROID_KEYSTORE_B64:-}" ]; then
             echo "present=true" >> "$GITHUB_OUTPUT"
+          elif [ "$IS_TAG" = 'true' ]; then
+            echo "::error::Production signing secrets (ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD) are required for tag release builds. Configure them in repository secrets before pushing a version tag."
+            exit 1
           else
             echo "present=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Production signing is not configured yet. Add the ANDROID_KEYSTORE_B64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD repository secrets (keystore base64) to build dsmnru-pyq.apk. The keystore must stay the same for every future update."
@@ -193,6 +231,7 @@ jobs:
         if: steps.signing.outputs.present == 'true'
         env:
           ANDROID_KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+        # Write keystore to $RUNNER_TEMP — never logged, never committed.
         run: echo "$ANDROID_KEYSTORE_B64" | base64 -d > "${RUNNER_TEMP}/dsmnru-release.keystore"
 
       - name: Build signed release APK
@@ -209,12 +248,36 @@ jobs:
 
       - name: Verify signature, package and version (certificate fingerprints are public — safe to print)
         if: steps.signing.outputs.present == 'true'
+        id: apkverify
         run: |
           APK=android-app/android/app/build/outputs/apk/release/app-release.apk
-          test -f "$APK"
+          test -f "$APK" || { echo "::error::Release APK not found at $APK"; exit 1; }
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          "$BT/apksigner" verify --print-certs "$APK" | sed -n '1,4p'
-          "$BT/aapt" dump badging "$APK" | grep -E '^package:' | head -1
+          echo "=== apksigner verify ==="
+          "$BT/apksigner" verify --print-certs "$APK" | sed -n '1,6p'
+          echo "=== aapt badging ==="
+          BADGING=$("$BT/aapt" dump badging "$APK")
+          echo "$BADGING" | grep -E '^package:' | head -1
+          # Extract package, versionName, versionCode from APK itself.
+          PKG=$(echo "$BADGING" | grep -oP "name='\K[^']+" | head -1)
+          VN=$(echo "$BADGING" | grep -oP "versionName='\K[^']+" | head -1)
+          VC=$(echo "$BADGING" | grep -oP "versionCode='\K[^']+" | head -1)
+          echo "apk-package=$PKG" >> "$GITHUB_OUTPUT"
+          echo "apk-version-name=$VN" >> "$GITHUB_OUTPUT"
+          echo "apk-version-code=$VC" >> "$GITHUB_OUTPUT"
+          # Also extract Gradle-stated values for cross-checking by the release job.
+          GRADLE_VN=$(grep -oP 'versionName\s+"\K[^"]+' android-app/android/app/build.gradle | head -1)
+          GRADLE_VC=$(grep -oP 'versionCode\s+\K[0-9]+' android-app/android/app/build.gradle | head -1)
+          echo "gradle-version-name=$GRADLE_VN" >> "$GITHUB_OUTPUT"
+          echo "gradle-version-code=$GRADLE_VC" >> "$GITHUB_OUTPUT"
+
+      - name: Enforce APK package = com.dsmnru.pyq
+        if: steps.signing.outputs.present == 'true'
+        run: |
+          if [ "${{ steps.apkverify.outputs.apk-package }}" != "com.dsmnru.pyq" ]; then
+            echo "::error::APK package '${{ steps.apkverify.outputs.apk-package }}' does not match expected com.dsmnru.pyq"
+            exit 1
+          fi
 
       - name: Rename to the production artifact name
         if: steps.signing.outputs.present == 'true'
@@ -230,3 +293,274 @@ jobs:
           path: android-app/android/app/build/outputs/apk/release/dsmnru-pyq.apk
           if-no-files-found: error
           retention-days: 30
+
+    outputs:
+      apk-package: ${{ steps.apkverify.outputs.apk-package }}
+      apk-version-name: ${{ steps.apkverify.outputs.apk-version-name }}
+      apk-version-code: ${{ steps.apkverify.outputs.apk-version-code }}
+      gradle-version-name: ${{ steps.apkverify.outputs.gradle-version-name }}
+      gradle-version-code: ${{ steps.apkverify.outputs.gradle-version-code }}
+
+  # ────────────────────────────────────────────────────────────────────────
+  # Production GitHub Release.
+  #
+  # Activates ONLY when a semantic version tag vMAJOR.MINOR.PATCH is pushed
+  # AND the checks + release-apk jobs succeeded. Downloads the signed APK
+  # artifact, validates tag/version consistency, re-verifies the APK, and
+  # creates (or safely updates) a GitHub Release with dsmnru-pyq.apk as the
+  # direct asset.
+  #
+  # Normal branch pushes and pull requests: this job is skipped entirely
+  # (the `if:` below requires a tag ref). Invalid tag names cause the job to
+  # FAIL — no release is published for v1, v1.4, prerelease tags, etc.
+  # ────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs:
+      - checks
+      - release-apk
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Validate tag format (vMAJOR.MINOR.PATCH, no prerelease suffix)
+        id: tag
+        run: |
+          REF="${GITHUB_REF_NAME}"
+          echo "Tag ref: $REF"
+          # Reject: v1, v1.4, 1.4.3, v1.4.3-beta, v1.4.3-rc1, random tags.
+          if ! [[ "$REF" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::Tag '$REF' is not a valid semantic version tag vMAJOR.MINOR.PATCH (e.g. v1.4.3). No release will be created."
+            exit 1
+          fi
+          VERSION="${REF#v}"
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "major=$MAJOR" >> "$GITHUB_OUTPUT"
+          echo "minor=$MINOR" >> "$GITHUB_OUTPUT"
+          echo "patch=$PATCH" >> "$GITHUB_OUTPUT"
+          echo "Valid semantic version tag: $REF → $VERSION"
+
+      - name: Cross-check Gradle versionName against tag
+        run: |
+          TAG_VERSION="${{ steps.tag.outputs.version }}"
+          GRADLE_VN="${{ needs.release-apk.outputs.gradle-version-name }}"
+          echo "Tag version:        $TAG_VERSION"
+          echo "Gradle versionName: $GRADLE_VN"
+          if [ "$TAG_VERSION" != "$GRADLE_VN" ]; then
+            echo "::error::Tag version '$TAG_VERSION' does not match android/app/build.gradle versionName '$GRADLE_VN'. Bump versionName/versionCode in build.gradle before tagging a release."
+            exit 1
+          fi
+
+      - name: Cross-check APK versionName/versionCode against tag and Gradle
+        id: versions
+        run: |
+          TAG_VERSION="${{ steps.tag.outputs.version }}"
+          APK_VN="${{ needs.release-apk.outputs.apk-version-name }}"
+          APK_VC="${{ needs.release-apk.outputs.apk-version-code }}"
+          GRADLE_VC="${{ needs.release-apk.outputs.gradle-version-code }}"
+          echo "APK versionName: $APK_VN"
+          echo "APK versionCode: $APK_VC"
+          echo "Gradle versionCode: $GRADLE_VC"
+          if [ "$APK_VN" != "$TAG_VERSION" ]; then
+            echo "::error::Built APK versionName '$APK_VN' does not match tag version '$TAG_VERSION'."
+            exit 1
+          fi
+          if [ "$APK_VC" != "$GRADLE_VC" ]; then
+            echo "::error::Built APK versionCode '$APK_VC' does not match Gradle versionCode '$GRADLE_VC'."
+            exit 1
+          fi
+          echo "version-code=$APK_VC" >> "$GITHUB_OUTPUT"
+          echo "version-name=$APK_VN" >> "$GITHUB_OUTPUT"
+
+      - name: Locate Android build-tools for APK re-verification
+        id: bt
+        run: |
+          set -euo pipefail
+          BT_DIR=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          if [ -z "$BT_DIR" ] || [ ! -x "$BT_DIR/apksigner" ] || [ ! -x "$BT_DIR/aapt" ]; then
+            echo "::error::Android build-tools not available on runner (apksigner/aapt missing)."
+            exit 1
+          fi
+          echo "build-tools=$BT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Using Android build-tools at: $BT_DIR"
+
+      - name: Download dsmnru-pyq.apk artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: dsmnru-pyq.apk
+          path: release-artifact
+
+      - name: Locate APK, re-verify signature, package, versionName, versionCode
+        env:
+          BT: ${{ steps.bt.outputs.build-tools }}
+          EXPECTED_PKG: com.dsmnru.pyq
+          EXPECTED_VN: ${{ steps.versions.outputs.version-name }}
+          EXPECTED_VC: ${{ steps.versions.outputs.version-code }}
+        run: |
+          set -euo pipefail
+          APK=$(find release-artifact -type f -name 'dsmnru-pyq.apk' | head -1)
+          if [ -z "$APK" ] || [ ! -f "$APK" ]; then
+            echo "::error::dsmnru-pyq.apk artifact missing after download. Was the release-apk artifact uploaded?"
+            exit 1
+          fi
+          echo "APK path: $APK"
+          ls -lh "$APK"
+          echo "=== apksigner verify (release job) ==="
+          "$BT/apksigner" verify --print-certs "$APK"
+          echo "=== aapt badging (release job) ==="
+          BADGING=$("$BT/aapt" dump badging "$APK")
+          echo "$BADGING" | grep -E '^package:' | head -1
+          PKG=$(echo "$BADGING" | grep -oP "name='\K[^']+" | head -1)
+          VN=$(echo "$BADGING" | grep -oP "versionName='\K[^']+" | head -1)
+          VC=$(echo "$BADGING" | grep -oP "versionCode='\K[^']+" | head -1)
+          echo "APK package:     $PKG"
+          echo "APK versionName: $VN"
+          echo "APK versionCode: $VC"
+          if [ "$PKG" != "$EXPECTED_PKG" ]; then
+            echo "::error::APK package '$PKG' != expected '$EXPECTED_PKG'"
+            exit 1
+          fi
+          if [ "$VN" != "$EXPECTED_VN" ]; then
+            echo "::error::APK versionName '$VN' != expected '$EXPECTED_VN'"
+            exit 1
+          fi
+          if [ "$VC" != "$EXPECTED_VC" ]; then
+            echo "::error::APK versionCode '$VC' != expected '$EXPECTED_VC'"
+            exit 1
+          fi
+          mkdir -p release-out
+          cp "$APK" release-out/dsmnru-pyq.apk
+          echo "APK signature + metadata validation passed."
+
+      - name: Idempotent release creation / APK asset upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+          TITLE: DSMNRU PYQ ${{ github.ref_name }}
+          APK: release-out/dsmnru-pyq.apk
+          VERSION_CODE: ${{ steps.versions.outputs.version-code }}
+        run: |
+          set -euo pipefail
+          test -f "$APK" || { echo "::error::APK missing at $APK before release upload"; exit 1; }
+          ls -lh "$APK"
+
+          NOTES_FILE="${RUNNER_TEMP}/final-notes.md"
+
+          # Find the previous production release for changelog generation.
+          PREV_TAG=""
+          if EXISTING=$(gh release list --limit 100 --json tagName,isDraft,isPrerelease \
+            --jq '[.[] | select(.isDraft==false and .isPrerelease==false and (.tagName | test("^v[0-9]+\\.[0-9]+\\.[0-9]+$")))] | .[0].tagName' 2>/dev/null); then
+            if [ -n "$EXISTING" ] && [ "$EXISTING" != "$TAG" ]; then
+              PREV_TAG="$EXISTING"
+            fi
+          fi
+
+          # Build the release body. The `versionCode: N` line is REQUIRED —
+          # the Cloudflare Worker /api/app-update endpoint parses it to
+          # compare against the installed versionCode. It is always generated
+          # from the actual APK versionCode (not manual input).
+          {
+            echo "## $TITLE"
+            echo ""
+            echo "versionCode: $VERSION_CODE"
+            echo ""
+            echo "Signed production APK: \`dsmnru-pyq.apk\`"
+            echo ""
+            echo "- Package: \`com.dsmnru.pyq\`"
+            echo "- versionName: \`${{ steps.versions.outputs.version-name }}\`"
+            echo "- versionCode: \`$VERSION_CODE\`"
+            echo ""
+            echo "---"
+            echo ""
+          } > "$NOTES_FILE"
+
+          # Append GitHub-generated changelog (best effort).
+          GENERATED_OK=0
+          if [ -n "$PREV_TAG" ]; then
+            echo "Generating release notes: ${PREV_TAG}..${TAG}"
+            if GENERATED=$(gh api -f tag_name="$TAG" -f previous_tag_name="$PREV_TAG" -X POST /repos/{owner}/{repo}/releases/generate-notes 2>/dev/null); then
+              echo "$GENERATED" | jq -r '.body' >> "$NOTES_FILE"
+              GENERATED_OK=1
+            fi
+          else
+            echo "Generating release notes (no previous production release)"
+            if GENERATED=$(gh api -f tag_name="$TAG" -X POST /repos/{owner}/{repo}/releases/generate-notes 2>/dev/null); then
+              echo "$GENERATED" | jq -r '.body' >> "$NOTES_FILE"
+              GENERATED_OK=1
+            fi
+          fi
+          if [ "$GENERATED_OK" -eq 0 ]; then
+            {
+              echo "### What's Changed"
+              echo ""
+              echo "_Release notes could not be auto-generated; see the commit log for changes since ${PREV_TAG:-initial release}._"
+            } >> "$NOTES_FILE"
+          fi
+
+          echo "--- Release notes preview (first 40 lines) ---"
+          head -40 "$NOTES_FILE"
+          echo "---"
+
+          # Create-or-update release (idempotent for workflow reruns).
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists — updating body and ensuring APK asset is correct."
+            gh release edit "$TAG" --notes-file "$NOTES_FILE" --title "$TITLE"
+            ASSET_URL=$(gh api "repos/{owner}/{repo}/releases/tags/$TAG" \
+              --jq '.assets[] | select(.name=="dsmnru-pyq.apk") | .url' || true)
+            LOCAL_SIZE=$(stat -c %s "$APK")
+            if [ -n "$ASSET_URL" ]; then
+              EXISTING_SIZE=$(gh api "repos/{owner}/{repo}/releases/tags/$TAG" \
+                --jq '.assets[] | select(.name=="dsmnru-pyq.apk") | .size')
+              echo "Existing dsmnru-pyq.apk size: $EXISTING_SIZE, local APK size: $LOCAL_SIZE"
+              if [ "$EXISTING_SIZE" = "$LOCAL_SIZE" ]; then
+                echo "Asset already present and size matches; skipping re-upload."
+              else
+                echo "Asset exists but size differs — deleting stale asset and re-uploading."
+                gh api -X DELETE "$ASSET_URL"
+                gh release upload "$TAG" "$APK" --clobber
+              fi
+            else
+              echo "Release exists but APK is missing — uploading dsmnru-pyq.apk."
+              gh release upload "$TAG" "$APK" --clobber
+            fi
+          else
+            echo "Creating new release $TAG..."
+            gh release create "$TAG" \
+              "$APK" \
+              --title "$TITLE" \
+              --notes-file "$NOTES_FILE" \
+              --verify-tag
+          fi
+
+          echo ""
+          echo "=== Release summary ==="
+          gh release view "$TAG"
+          echo ""
+          echo "APK assets on this release:"
+          gh release view "$TAG" --json assets --jq '.assets[] | "  - " + .name + " (" + (.size|tostring) + " bytes)"'
+
+          # Post-creation sanity: ensure the body has the required versionCode: N
+          # line, using the same contract as the Worker /api/app-update parser
+          # (must be a plain integer, not a dotted version like 1.4.2).
+          BODY=$(gh release view "$TAG" --json body --jq '.body')
+          if ! echo "$BODY" | grep -qP '(?:^|[^a-zA-Z])versionCode\s*[:=]\s*[0-9]+(?![.\d])'; then
+            echo "::error::Release body is missing required integer 'versionCode: N' line (updater contract broken)."
+            exit 1
+          fi
+          # And verify the number matches the APK we just built.
+          BODY_VC=$(echo "$BODY" | grep -oP '(?:^|[^a-zA-Z])versionCode\s*:\s*\K[0-9]+(?![.\d])' | head -1)
+          if [ "$BODY_VC" != "$VERSION_CODE" ]; then
+            echo "::error::Release body versionCode '$BODY_VC' does not match APK versionCode '$VERSION_CODE'."
+            exit 1
+          fi
+          echo "✓ Release body contains required 'versionCode: $VERSION_CODE' line (matches APK)."
