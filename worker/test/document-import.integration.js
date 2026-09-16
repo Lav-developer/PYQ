@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom';
 import Papa from 'papaparse';
 import { readFileSync } from 'node:fs';
 import { readDocumentType, validateDocumentType, DOCUMENT_TYPES } from '../src/document-types.js';
-import { getSearchIndex, buildIndexItem, assignCanonicalSlugs, searchIndex, runBackgroundRebuild, getInIsolateRebuildPromise } from '../src/search.js';
+import { getSearchIndex, buildIndexItem, assignCanonicalSlugs, searchIndex, runBackgroundRebuild, getInIsolateRebuildPromise, isPublicPyq } from '../src/search.js';
 
 import { KV_KEYS, acquireRebuildLock, releaseRebuildLock, getFromKV, setKV } from '../src/cache.js';
 
@@ -154,6 +154,10 @@ export async function testDocumentImport({ check, request, reset, setDocuments, 
   resetCounts(); failWriteAt = 2;
   const partial = await importRows([{ title: 'Partial saved', file: 'https://example.org/f.pdf' }, { title: 'Fails', file: 'https://example.org/f.pdf' }]);
   check('partial import invalidates successful writes once and reports real write failure', partial.addedCount === 1 && !!partial.error && invalidations === 1);
+  resetCounts(); failWriteAt = 1;
+  const failed = await importRows([{ title: 'Nothing saved', type: 'form', file: 'https://example.org/f.pdf' }]);
+  check('failure before the first successful CSV write does not invalidate', !!failed.error && failed.addedCount === 0
+    && writes === 0 && invalidations === 0);
   failWriteAt = 0;
 
   // Each non-PYQ admin form works with all academic inputs empty.
@@ -161,7 +165,13 @@ export async function testDocumentImport({ check, request, reset, setDocuments, 
     resetCounts();
     const set = (id, value) => { w.document.getElementById(id).value = value; };
     set('pyqDocumentType', type); w.updateDocumentTypeFields('pyq');
-    set('pyqTitle', 'Admin ' + type); set('pyqDescription', 'Description'); set('pyqFile', 'https://example.org/a.pdf');
+    set('pyqTitle', 'Admin ' + type); set('pyqDescription', 'Description'); set('pyqFile', '');
+    check(`${type} admin creation intentionally requires a primary file/link`,
+      w.document.getElementById('pyqFile').required && !w.document.getElementById('addPyqForm').checkValidity());
+    w.document.getElementById('addPyqForm').dispatchEvent(new w.Event('submit', { cancelable: true }));
+    await tick();
+    check(`${type} missing primary link never writes or invalidates`, writes === 0 && invalidations === 0);
+    set('pyqFile', 'https://example.org/a.pdf');
     check(`${type} creation has no subject/branch/session/semester requirement`, ['Subject', 'Branch', 'Session', 'Semester'].every(field =>
       !w.document.getElementById('pyq' + field).required) && w.document.getElementById('addPyqForm').checkValidity());
     w.document.getElementById('addPyqForm').dispatchEvent(new w.Event('submit', { cancelable: true }));
@@ -170,6 +180,16 @@ export async function testDocumentImport({ check, request, reset, setDocuments, 
   }
   check('PYQ creation still requires its original academic fields after reset', ['Course', 'Semester', 'Subject', 'Session'].every(field =>
     w.document.getElementById('pyq' + field).required));
+
+  resetCounts();
+  for (const [field, value] of Object.entries({ Course: 'B.Tech', Semester: '3rd', Subject: 'DBMS', Session: '2025-26',
+    Branch: 'CSE', File: 'https://example.org/pyq.pdf' })) w.document.getElementById('pyq' + field).value = value;
+  w.document.getElementById('addPyqForm').dispatchEvent(new w.Event('submit', { cancelable: true }));
+  await tick();
+  check('existing PYQ creation retains generated title, metadata and one invalidation', documents().some(doc =>
+    doc.title === 'B.Tech CSE 3rd Sem DBMS {2025-26}' && doc.type === 'pyq' && doc.course === 'B.Tech'
+    && doc.semester === '3rd' && doc.subject === 'DBMS' && doc.session === '2025-26' && doc.branch === 'CSE')
+    && invalidations === 1 && writes === 1);
 
   resetCounts();
   const editable = documents().find(doc => doc.title === 'Admin scholarship');
@@ -198,8 +218,89 @@ export async function testDocumentImport({ check, request, reset, setDocuments, 
   await importRows(roundtrip);
   const protectedDoc = documents().find(doc => doc.id === 'private-backup');
   check('CSV backup/restore preserves type and camelCase public restrictions', protectedDoc.type === 'form'
-    && protectedDoc.isPublic === 'false' && protectedDoc.isPublished === 'false' && protectedDoc.accessLevel === 'restricted'
+    && protectedDoc.isPublic === false && protectedDoc.isPublished === false && protectedDoc.accessLevel === 'restricted'
     && protectedDoc.visibility === 'private' && invalidations === 1);
+  // Restore real boolean and numeric false-like access fields, without
+  // global dynamicTyping (opaque IDs and arbitrary text must stay strings).
+  const visibilityFields = ['published', 'isPublished', 'public', 'isPublic', 'draft', 'private',
+    'unpublished', 'archived', 'deleted', 'status', 'visibility', 'access', 'accessLevel'];
+  const visibilityDocs = visibilityFields.flatMap(field => [true, false, 0, 1].map(value => ({
+    id: `audit-${field}-${value}`, title: `Audit ${field} ${value}`, type: 'form',
+    file: 'https://example.org/form.pdf', [field]: value,
+  })));
+  const visibilityBackups = visibilityDocs.map(doc => w.buildCsvBackupRow('pyqs', doc));
+  resetCounts();
+  const restoreResult = await importRows(parse(w.buildCsvContent(visibilityBackups, Object.keys(visibilityBackups[0]))));
+  check('visibility backup restores every row and invalidates exactly once',
+    restoreResult.updatedCount === visibilityDocs.length && invalidations === 1 && !restoreResult.error);
+  for (const field of visibilityFields) {
+    const originals = visibilityDocs.filter(doc => Object.hasOwn(doc, field));
+    check(`${field}: true/false/0/1 retain scalar types and visibility after backup/restore`, originals.every(original => {
+      const restored = documents().find(doc => doc.id === original.id);
+      return restored[field] === original[field] && isPublicPyq(restored) === isPublicPyq(original);
+    }));
+  }
+  await refresh();
+  const restoredSearch = await search({ q: 'Audit', type: 'form', limit: 100 });
+  const restoredSitemap = await (await request('/sitemap.xml')).text();
+  check('restored false-like restrictions stay out of public search and sitemap', visibilityDocs.every(original => {
+    const restored = documents().find(doc => doc.id === original.id);
+    const expected = isPublicPyq(original);
+    return restoredSearch.items.some(item => item.id === original.id) === expected
+      && restoredSitemap.includes('/pyq/' + restored.slug + '</loc>') === expected;
+  }));
+  for (const id of ['audit-status-false', 'audit-status-0']) {
+    const restored = documents().find(doc => doc.id === id);
+    check(`restored ${id} cannot expose JSON detail or a pretty page`,
+      (await request('/api/pyqs/' + id)).status === 404 && (await request('/pyq/' + restored.slug)).status === 404);
+  }
+  const scalars = w.buildCsvImportPayload(w.normalizeCsvRow({ title: 'false', description: '0',
+    published: ' FALSE ', draft: 'TRUE', visibility: 'restricted', access: 'private', status: 'pending' }));
+  check('only recognized access scalars are decoded; categorical restrictions and text are preserved',
+    scalars.title === 'false' && scalars.description === '0' && scalars.published === false && scalars.draft === true
+      && scalars.visibility === 'restricted' && scalars.access === 'private' && scalars.status === 'pending');
+
+  resetCounts();
+  await importRows(parse('id,title,type,Server 1\n1,Numeric ID,notice,https://example.org/n.pdf\n001,Padded ID,form,https://example.org/p.pdf'));
+  await w.refreshCollectionAfterCsvImport('pyqs');
+  const numericDocument = documents().find(doc => doc.id === '1');
+  const paddedDocument = documents().find(doc => doc.id === '001');
+  check('CSV preserves distinct numeric-looking document IDs', !!numericDocument && !!paddedDocument && invalidations === 1);
+  resetCounts();
+  const neighborTitles = documents().filter(doc => doc.id !== '1').map(doc => [doc.id, doc.title]);
+  w.editPyqById('1');
+  w.document.getElementById('editTitle').value = 'Numeric ID edited';
+  w.document.getElementById('editForm').dispatchEvent(new w.Event('submit', { cancelable: true }));
+  await tick();
+  check('short numeric ID edit targets the ID, not an unrelated array index', numericDocument.title === 'Numeric ID edited'
+    && neighborTitles.every(([id, title]) => documents().find(doc => doc.id === id).title === title));
+  check('numeric ID edit preserves its original slug and invalidates once', numericDocument.slug === 'numeric-id' && invalidations === 1);
+  resetCounts();
+  w.deletePyqById('1'); await tick();
+  check('numeric ID delete removes only that document and invalidates once', !documents().some(doc => doc.id === '1')
+    && documents().some(doc => doc.id === '001') && invalidations === 1);
+
+  const legacyTypeDoc = { id: 'audit-missing-type', title: 'Legacy missing type', file: 'https://example.org/l.pdf' };
+  const unknownTypeDoc = { id: 'audit-unknown-type', title: 'Unknown stored category', type: 'unrecognized-old-type', file: 'https://example.org/u.pdf' };
+  documents().push(legacyTypeDoc, unknownTypeDoc);
+  await runBackgroundRebuild();
+  const missingResult = await search({ q: legacyTypeDoc.title, type: 'pyq' });
+  const unknownResult = await search({ q: unknownTypeDoc.title, type: 'other' });
+  check('missing type is PYQ in real search and detail responses', missingResult.items[0]?.id === legacyTypeDoc.id
+    && (await (await request('/api/pyqs/' + legacyTypeDoc.id)).json()).type === 'pyq');
+  check('unknown stored type is Other in real search, detail and pretty page', unknownResult.items[0]?.id === unknownTypeDoc.id
+    && (await (await request('/api/pyqs/' + unknownTypeDoc.id)).json()).type === 'other'
+    && (await (await request('/pyq/' + unknownResult.items[0].slug)).text()).includes('<strong>Other</strong>'));
+  await w.refreshCollectionAfterCsvImport('pyqs');
+  resetCounts();
+  w.editPyqById(unknownTypeDoc.id);
+  check('unknown existing type opens edit modal safely as Other', w.document.getElementById('editDocumentType').value === 'other');
+  w.document.getElementById('editTitle').value = 'Unknown category edited';
+  w.document.getElementById('editForm').dispatchEvent(new w.Event('submit', { cancelable: true }));
+  await tick();
+  check('editing unknown legacy category normalizes to Other and preserves prior URL', unknownTypeDoc.type === 'other'
+    && unknownTypeDoc.slug === 'unknown-stored-category' && invalidations === 1);
+
   const existingNoSlug = { id: 'legacy-noslug', title: 'Original title', file: 'https://example.org/f.pdf' };
   documents().push(existingNoSlug);
   resetCounts();
@@ -240,6 +341,26 @@ export async function testDocumentImport({ check, request, reset, setDocuments, 
     buildIndexItem({ id: 'b', title: 'Scholarship Docs', type: 'form' })] });
   check('non-PYQ duplicate titles reuse canonical collision allocator', collision.items[0].sl === 'scholarship-docs'
     && collision.items[1].sl.startsWith('scholarship-docs--') && collision.items[0].sl !== collision.items[1].sl);
+  resetCounts();
+  await importRows([{ id: 'audit-collision-a', title: 'Shared notice', type: 'notice', file: 'https://example.org/a.pdf', createdAt: '2024-01-01T00:00:00Z' },
+    { id: 'audit-collision-b', title: 'Shared notice', type: 'form', file: 'https://example.org/b.pdf', createdAt: '2025-01-01T00:00:00Z' }]);
+  await refresh();
+  const collisionSearch = await search({ q: 'Shared notice' });
+  const collisionSlugs = new Map(collisionSearch.items.map(item => [item.id, item.slug]));
+  check('imported duplicate titles receive distinct canonical URLs', collisionSlugs.get('audit-collision-a') === 'shared-notice'
+    && collisionSlugs.get('audit-collision-b')?.startsWith('shared-notice--') && invalidations === 1);
+  for (const id of ['audit-collision-a', 'audit-collision-b']) {
+    const response = await request('/pyq/' + collisionSlugs.get(id));
+    check(`duplicate-title pretty URL resolves the exact document ${id}`, response.status === 200
+      && (await response.text()).includes(`window.DSMNRU_PYQ_ID = "${id}"`));
+  }
+  resetCounts();
+  await importRows([{ id: 'audit-collision-a', title: 'Notice renamed', type: 'notice' },
+    { id: 'audit-collision-b', title: 'Form renamed', type: 'form' }]);
+  await refresh();
+  const currentIndex = await getFromKV(KV_KEYS.SEARCH_INDEX);
+  check('title edits preserve both established base and collision-suffixed URLs', [...collisionSlugs].every(([id, slug]) =>
+    currentIndex.items.find(item => item.id === id).sl === slug) && invalidations === 1);
   check('legacy compact items without ty still match PYQ filters', searchIndex({ items: [{ id: 'old', t: 'DBMS', p: true }] },
     { type: 'pyq', page: 1, limit: 20 }).total === 1);
 

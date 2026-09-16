@@ -356,7 +356,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // rawIndex may be an id (string) or old numeric index
             let idx = parseInt(rawIndex);
-            let isId = isNaN(idx) || String(rawIndex).length > 6 || allData[type] && !allData[type][idx];
+            // The current modal passes an opaque ID, including numeric IDs
+            // from CSV restores. Only old callers may pass an array index.
+            let isId = document.getElementById('editIndex').dataset.reference === 'id'
+                || isNaN(idx) || String(rawIndex).length > 6 || allData[type] && !allData[type][idx];
             if (isId) {
                 // find by id
                 const id = String(rawIndex).trim();
@@ -755,6 +758,20 @@ function buildCsvImportPayload(row) {
             return;
         }
 
+        // CSV has no scalar types. Restore only known visibility/access
+        // fields explicitly; global Papa dynamicTyping would corrupt opaque
+        // IDs and other strings. Never use Boolean('false'), which is true.
+        if (CSV_VISIBILITY_FIELDS.includes(mappedKey) || mappedKey === 'status') {
+            const scalar = String(value).trim().toLowerCase();
+            if (scalar === 'true' || scalar === 'false') {
+                payload[mappedKey] = scalar === 'true';
+                return;
+            }
+            if (scalar === '0' || scalar === '1') {
+                payload[mappedKey] = Number(scalar);
+                return;
+            }
+        }
         payload[mappedKey] = value;
     });
 
@@ -860,7 +877,7 @@ function buildCsvBackupRow(collection, doc) {
         branch: doc.branch || '',
         description: doc.description || '',
         views: doc.views !== undefined && doc.views !== null ? doc.views : '',
-        status: doc.status || '',
+        status: doc.status ?? '',
         type: collection === 'pyqs' ? DSMNRUDocumentTypes.read(doc.type) : doc.type || '',
         details: doc.details || '',
         text: doc.text || '',
@@ -1191,6 +1208,7 @@ window.editPyqById = function(id) {
     if (!pyq) { alert('PYQ not found (maybe already deleted). Refresh.'); return; }
     document.getElementById('editType').value = 'pyqs';
     document.getElementById('editIndex').value = id;
+    document.getElementById('editIndex').dataset.reference = 'id';
     document.getElementById('editTitle').value = pyq.title;
     document.getElementById('editFile').value = normalizeStoredLink(pyq.file || pyq.server1);
     document.getElementById('editFile2').value = normalizeStoredLink(pyq.file2 || pyq.server2);

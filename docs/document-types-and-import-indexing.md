@@ -78,7 +78,10 @@ pyqs,,Scholarship Docs,scholarship,https://example.org/docs.pdf,,,,,,
   No-ID imports still need just one write per document.
 - Existing backup columns are retained. Backup/restore additionally preserves
   visibility flags and camelCase access fields so a restricted record is not
-  accidentally republished when restored under a new ID.
+  accidentally republished when restored under a new ID. Known access fields
+  decode true/false into booleans and 0/1 into numbers; categorical states and
+  unrelated text remain strings. Explicit `status: false`/`status: 0` are not
+  dropped by backup serialization.
 - Empty rows are skipped; malformed CSV parsing fails before writes. New
   documents need title and at least one file URL; existing IDs allow partial
   metadata updates. Invalid types are skipped with explicit warnings.
@@ -117,7 +120,7 @@ changes; tests use mock network/storage, not production writes.
 
 | Command | Passed | Failed | Skipped |
 |---|---:|---:|---:|
-| `npm test` (Worker + real CSV integration) | 303 | 0 | 0 |
+| `npm test` (Worker + real CSV integration) | 345 | 0 | 0 |
 | `npm run test:frontend` | 53 | 0 | 0 |
 | `npm run test:paper` | 24 | 0 | 0 |
 | `npm run test:points` | 80 | 0 | 0 |
@@ -126,7 +129,7 @@ changes; tests use mock network/storage, not production writes.
 | `npm run test:duplicate-freshness` | 13 | 0 | 0 |
 | `npm run test:static-pages` | 51 | **3** | 0 |
 | Android `npm test` (extracted branch, jsdom available) | 105 | 0 | 0 |
-| **Total** | **747** | **3** | **0** |
+| **Total** | **789** | **3** | **0** |
 
 Also passed: JavaScript syntax checks, `git diff --check`, and
 `npx wrangler deploy --dry-run --outdir /tmp/pyq-worker-final` (bundling only,
@@ -181,3 +184,74 @@ The PR should remain draft pending an agreed resolution of that existing gate.
   placeholders for these documents; search and downloads remain compatible.
 - No production data was read for validation or mutated. Automated tests are
   mock-backed; production rollout verification remains an operator step.
+
+
+## Final pre-merge audit of PR #23
+
+PR remains open and draft, based on **main** (verified via GitHub). No merge,
+retarget, production deployment, or Android branch write was performed.
+
+### Non-PYQ file requirement: intentionally retained
+
+This project is a file/link archive, not a text-only notice publishing system.
+`paper.js` gets previews/downloads from `file`/`file2` (and legacy aliases), and
+shows an incomplete-record message when both links are missing. Its existing
+link model accepts hosted document pages as well as direct file URLs; it does
+not require a literal `.pdf` suffix. Therefore the admin creation requirement
+for title + primary URL remains for Form, Scholarship, Notice, Syllabus and
+Other. Description and the secondary URL remain optional. CSV restore's
+existing ability to retain a secondary-only record is unchanged. No PYQ
+validation was relaxed. New tests check that each non-PYQ form rejects a
+missing primary link without a write/invalidation, then succeeds without
+academic metadata; a valid PYQ still creates its original generated title and
+metadata with one invalidation.
+
+### Concrete fixes made during final audit
+
+1. **CSV visibility scalars and false-status backup:** the previous restore
+   wrote visibility booleans as strings. The Worker currently tolerates those
+   strings, but preserving the data contract is safer. More critically,
+   `status: doc.status || ''` discarded explicit `false` and `0` restrictions
+   on backup, which could expose a newly restored record. Backup now uses a
+   nullish fallback; restore decodes only known access/visibility scalars
+   (`true`/`false` as booleans, `0`/`1` as numbers). No global Papa Parse
+   dynamic typing: IDs such as `001`, titles such as `false`, and categorical
+   states such as `private`/`pending` remain strings.
+2. **Numeric document-ID edits:** the edit modal now marks its hidden reference
+   as an opaque ID. Saving ID `1` no longer edits an unrelated item at array
+   index 1. Legacy index callers keep their fallback, and current numeric-ID
+   edits/deletes preserve their IDs/slugs and invalidate once.
+
+### Regression evidence and final results
+
+- Tests exercise true/false/0/1 for all 13 supported visibility/access/status
+  fields through actual backup → CSV parse → Firestore restore. They verify
+  scalar types, equivalent visibility, excluded search/sitemap entries, and
+  HTTP 404 for restored false/zero-status JSON/pretty detail URLs.
+- Additional checks cover numeric-looking IDs, unknown existing types safely
+  read/edited as Other, missing type as PYQ, first-write failure (zero
+  invalidations), unchanged PYQ creation, and two imported duplicate-title
+  records resolving to their own pretty URLs with both slugs retained after
+  title edits.
+- The final new regressions run against the **pre-audit PR commit `0308113`**
+  produce **326 passed / 19 failed**. With the fixes: **345 passed / 0 failed**.
+- Complete post-fix results are in the table above: **789 passed, 3 failed,
+  0 skipped**. All PR-specific and Android compatibility tests pass.
+- `origin/main` was fetched and is still `deed78e...`. Its isolated untouched
+  static-page suite independently gives **51 passed / 3 failed**, exactly
+  matching this PR. Actual release config is already version **1.4.4/build 15**
+  with a published APK URL, while those assertions expect an empty URL and
+  **1.4.0/build 11**. No release configuration or tests were altered.
+- Reproducible `npm ci`, JavaScript syntax checks, `git diff --check` and Worker
+  dry-run bundling pass. No production writes were used to validate the fixes.
+
+### Exact files changed in this final audit
+
+- `admin.js`
+- `worker/test/document-import.integration.js`
+- `docs/document-types-and-import-indexing.md`
+
+No Android source/version/updater/signing, FCM, Resend, release automation,
+Firestore rules, or additional Worker/API code changed during this audit.
+Existing async indexing/cache-propagation limitations remain as documented
+above; no newly failing regression was found in the completed test suites.
