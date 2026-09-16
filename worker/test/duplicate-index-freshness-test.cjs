@@ -170,6 +170,7 @@ check('near-misses still appear below it (nothing is hidden)',
   window.bootstrap = { Modal: MockModal, Collapse: function Collapse() { this.hide = () => {}; } };
   window.bootstrap.Collapse.getOrCreateInstance = () => new window.bootstrap.Collapse();
 
+  window.eval(read('document-types.js'));
   window.eval(read('points.js'));
   window.eval(read('duplicate-check.js'));
   window.eval(read('admin.js'));

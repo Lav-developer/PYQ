@@ -108,6 +108,7 @@ function check(name, cond, detail = '') {
 (async () => {
   console.log('\n🧪 paper.js smoke test\n');
   try {
+    window.eval(fs.readFileSync(path.join(ROOT, 'document-types.js'), 'utf8'));
     window.eval(script);
     window.eval(paper);
     check('script.js + paper.js execute without throwing', true);
@@ -201,6 +202,7 @@ function check(name, cond, detail = '') {
   };
 
   try {
+    prettyWindow.eval(fs.readFileSync(path.join(ROOT, 'document-types.js'), 'utf8'));
     prettyWindow.eval(script);
     prettyWindow.eval(paper);
     await new Promise((resolve) => setTimeout(resolve, 80));
@@ -242,6 +244,33 @@ function check(name, cond, detail = '') {
       directCommentQueries > commentQueriesBeforePrettyHydration);
   } catch (err) {
     check('pretty route hydration executes without throwing', false, err.stack || err.message);
+  }
+
+  // Both legacy ID URLs and pretty-route hydration must render non-PYQs
+  // without empty academic placeholders, while retaining both download paths.
+  for (const pretty of [false, true]) {
+    const scholarship = { id: 'scholarship-id', title: 'Scholarship Docs', type: 'scholarship',
+      description: 'Scholarship related documents for DSMNRU', seoSlug: 'scholarship-docs',
+      file: 'https://archive.org/download/test/docs.pdf', file2: 'https://catbox.moe/docs.pdf' };
+    const docDom = new JSDOM(html, { url: pretty ? 'https://site.example/pyq/scholarship-docs' : 'https://site.example/paper.html?id=scholarship-id', runScripts: 'outside-only', pretendToBeVisual: true });
+    const dw = docDom.window;
+    dw.DSMNRU_API_URL = 'https://worker.example';
+    if (pretty) { dw.DSMNRU_PYQ_ID = scholarship.id; dw.DSMNRU_PYQ_SLUG = scholarship.seoSlug; }
+    dw.firebase = window.firebase; dw.bootstrap = window.bootstrap; dw.Swal = window.Swal;
+    dw.matchMedia = () => ({ matches: true, addListener() {}, removeListener() {} });
+    dw.scrollTo = () => {};
+    dw.fetch = async url => {
+      const pathname = new URL(url, 'https://site.example').pathname;
+      return new Response(JSON.stringify(pathname === '/api/pyqs/scholarship-id' ? scholarship : { items: [], courses: [], total: 0 }), { status: 200 });
+    };
+    dw.eval(fs.readFileSync(path.join(ROOT, 'document-types.js'), 'utf8'));
+    dw.eval(script); dw.eval(paper);
+    await new Promise(resolve => setTimeout(resolve, 120));
+    const info = dw.document.getElementById('paperInfoList').textContent;
+    check(`${pretty ? 'pretty' : 'legacy paper.html?id'} non-PYQ renders title, type and description`, dw.document.getElementById('paperTitle').textContent === scholarship.title && info.includes('Scholarship') && info.includes(scholarship.description));
+    check('non-PYQ hydration omits empty PYQ metadata', !/Semester|Session|Branch|General/.test(info));
+    check('non-PYQ hydration retains Server 1 and Server 2 actions', !!dw.document.getElementById('btnServer1') && !!dw.document.getElementById('btnServer2'));
+    docDom.window.close();
   }
 
   console.log(`\nResults: ${pass} passed, ${fail} failed`);

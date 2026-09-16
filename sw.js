@@ -1,4 +1,5 @@
 // Public-shell service worker.
+// v11 — document types and bulk-import indexing; refresh cached JS.
 // v10 — ships the rendering/Firebase performance work (chunked PYQ render,
 //       lazy Firebase, mobile blur removal). Version bump is required because
 //       same-origin JS/CSS are served cache-first below: without it, repeat
@@ -6,7 +7,7 @@
 //       hard refresh. skipWaiting()/clients.claim()/old-cache cleanup below
 //       make the new version take effect on a normal refresh.
 // User data and live archive API responses are deliberately never cached.
-const CACHE_NAME = 'dsmnru-archive-v10';
+const CACHE_NAME = 'dsmnru-archive-v11';
 const APP_SHELL = [
   '/', '/contributors.html', '/links.html', '/styles.css', '/manifest.json',
   '/img/icon-192.png', '/img/icon-512.png', '/img/icon-maskable-512.png'

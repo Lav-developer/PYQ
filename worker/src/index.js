@@ -1,3 +1,4 @@
+import { readDocumentType, validateDocumentType } from './document-types.js';
 /**
  * DSMNRU PYQ Archive — Cloudflare Worker API
  *
@@ -296,19 +297,22 @@ async function handleRequest(request, ctx) {
  */
 async function ensureFreshIndex(ctx) {
   const result = await getSearchIndex();
-  // A pre-SEO compact index is still usable for existing API browse/search
-  // responses, but has no explicit public bit. Its SEO surface fails closed
-  // while getSearchIndex schedules the normal background schema rebuild.
+  // An older index without explicit public state fails closed on public
+  // responses while the usual background schema rebuild classifies records.
   assignCanonicalSlugs(result.index);
   if (result.needsBackgroundRebuild && ctx && typeof ctx.waitUntil === 'function') {
     ctx.waitUntil(runBackgroundRebuild());
   }
-  return result.index;
+  const items = result.index.items.filter(isPublicIndexItem);
+  return { ...result.index, items, count: items.length };
 }
 
 // ─── Route Handlers ──────────────────────────────────────────────
 
 async function handlePyqsList(url, ctx) {
+  let type = '';
+  try { if (url.searchParams.get('type')) type = validateDocumentType(url.searchParams.get('type')); }
+  catch (error) { return jsonResponse({ error: error.message }, 400); }
   const { page, limit } = parsePagination(url.searchParams);
   const sort = validateSort(url.searchParams.get('sort'));
   const filters = validateFilters(url.searchParams);
@@ -319,6 +323,7 @@ async function handlePyqsList(url, ctx) {
   }
 
   const result = searchIndex(index, {
+    type,
     query: '',
     course: filters.course,
     semester: filters.semester,
@@ -339,6 +344,9 @@ async function handlePyqsList(url, ctx) {
 }
 
 async function handlePyqsSearch(url, ctx) {
+  let type = '';
+  try { if (url.searchParams.get('type')) type = validateDocumentType(url.searchParams.get('type')); }
+  catch (error) { return jsonResponse({ error: error.message }, 400); }
   const query = sanitizeSearchQuery(url.searchParams.get('q') || '');
   const course = url.searchParams.get('course') || '';
   const semester = url.searchParams.get('semester') || '';
@@ -357,6 +365,7 @@ async function handlePyqsSearch(url, ctx) {
   }
 
   const result = searchIndex(index, {
+    type,
     query,
     course,
     semester,
@@ -443,7 +452,7 @@ async function handlePyqsSingle(id) {
   }
 
   const doc = await getPyqItem(id);
-  if (!doc) {
+  if (!doc || !isPublicPyq(doc)) {
     return jsonResponse({ error: 'PYQ not found' }, 404);
   }
 
@@ -451,7 +460,7 @@ async function handlePyqsSingle(id) {
   // document, even if a stale compact index still has its old public state.
   const seoSlug = isPublicPyq(doc) ? await getCachedSeoSlugForId(id) : '';
   // Additive field only; existing clients still receive the full document.
-  return jsonResponse(seoSlug ? { ...doc, seoSlug } : doc, 200);
+  return jsonResponse({ ...doc, type: readDocumentType(doc.type), ...(seoSlug ? { seoSlug } : {}) }, 200);
 }
 
 function stableStringCompare(a, b) {
@@ -850,6 +859,7 @@ function mapIndexItems(items) {
   return items.map((item) => ({
     id: item.id,
     title: item.t,
+    type: readDocumentType(item.ty),
     course: item.c,
     semester: item.s,
     session: item.se,

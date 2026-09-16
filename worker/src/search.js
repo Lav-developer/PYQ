@@ -1,3 +1,4 @@
+import { readDocumentType, documentTypeLabel } from './document-types.js';
 /**
  * Lightweight search index for PYQ metadata.
  *
@@ -72,9 +73,8 @@ function isExplicitlyTrue(value) {
 }
 
 /**
- * The public API still exposes its existing `pyqs` collection behavior. This
- * predicate is deliberately scoped to the new crawlable routes and sitemap so
- * a draft/private record can never be published through the SEO surface.
+ * Shared public visibility predicate for JSON detail, browse/search and SEO.
+ * Missing legacy visibility remains public; explicit restrictions win.
  */
 export function isPublicPyq(pyq) {
   if (!pyq || typeof pyq !== 'object') return false;
@@ -111,6 +111,7 @@ export function buildIndexItem(pyq) {
   return {
     id: pyq.id,
     t: title,
+    ty: readDocumentType(pyq.type),
     c: String(pyq.course || pyq.category || ''),
     s: String(pyq.semester || pyq.sem || ''),
     se: String(pyq.session || ''),
@@ -119,17 +120,15 @@ export function buildIndexItem(pyq) {
     y: extractYearFromTitle(title),
     v: Number.isFinite(Number(pyq.views)) ? Math.floor(Number(pyq.views)) : 0,
     ts: extractSortTimestamp(pyq),
-    // `p` is compact public-visibility state for /pyq and /sitemap.xml only.
+    // `p` is compact public visibility for API responses and SEO.
     p: isPublicPyq(pyq),
     sb: storedSlugBase(pyq.slug) || createSlug(title) || 'pyq',
   };
 }
 
 export function isPublicIndexItem(item) {
-  // SEO must fail closed for an older compact index that predates the explicit
-  // public bit. API browse/search still retain their existing records, but a
-  // pretty URL, sitemap entry, or server-related link is emitted only after a
-  // normal rebuild has positively classified the item as public.
+  // Fail closed for older compact indexes until the normal schema rebuild
+  // has positively classified public state.
   return !!item && item.p === true;
 }
 
@@ -279,6 +278,9 @@ let memoryIndex = null;
  * (using cursor pagination with `__name__` tiebreaker). Stores in KV.
  */
 export async function buildSearchIndex() {
+  // Invalidation during a paginated sweep must not be swallowed by a later
+  // completion timestamp: the next reader needs to schedule another rebuild.
+  const buildStartedAt = Date.now();
   console.log('Building search index from Firestore...');
   // Order by title for deterministic pagination; the `__name__` tiebreaker
   // (added by getAllDocuments) prevents duplicates when titles collide.
@@ -292,7 +294,8 @@ export async function buildSearchIndex() {
   const cacheData = {
     items: index,
     count: index.length,
-    _cachedAt: Date.now(),
+    typeVersion: 1,
+    _cachedAt: buildStartedAt,
   };
   assignCanonicalSlugs(cacheData);
   // Use a very long hard TTL — the index should be invalidated explicitly
@@ -347,14 +350,13 @@ export async function getSearchIndex({ forceRebuild = false } = {}) {
 
   const lastBuiltAt = cached._cachedAt || 0;
 
-  // Older index values predate compact public-state and canonical-slug fields.
-  // Continue serving their existing API browse/search data, but schedule the
-  // normal single-flight rebuild so SEO routes can fail closed meanwhile.
-  const needsSchemaRebuild = cached.slugVersion !== SLUG_INDEX_VERSION
+  // Upgrade older type/public-state/slug schemas through the existing
+  // single-flight background rebuild, not a full read per search request.
+  const needsSchemaRebuild = cached.typeVersion !== 1 || cached.slugVersion !== SLUG_INDEX_VERSION
     || cached.items.some((item) => !item || typeof item.p !== 'boolean')
     || !hasValidAssignedCanonicalSlugs(cached, cached.items);
   if (needsSchemaRebuild) {
-    console.log('Search index stale: compact SEO schema upgrade required');
+    console.log('Search index stale: compact schema upgrade required');
     return {
       index: cached,
       fresh: false,
@@ -364,7 +366,7 @@ export async function getSearchIndex({ forceRebuild = false } = {}) {
   }
 
   // Stale due to admin invalidation since last build
-  if (invalidationTs > lastBuiltAt) {
+  if (invalidationTs && invalidationTs >= lastBuiltAt) {
     console.log(`Search index stale: invalidated at ${invalidationTs}, built at ${lastBuiltAt}`);
     return {
       index: cached,
@@ -413,16 +415,16 @@ export async function runBackgroundRebuild() {
   inIsolateRebuildPromise = (async () => {
     const { acquireRebuildLock, releaseRebuildLock } = await import('./cache.js');
     const gotLock = await acquireRebuildLock();
-    if (!gotLock) {
-      console.log('Background rebuild: another isolate already holds the lock — skipping');
-      return;
-    }
     try {
+      if (!gotLock) {
+        console.log('Background rebuild: another isolate already holds the lock — skipping');
+        return;
+      }
       await buildSearchIndex();
     } catch (err) {
       console.error('Background rebuild failed:', err.message);
     } finally {
-      await releaseRebuildLock();
+      if (gotLock) await releaseRebuildLock();
       inIsolateRebuildPromise = null;
     }
   })();
@@ -431,8 +433,10 @@ export async function runBackgroundRebuild() {
 
 // ── Search/filter/sort operations on a (possibly stale) index ──────
 
-export function searchIndex(index, { query, course, semester, session, year, sort, page, limit }) {
+export function searchIndex(index, { query, type, course, semester, session, year, sort, page, limit }) {
   let items = (index && index.items) || [];
+
+  if (type) items = items.filter(item => readDocumentType(item.ty) === type);
 
   if (query) {
     const qNorm = normalizeForCompare(query);
@@ -444,6 +448,7 @@ export function searchIndex(index, { query, course, semester, session, year, sor
       const yearStr = String(item.y);
 
       return (
+        normalizeForCompare(documentTypeLabel(item.ty)).includes(qNorm) ||
         titleNorm.includes(qNorm) ||
         courseNorm.includes(qNorm) ||
         sessionNorm.includes(qNorm) ||
@@ -526,6 +531,7 @@ export function getTrendingItems(index, count = 6) {
 export function getCourseCounts(index) {
   const counts = {};
   for (const item of (index && index.items) || []) {
+    if (!item.c && readDocumentType(item.ty) !== 'pyq') continue;
     const course = item.c || 'General';
     counts[course] = (counts[course] || 0) + 1;
   }

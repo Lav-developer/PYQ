@@ -1182,12 +1182,17 @@
                     <div class="admin-view-head">
                         <div>
                             <h1 class="admin-view-title" id="title-add-pyq">Add PYQ</h1>
-                            <p class="admin-view-sub">Create a single paper record (title is generated from the fields).</p>
+                            <p class="admin-view-sub">Create a PYQ or academic document. PYQ titles are generated from the fields.</p>
                         </div>
                         <div class="admin-view-actions"></div>
                     </div>
                     <div class="card section-card"><div class="card-body">
 <form id="addPyqForm" class="resource-form">
+<div class="mb-3"><label for="pyqDocumentType" class="form-label">Document Type</label>
+<select id="pyqDocumentType" class="form-select"></select></div>
+<div class="mb-3"><label for="pyqDescription" class="form-label">Description</label>
+<textarea id="pyqDescription" class="form-control"></textarea></div>
+<div class="mb-3" hidden><label for="pyqTitle" class="form-label">Title</label><input id="pyqTitle" class="form-control" type="text"></div>
                             <div class="mb-3">
                                 <label for="pyqCourse" class="form-label">Course</label>
                                 <select class="form-select" id="pyqCourse" required>
@@ -1281,7 +1286,7 @@
                                 <input type="file" class="form-control" id="csvImportFile" accept=".csv,text/csv" required>
                             </div>
                             <div class="alert alert-info">
-                                Expected columns can include <strong>collection</strong>, <strong>id</strong>, <strong>title</strong>, <strong>Server 1</strong>, <strong>Server 2</strong>, <strong>course</strong>, <strong>semester</strong>, and <strong>session</strong>.
+                                Expected columns can include <strong>collection</strong>, <strong>id</strong>, <strong>title</strong>, <strong>type</strong>, <strong>description</strong>, <strong>slug</strong>, <strong>Server 1</strong>, <strong>Server 2</strong>, <strong>course</strong>, <strong>semester</strong>, and <strong>session</strong>. Missing <strong>type</strong> defaults to PYQ. Choose a document type from the Add form for the supported categories. Existing IDs update in place; duplicate IDs use the last valid row.
                             </div>
                             <button type="submit" class="btn btn-primary w-100">
                                 <i class="fas fa-upload me-2"></i> Import CSV
@@ -1622,9 +1627,10 @@
     </div>
 
     <script defer src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script defer src="/document-types.js"></script>
     <script defer src="points.js"></script>
     <script defer src="duplicate-check.js"></script>
-    <script defer src="admin.js"></script>
+    <script defer src="admin.js?v=documents-1"></script>
 
     <!-- Sitemap generation status (populated by admin.js) -->
     <div id="sitemapStatus" style="position: fixed; right: 1rem; bottom: 1rem; z-index: 1050;
@@ -1652,6 +1658,12 @@
                     <form id="editForm">
                         <input type="hidden" id="editType">
                         <input type="hidden" id="editIndex">
+<div class="mb-3"><label for="editDocumentType" class="form-label">Document Type</label>
+<select id="editDocumentType" class="form-select"></select></div>
+<div class="mb-3"><label for="editDescription" class="form-label">Description</label>
+<textarea id="editDescription" class="form-control"></textarea></div>
+<div class="mb-3"><label for="editSubject" class="form-label">Subject (optional)</label><input id="editSubject" class="form-control" type="text"></div>
+<div class="mb-3"><label for="editSession" class="form-label">Session (optional)</label><input id="editSession" class="form-control" type="text"></div>
                         <div class="mb-3">
                             <label for="editTitle" class="form-label">Title</label>
                             <input type="text" class="form-control" id="editTitle" required>

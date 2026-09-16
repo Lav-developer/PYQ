@@ -1,3 +1,4 @@
+import { readDocumentType, documentTypeLabel } from './document-types.js';
 /**
  * Server-rendered public PYQ page helpers.
  *
@@ -81,6 +82,8 @@ export function createSeoPaper(indexItem, document, { seoVariant = 0 } = {}) {
   return {
     id: text(indexItem && indexItem.id) || text(document && document.id),
     title,
+    type: readDocumentType(document && document.type || indexItem && indexItem.ty),
+    description: text(document && document.description),
     course,
     semester,
     session,
@@ -108,6 +111,9 @@ export function canonicalPaperUrl(slug) {
 }
 
 export function buildSeoDescription(paper) {
+  if (readDocumentType(paper.type) !== 'pyq') {
+    return truncate(paper.description || `${documentTypeLabel(paper.type)}: ${seoDisplayTitle(paper)} — DSMNRU Academic Archive.`, 160);
+  }
   const details = [];
   if (paper.course) details.push(paper.course);
   if (paper.semester) details.push(`${paper.semester} semester`);
@@ -134,6 +140,7 @@ function isoDateFromTimestamp(timestamp) {
 
 function metadataRows(paper) {
   const rows = [
+    ['Type', documentTypeLabel(paper.type)],
     ['Course', paper.course || 'General'],
     ['Semester', paper.semester || 'Not specified'],
     ['Session / Year', paper.session || 'Not specified'],
@@ -142,7 +149,9 @@ function metadataRows(paper) {
   if (paper.subject) rows.push(['Subject', paper.subject]);
   if (paper.branch) rows.push(['Branch', paper.branch]);
 
-  return rows.map(([label, value]) => (
+  const visibleRows = readDocumentType(paper.type) === 'pyq' ? rows : rows.filter(([label]) =>
+    label === 'Type' || (label === 'Session / Year' ? paper.session : paper[label.toLowerCase()]));
+  return visibleRows.map(([label, value]) => (
     `<li><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></li>`
   )).join('');
 }
@@ -226,7 +235,7 @@ export function getRelatedIndexItems(index, currentItem, limit = 6) {
 function jsonLd(paper, canonicalUrl) {
   const displayTitle = seoDisplayTitle(paper);
   const resource = {
-    '@type': 'LearningResource',
+    '@type': readDocumentType(paper.type) === 'pyq' ? 'LearningResource' : 'DigitalDocument',
     '@id': canonicalUrl,
     name: displayTitle,
     headline: displayTitle,
@@ -285,7 +294,7 @@ function jsonLd(paper, canonicalUrl) {
 }
 
 function serverRenderedContent(paper, relatedItems) {
-  const kicker = ['PYQ', paper.course, paper.semester, paper.session].filter(Boolean).join(' • ');
+  const kicker = [documentTypeLabel(paper.type), paper.course, paper.semester, paper.session].filter(Boolean).join(' • ');
   const details = buildSeoDescription(paper);
 
   return `<section id="seoPaperContent" class="paper-detail-card" data-server-rendered="true" aria-labelledby="seoPaperTitle">
@@ -293,7 +302,7 @@ function serverRenderedContent(paper, relatedItems) {
       <div class="paper-kicker"><i class="fas fa-file-pdf"></i> <span>${escapeHtml(kicker || 'PYQ')}</span></div>
       <h1 class="paper-title" id="seoPaperTitle">${escapeHtml(paper.title)}</h1>
       <div class="paper-meta-row">
-        <span class="meta-pill"><i class="fas fa-graduation-cap"></i> ${escapeHtml(paper.course || 'General')}</span>
+        ${paper.course || readDocumentType(paper.type) === 'pyq' ? `<span class="meta-pill"><i class="fas fa-graduation-cap"></i> ${escapeHtml(paper.course || 'General')}</span>` : ''}
         ${paper.semester ? `<span class="meta-pill"><i class="fas fa-layer-group"></i> ${escapeHtml(paper.semester)}</span>` : ''}
         ${paper.session ? `<span class="meta-pill session"><i class="fas fa-calendar"></i> ${escapeHtml(paper.session)}</span>` : ''}
         ${paper.branch ? `<span class="meta-pill"><i class="fas fa-code-branch"></i> ${escapeHtml(paper.branch)}</span>` : ''}
@@ -303,6 +312,7 @@ function serverRenderedContent(paper, relatedItems) {
     <div class="paper-preview-wrap" style="padding-top: 1.25rem;">
       <h2 style="font-size: 1.05rem; font-weight: 800; color: #f8fafc; margin: 0 0 12px;"><i class="fas fa-circle-info"></i> Paper Information</h2>
       <ul class="info-list">${metadataRows(paper)}</ul>
+      ${paper.description ? `<h2>Description</h2><p style="white-space:pre-wrap">${escapeHtml(paper.description)}</p>` : ''}
     </div>
     <div class="paper-actions-bar">
       <a href="/" class="btn-paper btn-paper-primary"><i class="fas fa-arrow-left"></i> Browse All PYQs</a>
