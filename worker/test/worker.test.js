@@ -1067,7 +1067,7 @@ console.log('17. Public SEO pages + sitemap (KV-first)');
   check('title edit retains the admin-persisted slug base',
     byId[titleEdited.id] && byId[titleEdited.id].slug === titleEdited.slug,
     byId[titleEdited.id] && byId[titleEdited.id].slug);
-  check('explicitly private record has no public pretty slug', byId[privatePaper.id] && byId[privatePaper.id].slug === '');
+  check('explicitly private record is excluded from public list (stronger than an empty slug)', !byId[privatePaper.id]);
 
   // A base generated from another title can theoretically look like a
   // base64url suffix (for example a Unicode Firestore ID). Reserve title
@@ -1206,8 +1206,8 @@ console.log('17. Public SEO pages + sitemap (KV-first)');
     `status ${staleCachedPrivatePage.status}, reads ${firestoreStats.pyqs}`);
   const privateDetailResponse = await request(`/api/pyqs/${owner.id}`);
   const privateDetail = await privateDetailResponse.json();
-  check('a stale public compact index never adds seoSlug to a fresh private detail response',
-    privateDetailResponse.status === 200 && !privateDetail.seoSlug);
+  check('a stale public index cannot expose a fresh private detail (fail closed)',
+    privateDetailResponse.status === 404 && !privateDetail.seoSlug && !privateDetail.file);
 
   // A publication is invisible only for the brief stale-index window. The
   // normal Firebase-token invalidation schedules a single background rebuild;
@@ -1874,6 +1874,10 @@ for (const r of scaleResults) {
   }
 }
 check('scale: cold reads == (1 sweep per collection)', aggregatePass);
+
+const { testDocumentImport } = await import('./document-import.integration.js');
+await testDocumentImport({ check, request, reset: freshState, setDocuments: docs => { PYQS = docs; },
+  documents: () => PYQS, adminToken: firebaseAdminToken, reads: () => firestoreStats.pyqs });
 
 // ── Firestore read accounting ──────────────────────────────────────
 console.log('\n📊 Final Firestore read accounting');

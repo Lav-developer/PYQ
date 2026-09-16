@@ -448,7 +448,9 @@
         contentEl.style.display = 'block';
         extraEl.style.display = 'grid';
 
-        const course = p.course || p.category || 'General';
+        const documentType = DSMNRUDocumentTypes.read(p.type);
+        const typeLabel = DSMNRUDocumentTypes.label(documentType);
+        const course = p.course || p.category || (documentType === 'pyq' ? 'General' : '');
         const semester = p.semester || p.sem || '';
         const session = p.session || '';
         const branch = p.branch || '';
@@ -463,7 +465,7 @@
         // SEO
         const pageTitle = seoTitle + ' | DSMNRU PYQ - ' + course + (semester ? ' ' + semester : '') + (session ? ' ('+session+')' : '');
         document.title = pageTitle;
-        const metaDesc = 'Download '+seoTitle+' for '+course+(semester?' '+semester:'')+(session?' '+session:'')+'. Preview and download PDF, see views, share and find related papers on DSMNRU Archive.';
+        const metaDesc = documentType !== 'pyq' ? (p.description || typeLabel + ': ' + seoTitle) : 'Download '+seoTitle+' for '+course+(semester?' '+semester:'')+(session?' '+session:'')+'. Preview and download PDF, see views, share and find related papers on DSMNRU Archive.';
         document.querySelector('meta[name="description"]').setAttribute('content', metaDesc);
         const pageUrl = getCanonicalPaperUrl(p);
         document.getElementById('canonicalLink').setAttribute('href', pageUrl);
@@ -503,7 +505,7 @@
         `;
 
         // Kicker
-        const kickerParts = ['PYQ', course];
+        const kickerParts = [typeLabel, course].filter(Boolean);
         if(semester) kickerParts.push(semester);
         if(session) kickerParts.push(session);
         if(branch) kickerParts.push(branch);
@@ -513,7 +515,7 @@
         titleEl.textContent = title;
 
         // Meta pills
-        const pills = [];
+        const pills = [`<span class="meta-pill">Type: ${escapeHtml(typeLabel)}</span>`];
         pills.push(`<span class="meta-pill views"><i class="fas fa-eye"></i> ${views} views</span>`);
         if(course) pills.push(`<span class="meta-pill"><i class="fas fa-graduation-cap"></i> ${escapeHtml(course)}</span>`);
         if(semester) pills.push(`<span class="meta-pill"><i class="fas fa-layer-group"></i> ${escapeHtml(semester)}</span>`);
@@ -562,6 +564,17 @@
             <li><span>Views</span> <strong id="infoViews">${views}</strong></li>
             <li><span>Document ID</span> <strong style="font-family: monospace; font-size: 12px;">${escapeHtml(p.id)}</strong></li>
         `;
+
+        if (documentType !== 'pyq') {
+            const rows = [['Type', typeLabel], ['Course', course], ['Semester', semester],
+                ['Subject', p.subject], ['Session', session], ['Branch', branch]];
+            infoListEl.innerHTML = rows.filter(([, value]) => value).map(([label, value]) =>
+                `<li><span>${label}</span><strong>${escapeHtml(value)}</strong></li>`).join('')
+                + `<li><span>Views</span><strong id="infoViews">${views}</strong></li>`;
+        }
+        if (p.description) {
+            infoListEl.innerHTML += `<li><span>Description</span><strong style="white-space:pre-wrap">${escapeHtml(p.description)}</strong></li>`;
+        }
 
         // Bind action handlers — all previews stay on same site
         const previewBtn = document.getElementById('btnPreviewPrimary');

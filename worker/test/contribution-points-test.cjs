@@ -298,6 +298,7 @@ async function bootAdmin() {
       headers: { 'Content-Type': 'application/json' },
     });
   };
+  window.eval(read('document-types.js'));
   window.eval(pointsJs);
   window.eval(adminJs);
   await wait(30);
@@ -355,6 +356,7 @@ async function bootPublic() {
     }
     return json({ error: 'not found' }, 404);
   };
+  window.eval(read('document-types.js'));
   window.eval(pointsJs);
   window.eval(scriptJs);
   await wait(50);

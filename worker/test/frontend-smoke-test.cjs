@@ -215,6 +215,7 @@ function renderedTitles() {
   console.log('\n🧪 Frontend smoke test (jsdom + mocked Firebase/fetch)\n');
 
   try {
+    window.eval(fs.readFileSync(path.join(ROOT, 'document-types.js'), 'utf8'));
     window.eval(script);
     check('script.js executes without throwing', true);
   } catch (err) {
@@ -404,6 +405,16 @@ function renderedTitles() {
     check('list no longer has the first-render animation class after pagination',
       !window.document.getElementById('pyqList').classList.contains('initial-render'));
   }
+
+  const typeSelect = window.document.getElementById('filterType');
+  check('type filter offers all six types plus All', Array.from(typeSelect.options).map(o => o.value).join() === ',pyq,form,scholarship,notice,syllabus,other');
+  typeSelect.value = 'scholarship';
+  await runSearch('Scholarship');
+  check('type filter uses existing Worker search endpoint and query parameter', requestedUrls.some(url => {
+    const u = new URL(url); return u.pathname === '/api/pyqs/search' && u.searchParams.get('type') === 'scholarship';
+  }));
+  window.clearPyqFilters();
+  check('Clear resets document type filter', typeSelect.value === '');
 
   forceSearchError = true;
   await runSearch('Java');

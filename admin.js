@@ -189,6 +189,20 @@ document.addEventListener('DOMContentLoaded', function() {
     // Add PYQ form
     document.getElementById('addPyqForm').addEventListener('submit', async function(e) {
         e.preventDefault();
+        const type = DSMNRUDocumentTypes.validate(document.getElementById('pyqDocumentType').value);
+        if (type !== 'pyq') {
+            const title = document.getElementById('pyqTitle').value.trim();
+            const file = document.getElementById('pyqFile').value.trim();
+            if (!title || !file) { alert('Title and file URL are required.'); return; }
+            addItem('pyqs', {
+                type, title, file, file2: document.getElementById('pyqFile2').value.trim(),
+                description: document.getElementById('pyqDescription').value.trim(),
+                views: 0, createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+            this.reset();
+            updateDocumentTypeFields('pyq');
+            return;
+        }
         const course = document.getElementById('pyqCourse').value.trim();
         const semester = document.getElementById('pyqSemester').value.trim();
         const subject = document.getElementById('pyqSubject').value.trim();
@@ -239,6 +253,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         addItem('pyqs', {
+            type,
             title,
             file,
             file2: file2 || '',
@@ -259,6 +274,7 @@ document.addEventListener('DOMContentLoaded', function() {
         csvImportForm.addEventListener('submit', async function(e) {
             e.preventDefault();
 
+            if (csvImportForm.dataset.importing === 'true') return;
             const collectionSelect = document.getElementById('csvImportCollection');
             const fileInput = document.getElementById('csvImportFile');
             const selectedCollection = collectionSelect ? collectionSelect.value.trim() : '';
@@ -279,6 +295,9 @@ document.addEventListener('DOMContentLoaded', function() {
                 return;
             }
 
+            const submitButton = csvImportForm.querySelector('[type="submit"]');
+            csvImportForm.dataset.importing = 'true';
+            if (submitButton) submitButton.disabled = true;
             try {
                 const csvText = await readFileAsText(csvFile);
                 const parsed = window.Papa.parse(csvText, {
@@ -297,57 +316,24 @@ document.addEventListener('DOMContentLoaded', function() {
                     return;
                 }
 
-                let addedCount = 0;
-                let updatedCount = 0;
-                let skippedCount = 0;
-
-                for (const row of rows) {
-                    const normalizedRow = normalizeCsvRow(row);
-                    const rowCollection = normalizeCsvText(normalizedRow.collection) || selectedCollection;
-                    const docId = normalizeCsvText(normalizedRow.id);
-
-                    if (!rowCollection) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    const payload = buildCsvImportPayload(normalizedRow);
-                    delete payload.collection;
-                    delete payload.id;
-
-                    if (!Object.keys(payload).length) {
-                        skippedCount++;
-                        continue;
-                    }
-
-                    if (docId) {
-                        // Merge keeps an existing persistent slug intact. If
-                        // the library is already loaded, capture an older
-                        // document's current base without an extra Firestore
-                        // read. CSV backups include `slug` for round trips.
-                        if (rowCollection === 'pyqs' && payload.title && !isPersistentPyqSlug(payload.slug)) {
-                            const existing = (allData.pyqs || []).find(item => item && item.id === docId);
-                            if (existing && !isPersistentPyqSlug(existing.slug)) {
-                                payload.slug = createPersistentPyqSlug(existing.title || payload.title);
-                            }
-                        }
-                        await db.collection(rowCollection).doc(docId).set(payload, { merge: true });
-                        updatedCount++;
-                    } else {
-                        if (rowCollection === 'pyqs' && payload.title && !isPersistentPyqSlug(payload.slug)) {
-                            payload.slug = createPersistentPyqSlug(payload.title);
-                        }
-                        await db.collection(rowCollection).add(payload);
-                        addedCount++;
-                    }
+                const result = await importCsvRows(rows, selectedCollection);
+                try {
+                    await refreshCollectionAfterCsvImport(selectedCollection);
+                } catch (error) {
+                    console.warn('Import saved, but admin list refresh failed:', error);
+                    result.warnings.push('Reload the admin list to see saved changes.');
                 }
-
-                await refreshCollectionAfterCsvImport(selectedCollection);
                 csvImportForm.reset();
-                alert(`CSV import complete. Added ${addedCount}, updated ${updatedCount}, skipped ${skippedCount}.`);
+                alert(`CSV import ${result.error ? 'stopped' : 'complete'}. Added ${result.addedCount}, updated ${result.updatedCount}, skipped ${result.skippedCount}.`
+                    + (result.error ? '\nSome writes failed: ' + result.error.message : '')
+                    + (result.warnings.length ? '\n' + result.warnings.join('\n') : ''));
+
             } catch (error) {
                 console.error('Error importing CSV:', error);
                 alert('Error importing CSV: ' + (error && error.message ? error.message : 'Please try again.'));
+            } finally {
+                delete csvImportForm.dataset.importing;
+                if (submitButton) submitButton.disabled = false;
             }
         });
     }
@@ -370,7 +356,10 @@ document.addEventListener('DOMContentLoaded', function() {
 
             // rawIndex may be an id (string) or old numeric index
             let idx = parseInt(rawIndex);
-            let isId = isNaN(idx) || String(rawIndex).length > 6 || allData[type] && !allData[type][idx];
+            // The current modal passes an opaque ID, including numeric IDs
+            // from CSV restores. Only old callers may pass an array index.
+            let isId = document.getElementById('editIndex').dataset.reference === 'id'
+                || isNaN(idx) || String(rawIndex).length > 6 || allData[type] && !allData[type][idx];
             if (isId) {
                 // find by id
                 const id = String(rawIndex).trim();
@@ -378,8 +367,13 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (idx === -1) { alert('Item not found (maybe deleted). Refresh.'); return; }
             }
             if (type === 'pyqs') {
-                const branch = document.getElementById('editBranch').value.trim();
-                editItem(type, idx, { title, file, file2: file2 || '', branch: branch || '' });
+                const documentType = DSMNRUDocumentTypes.validate(document.getElementById('editDocumentType').value);
+                const metadata = {};
+                for (const field of ['Course', 'Semester', 'Subject', 'Session', 'Branch']) {
+                    metadata[field.toLowerCase()] = document.getElementById('edit' + field).value.trim();
+                }
+                editItem(type, idx, { title, file, file2: file2 || '', type: documentType,
+                    description: document.getElementById('editDescription').value.trim(), ...metadata });
             } else {
                 editItem(type, idx, { title, file });
             }
@@ -651,10 +645,80 @@ function normalizeCsvRow(row) {
     return normalized;
 }
 
+/** One logical import, including mixed-collection restores and partial writes.
+ * Never route rows through addItem/editItem (they invalidate individually).
+ * Duplicate IDs are applied sequentially: the last valid row wins.
+ */
+async function importCsvRows(rows, selectedCollection) {
+    const result = { addedCount: 0, updatedCount: 0, skippedCount: 0, warnings: [], error: null };
+    let publicDataChanged = false;
+    try {
+        for (const [index, row] of rows.entries()) {
+            const normalized = normalizeCsvRow(row);
+            const collection = normalizeCsvText(normalized.collection) || selectedCollection;
+            const id = normalizeCsvText(normalized.id);
+            const payload = buildCsvImportPayload(normalized);
+            if (!collection || !Object.keys(payload).length) { result.skippedCount++; continue; }
+            if (collection === 'pyqs') {
+                try { payload.type = DSMNRUDocumentTypes.validate(payload.type); }
+                catch (error) {
+                    result.skippedCount++;
+                    result.warnings.push(`Row ${index + 2}: ${error.message}`);
+                    continue;
+                }
+                // Legacy backups and partial updates need not have PYQ-only
+                // metadata. New records still need a title and a file.
+                if (!id && (!payload.title || !(payload.file || payload.file2))) {
+                    result.skippedCount++;
+                    result.warnings.push(`Row ${index + 2}: a new document needs a title and file URL.`);
+                    continue;
+                }
+                if (id) {
+                    // Read the actual record, not the lazily loaded admin list:
+                    // preserve its canonical base even when the CSV edits title.
+                    const snapshot = await db.collection(collection).doc(id).get();
+                    const existing = snapshot.exists ? snapshot.data() : null;
+                    if (!existing && (!payload.title || !(payload.file || payload.file2))) {
+                        result.skippedCount++;
+                        result.warnings.push(`Row ${index + 2}: a new ID needs a title and file URL.`);
+                        continue;
+                    }
+                    payload.slug = existing && isPersistentPyqSlug(existing.slug)
+                        ? existing.slug
+                        : existing && existing.title
+                            ? createPersistentPyqSlug(existing.title)
+                            : isPersistentPyqSlug(payload.slug) ? payload.slug : createPersistentPyqSlug(payload.title);
+                } else if (!isPersistentPyqSlug(payload.slug)) {
+                    payload.slug = createPersistentPyqSlug(payload.title);
+                }
+            }
+            if (id) {
+                await db.collection(collection).doc(id).set(payload, { merge: true });
+                result.updatedCount++;
+            } else {
+                await db.collection(collection).add(payload);
+                result.addedCount++;
+            }
+            if (collection === 'pyqs' || collection === 'contributors') publicDataChanged = true;
+        }
+    } catch (error) {
+        console.error('CSV writes stopped; earlier writes remain saved:', error);
+        result.error = error;
+    } finally {
+        if (publicDataChanged && !await invalidateApiCache()) {
+            result.warnings.push('Saved changes are in Firestore, but public search/index refresh may be delayed. Retry Refresh Public Cache in Settings.');
+        }
+    }
+    return result;
+}
+
 function buildCsvImportPayload(row) {
     const payload = {};
     const aliases = {
         title: 'title',
+        ispublished: 'isPublished',
+        ispublic: 'isPublic',
+        accesslevel: 'accessLevel',
         server1: 'file',
         file: 'file',
         fileurl: 'file',
@@ -694,6 +758,20 @@ function buildCsvImportPayload(row) {
             return;
         }
 
+        // CSV has no scalar types. Restore only known visibility/access
+        // fields explicitly; global Papa dynamicTyping would corrupt opaque
+        // IDs and other strings. Never use Boolean('false'), which is true.
+        if (CSV_VISIBILITY_FIELDS.includes(mappedKey) || mappedKey === 'status') {
+            const scalar = String(value).trim().toLowerCase();
+            if (scalar === 'true' || scalar === 'false') {
+                payload[mappedKey] = scalar === 'true';
+                return;
+            }
+            if (scalar === '0' || scalar === '1') {
+                payload[mappedKey] = Number(scalar);
+                return;
+            }
+        }
         payload[mappedKey] = value;
     });
 
@@ -767,18 +845,24 @@ async function loadCollectionSnapshot(collectionName) {
 // All collections included in the CSV backup (order = order in the file)
 const CSV_BACKUP_COLLECTIONS = ['pyqs', 'contributors', 'users', 'pendingUploads', 'feedback', 'comments'];
 
+// Preserve restrictions during backup/restore; an omitted visibility flag
+// must never turn a newly restored document into a public record.
+const CSV_VISIBILITY_FIELDS = ['published', 'isPublished', 'public', 'isPublic',
+    'draft', 'private', 'unpublished', 'archived', 'deleted', 'visibility', 'access', 'accessLevel'];
+
 // Every field used by any collection — nothing gets silently dropped
 const CSV_BACKUP_COLUMNS = [
     'collection', 'id', 'name', 'title', 'slug', 'Server 1', 'Server 2', 'course', 'semester',
     'session', 'subject', 'branch', 'description', 'views', 'status', 'type', 'details',
     'text', 'paperId', 'userName', 'userEmail', 'downloadUrl', 'studentName',
     'studentCourse', 'studentEmail', 'userId', 'fileName', 'fileSize', 'email', 'phone',
-    'role', 'avatar', 'uid', 'createdAt', 'uploadedAt'
+    'role', 'avatar', 'uid', 'createdAt', 'uploadedAt', ...CSV_VISIBILITY_FIELDS
 ];
 
 // Flatten one Firestore doc into a full backup row
 function buildCsvBackupRow(collection, doc) {
     return {
+        ...Object.fromEntries(CSV_VISIBILITY_FIELDS.map(field => [field, doc[field] ?? ''])),
         collection: collection,
         id: doc.id || doc.uid || '',
         name: doc.name || doc.signupName || '',
@@ -793,8 +877,8 @@ function buildCsvBackupRow(collection, doc) {
         branch: doc.branch || '',
         description: doc.description || '',
         views: doc.views !== undefined && doc.views !== null ? doc.views : '',
-        status: doc.status || '',
-        type: doc.type || '',
+        status: doc.status ?? '',
+        type: collection === 'pyqs' ? DSMNRUDocumentTypes.read(doc.type) : doc.type || '',
         details: doc.details || '',
         text: doc.text || '',
         paperId: doc.paperId || '',
@@ -916,7 +1000,7 @@ function renderPyqs() {
         <article class="resource-card">
             <div class="resource-top">
                 <div>
-                    <div class="resource-kicker">PYQ</div>
+                    <div class="resource-kicker">${escapeHtml(DSMNRUDocumentTypes.label(pyq.type))}</div>
                     <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
                     <div class="resource-meta">
                         ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
@@ -985,6 +1069,7 @@ function renderUsers() {
 }
 
 function addItem(type, item) {
+    if (type === 'pyqs') item = { ...item, type: DSMNRUDocumentTypes.validate(item.type) };
     // New PYQs receive a persistent title-based slug base in the same write.
     // The Worker adds a document-ID suffix only if a collision exists.
     const payload = (type === 'pyqs' && item && item.title && !isPersistentPyqSlug(item.slug))
@@ -993,10 +1078,10 @@ function addItem(type, item) {
 
     db.collection(type).add(payload)
         .then(docRef => {
+            if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
             allData[type].push({ id: docRef.id, ...payload });
             renderLists();
             alert('Item added successfully!');
-            if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
         })
         .catch(error => {
             console.error('Error adding item:', error);
@@ -1011,6 +1096,8 @@ function editItem(type, index, item) {
         return;
     }
 
+    if (type === 'pyqs') item = { ...item, type: DSMNRUDocumentTypes.validate(item.type === undefined ? existing.type : item.type) };
+
     // First title edit for an older document captures its current base. Later
     // title edits preserve that base, so already-published /pyq URLs do not
     // change. This remains one normal admin write, never a crawler-side write.
@@ -1020,10 +1107,10 @@ function editItem(type, index, item) {
 
     db.collection(type).doc(existing.id).set(payload, { merge: true })
         .then(() => {
+            if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
             allData[type][index] = { ...existing, ...payload };
             renderLists();
             alert('Item updated successfully!');
-            if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
         })
         .catch(error => {
             console.error('Error updating item:', error);
@@ -1046,10 +1133,10 @@ function deleteItem(type, index) {
         }
         db.collection(type).doc(existing.id).delete()
             .then(() => {
+                if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
                 allData[type].splice(idx, 1);
                 renderLists();
                 alert('Item deleted successfully!');
-                if (type === 'pyqs' || type === 'contributors') invalidateApiCache();
             })
             .catch(error => {
                 console.error('Error deleting item:', error);
@@ -1121,13 +1208,16 @@ window.editPyqById = function(id) {
     if (!pyq) { alert('PYQ not found (maybe already deleted). Refresh.'); return; }
     document.getElementById('editType').value = 'pyqs';
     document.getElementById('editIndex').value = id;
+    document.getElementById('editIndex').dataset.reference = 'id';
     document.getElementById('editTitle').value = pyq.title;
     document.getElementById('editFile').value = normalizeStoredLink(pyq.file || pyq.server1);
     document.getElementById('editFile2').value = normalizeStoredLink(pyq.file2 || pyq.server2);
-    document.getElementById('editBranch').value = pyq.branch || '';
-    document.getElementById('editCourseDiv').style.display = 'none';
-    document.getElementById('editSemesterDiv').style.display = 'none';
-    document.getElementById('editBranchDiv').style.display = 'none';
+    document.getElementById('editDocumentType').value = DSMNRUDocumentTypes.read(pyq.type);
+    document.getElementById('editDescription').value = pyq.description || '';
+    for (const field of ['Course', 'Semester', 'Subject', 'Session', 'Branch']) {
+        document.getElementById('edit' + field).value = pyq[field.toLowerCase()] || '';
+    }
+    updateDocumentTypeFields('edit');
     new bootstrap.Modal(document.getElementById('editModal')).show();
 };
 window.deletePyqById = function(id) {
@@ -1135,15 +1225,15 @@ window.deletePyqById = function(id) {
     if (idx === -1) { alert('PYQ not found. Refresh the list.'); return; }
     const pyq = allData.pyqs[idx];
     if (!confirm(`Delete "${pyq.title}"? This cannot be undone.`)) return;
-    const deleteBtn = event && event.target ? event.target : null;
+    const deleteBtn = window.event && window.event.target ? window.event.target : null;
     if (deleteBtn) deleteBtn.disabled = true;
     db.collection('pyqs').doc(id).delete()
         .then(() => {
+            invalidateApiCache();
             allData.pyqs.splice(idx, 1);
             renderPyqs();
             updateDashboardStats();
             alert('Item deleted successfully!');
-            invalidateApiCache();
         })
         .catch(error => {
             console.error('Error deleting PYQ:', error);
@@ -2233,7 +2323,7 @@ function renderPyqsFiltered(filtered) {
         <article class="resource-card">
             <div class="resource-top">
                 <div>
-                    <div class="resource-kicker">PYQ</div>
+                    <div class="resource-kicker">${escapeHtml(DSMNRUDocumentTypes.label(pyq.type))}</div>
                     <h5 class="resource-title">${escapeHtml(pyq.title)}</h5>
                     <div class="resource-meta">
                         ${pyq.course ? `<span class="resource-pill">${escapeHtml(pyq.course)}</span>` : ''}
@@ -2852,4 +2942,31 @@ document.addEventListener('DOMContentLoaded', function () {
         const name = window.location.hash.replace('#', '');
         if (name && name !== currentAdminView) showAdminView(name, { skipHash: true });
     });
+});
+
+// Type choices are populated from the same contract bundled by the Worker.
+function updateDocumentTypeFields(prefix) {
+    const isPyq = document.getElementById(prefix + 'DocumentType').value === 'pyq';
+    for (const field of ['Course', 'Semester', 'Subject', 'Session', 'Branch']) {
+        const input = document.getElementById(prefix + field);
+        // Edits allow optional relevant metadata for every type, preserving
+        // older incomplete PYQs. Creation hides fields for non-PYQ documents.
+        input.parentElement.style.display = prefix === 'edit' || isPyq ? '' : 'none';
+        input.required = prefix === 'pyq' && isPyq && field !== 'Branch';
+    }
+    if (prefix === 'pyq') {
+        for (const field of ['Title', 'Description']) {
+            document.getElementById(prefix + field).parentElement.hidden = isPyq;
+        }
+        document.getElementById('pyqTitle').required = !isPyq;
+    }
+}
+document.addEventListener('DOMContentLoaded', function () {
+    for (const prefix of ['pyq', 'edit']) {
+        const select = document.getElementById(prefix + 'DocumentType');
+        select.innerHTML = DSMNRUDocumentTypes.values.map(type =>
+            `<option value="${type}">${DSMNRUDocumentTypes.label(type)}</option>`).join('');
+        select.addEventListener('change', () => updateDocumentTypeFields(prefix));
+        updateDocumentTypeFields(prefix);
+    }
 });

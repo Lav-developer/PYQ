@@ -2076,6 +2076,7 @@ function updatePyqResultsBar() {
             const label = document.getElementById('filterCourse')?.selectedOptions[0]?.textContent?.trim() || f.course;
             chips.push(`<span class="filter-chip"><i class="fas fa-graduation-cap"></i> ${escapeHtml(label)}</span>`);
         }
+        if (f.type) chips.push(`<span class="filter-chip">${escapeHtml(DSMNRUDocumentTypes.label(f.type))}</span>`);
         if (f.year) chips.push(`<span class="filter-chip"><i class="fas fa-layer-group"></i> ${escapeHtml(f.year)}</span>`);
         if (f.session) chips.push(`<span class="filter-chip"><i class="fas fa-calendar"></i> ${escapeHtml(f.session)}</span>`);
         const sortLabel = document.getElementById('sortBy')?.selectedOptions[0]?.textContent?.trim();
@@ -2154,6 +2155,7 @@ document.addEventListener('DOMContentLoaded', function() {
         const session = document.getElementById('filterSession');
 
         return {
+            type: document.getElementById('filterType')?.value || '',
             course: course ? normalizeForCompare(course.value) : '',
             year: year ? year.value.trim().toLowerCase() : '',
             session: session ? session.value.trim().toLowerCase() : ''
@@ -2227,7 +2229,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     function hasActivePyqFilters() {
         const filters = getPyqFilterState();
-        return !!(filters.course || filters.year || filters.session);
+        return !!(filters.type || filters.course || filters.year || filters.session);
     }
     // Used by the top-level results bar (defined outside this DOMContentLoaded).
     window.hasActivePyqFilters = hasActivePyqFilters;
@@ -2243,6 +2245,7 @@ document.addEventListener('DOMContentLoaded', function() {
         if (course) course.value = '';
         if (year) year.value = '';
         if (session) session.value = '';
+        if (document.getElementById('filterType')) document.getElementById('filterType').value = '';
         if (searchInput) searchInput.value = '';
         if (sortSel) sortSel.value = 'newest';
 
@@ -2571,9 +2574,10 @@ document.addEventListener('DOMContentLoaded', function() {
     // the `initial-render` class on the list; see styles.css).
     function buildPyqCardHtml(pyq) {
         const viewCount = Number.isFinite(Number(pyq.views)) ? Number(pyq.views) : 0;
-        // Build pills from course/sem/session/branch
+        // Build pills from document type and optional academic metadata
         const pills = [];
         if (pyq.course) pills.push(`<span class="meta-tag course"><i class="fas fa-graduation-cap"></i> ${escapeHtml(pyq.course)}</span>`);
+        pills.push(`<span class="meta-tag">${escapeHtml(DSMNRUDocumentTypes.label(pyq.type))}</span>`);
         if (pyq.semester) pills.push(`<span class="meta-tag semester"><i class="fas fa-layer-group"></i> ${escapeHtml(pyq.semester)}</span>`);
         if (pyq.session) pills.push(`<span class="meta-tag"><i class="fas fa-calendar"></i> ${escapeHtml(pyq.session)}</span>`);
         if (pyq.branch) pills.push(`<span class="meta-tag"><i class="fas fa-code-branch"></i> ${escapeHtml(pyq.branch)}</span>`);
@@ -2784,6 +2788,22 @@ document.addEventListener('DOMContentLoaded', function() {
             performSearch();
         };
 
+        const filterType = document.getElementById('filterType');
+        if (filterType) {
+            const plural = { pyq: 'PYQs', form: 'Forms', scholarship: 'Scholarships', notice: 'Notices' };
+            filterType.innerHTML = '<option value="">All</option>' + DSMNRUDocumentTypes.values.map(type =>
+                `<option value="${type}">${plural[type] || DSMNRUDocumentTypes.label(type)}</option>`).join('');
+            filterType.addEventListener('change', () => {
+                // Changing category must not leave a hidden PYQ constraint
+                // excluding documents that correctly have no academic metadata.
+                if (filterType.value && filterType.value !== 'pyq') {
+                    if (filterCourse) filterCourse.value = '';
+                    if (filterYear) filterYear.value = '';
+                    if (filterSession) filterSession.value = '';
+                }
+                triggerFilterSearch();
+            });
+        }
         if (filterCourse) filterCourse.addEventListener('change', triggerFilterSearch);
         if (filterYear) filterYear.addEventListener('change', triggerFilterSearch);
         if (filterSession) filterSession.addEventListener('change', triggerFilterSearch);
@@ -2879,6 +2899,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function buildSearchParams(searchTerm, filters, sort, page, limit) {
         const params = { page: String(page), limit: String(limit), sort: sort || 'newest' };
         if (searchTerm) params.q = searchTerm;
+        if (filters.type) params.type = filters.type;
         if (filters.course) params.course = filters.course;
         if (filters.year) params.semester = filters.year;
         if (filters.session) params.session = filters.session;
